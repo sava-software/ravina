@@ -56,14 +56,14 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
 
   public boolean test(final R response) {
     if (isServerError(response)) {
-      capacityState.subtractCapacityFor(serverErrorBackOffDuration);
+      capacityState.reduceCapacityFor(serverErrorBackOffDuration);
       logResponse(response);
     } else if (isRequestError(response)) {
       if (unableToHandleResponse(response)) {
         if (isRateLimited(response)) {
-          capacityState.subtractCapacityFor(rateLimitedBackOffDuration);
+          capacityState.reduceCapacityFor(rateLimitedBackOffDuration);
         } else if (updateGroupedErrorResponseCount(response)) {
-          capacityState.subtractCapacityFor(tooManyErrorsBackoffDuration);
+          capacityState.reduceCapacityFor(tooManyErrorsBackoffDuration);
         }
       }
       logResponse(response);

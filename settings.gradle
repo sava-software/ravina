@@ -2,7 +2,6 @@ rootProject.name = 'services'
 
 include 'core'
 
-
 dependencyResolutionManagement {
   repositories {
     maven {

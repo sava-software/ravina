@@ -40,15 +40,33 @@ final class CapacityStateVal implements CapacityState {
     return capacity.get();
   }
 
-  @Override
-  public double capacityFor(final Duration duration) {
-    return duration.toMillis() * weightPerMillisecond;
+  private double capacityFor(final long millis) {
+    return millis * weightPerMillisecond;
+  }
+
+  private void reduceCapacityFor(final long millis) {
+    final double capacityFor = capacityFor(millis);
+    capacity.addAndGet(-((int) Math.ceil(capacityFor)));
   }
 
   @Override
-  public void subtractCapacityFor(final Duration duration) {
-    final double capacityFor = capacityFor(duration);
-    capacity.getAndAdd(-((int) Math.ceil(capacityFor)));
+  public double capacityFor(final Duration duration) {
+    return capacityFor(duration.toMillis());
+  }
+
+  @Override
+  public void reduceCapacityFor(final Duration duration) {
+    reduceCapacityFor(duration.toMillis());
+  }
+
+  @Override
+  public double capacityFor(final long duration, final TimeUnit timeUnit) {
+    return capacityFor(timeUnit.toMillis(duration));
+  }
+
+  @Override
+  public void reduceCapacityFor(final long duration, final TimeUnit timeUnit) {
+    reduceCapacityFor(timeUnit.toMillis(duration));
   }
 
   private int getCallWeight(final CallContext callContext, final int runtimeCallWeight) {

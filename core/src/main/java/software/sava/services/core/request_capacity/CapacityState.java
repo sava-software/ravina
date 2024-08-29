@@ -15,7 +15,11 @@ public interface CapacityState {
 
   double capacityFor(final Duration duration);
 
-  void subtractCapacityFor(final Duration duration);
+  void reduceCapacityFor(final Duration duration);
+
+  double capacityFor(final long duration, final TimeUnit timeUnit);
+
+  void reduceCapacityFor(final long duration, final TimeUnit timeUnit);
 
   long durationUntil(final CallContext callContext,
                      final int runtimeCallWeight,
