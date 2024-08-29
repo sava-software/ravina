@@ -1,0 +1,65 @@
+final JLV = JavaLanguageVersion.of(project.findProperty('targetJava') as Integer ?: 22)
+
+ext {
+  pagerduty = '0.17.3' // https://github.com/comodal/pagerduty-client/tags
+  xclient = '1.7.0' // https://github.com/jpe42/xclient/tags
+}
+
+subprojects {
+  apply plugin: 'java'
+
+  plugins.withType(JavaPlugin).configureEach {
+    java {
+      modularity.inferModulePath = true
+      toolchain {
+        languageVersion = JLV
+      }
+    }
+  }
+
+  project.group = 'software.sava'
+
+  repositories {
+    maven {
+      url = "https://maven.pkg.github.com/comodal/json-iterator"
+      credentials {
+        username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+        password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+    maven {
+      url = "https://maven.pkg.github.com/sava-software/sava"
+      credentials {
+        username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
+        password = project.findProperty("gpr.token") ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+    maven {
+      url = "https://maven.pkg.github.com/sava-software/solana-programs"
+      credentials {
+        username = project.findProperty("gpr.sava.user") ?: System.getenv("GITHUB_ACTOR")
+        password = project.findProperty("gpr.sava.token") ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+    maven {
+      url = "https://maven.pkg.github.com/sava-software/anchor-src-gen"
+      credentials {
+        username = project.findProperty("gpr.sava.user") ?: System.getenv("GITHUB_ACTOR")
+        password = project.findProperty("gpr.sava.token") ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+    maven {
+      url = "https://maven.pkg.github.com/sava-software/anchor-programs"
+      credentials {
+        username = project.findProperty("gpr.sava.user") ?: System.getenv("GITHUB_ACTOR")
+        password = project.findProperty("gpr.sava.token") ?: System.getenv("GITHUB_TOKEN")
+      }
+    }
+    mavenCentral()
+  }
+
+  dependencies {
+    testImplementation libs.junit.jupiter
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+  }
+}
