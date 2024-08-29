@@ -1,8 +1,6 @@
 package software.sava.services.core.request_capacity.trackers;
 
-import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.CapacityState;
-import software.sava.services.core.request_capacity.ErrorResponseRecord;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -26,8 +24,9 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
   protected final Map<String, ConcurrentLinkedQueue<ErrorResponseRecord>> errorResponses;
   protected final int maxGroupedErrorResponses;
 
-  protected RootErrorTracker(final CapacityConfig config, final CapacityState capacityState) {
+  protected RootErrorTracker(final CapacityState capacityState) {
     this.capacityState = capacityState;
+    final var config = capacityState.capacityConfig();
     this.groupedErrorExpirationMillis = config.maxGroupedErrorExpiration().toMillis();
     this.serverErrorBackOffDuration = config.serverErrorBackOffDuration();
     this.tooManyErrorsBackoffDuration = config.tooManyErrorsBackoffDuration();
@@ -112,7 +111,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
   }
 
   @Override
-  public final Map<String, List<ErrorResponseRecord>> producErrorResponseSnapshot() {
+  public final Map<String, List<ErrorResponseRecord>> produceErrorResponseSnapshot() {
     final int numGroups = errorResponses.size();
     if (numGroups == 0) {
       return Map.of();

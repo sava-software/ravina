@@ -1,4 +1,4 @@
-package software.sava.services.core.request_capacity;
+package software.sava.services.core.request_capacity.trackers;
 
 import java.net.http.HttpResponse;
 

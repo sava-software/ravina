@@ -9,6 +9,8 @@ import static software.sava.services.core.request_capacity.context.CallContext.D
 
 public interface CapacityState {
 
+  CapacityConfig capacityConfig();
+
   int capacity();
 
   double capacityFor(final Duration duration);

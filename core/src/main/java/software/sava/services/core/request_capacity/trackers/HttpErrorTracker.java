@@ -1,8 +1,6 @@
 package software.sava.services.core.request_capacity.trackers;
 
-import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.CapacityState;
-import software.sava.services.core.request_capacity.HttpErrorResponseRecord;
 
 import java.net.http.HttpResponse;
 import java.util.stream.Collectors;
@@ -13,8 +11,8 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<byte[]>> {
 
   private static final System.Logger logger = System.getLogger(HttpErrorTracker.class.getName());
 
-  protected HttpErrorTracker(final CapacityConfig config, final CapacityState capacityState) {
-    super(config, capacityState);
+  protected HttpErrorTracker(final CapacityState capacityState) {
+    super(capacityState);
   }
 
   @Override

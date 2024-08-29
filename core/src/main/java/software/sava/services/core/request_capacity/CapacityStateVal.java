@@ -13,20 +13,26 @@ final class CapacityStateVal implements CapacityState {
   private static final IntBinaryOperator CLAIM_REQUEST = (numRemaining, weight) -> numRemaining - weight;
   private static final IntBinaryOperator PUT_CLAIM_BACK = Integer::sum;
 
+  private final CapacityConfig capacityConfig;
   private final AtomicInteger capacity;
   private final double weightPerMillisecond;
   private final long millisPerWeight;
   private final IntBinaryOperator updateCapacity;
   private final AtomicLong updatedAt;
 
-  CapacityStateVal(final int minCapacity,
-                   final int maxCapacity,
-                   final Duration resetDuration) {
-    this.weightPerMillisecond = maxCapacity / (double) resetDuration.toMillis();
+  CapacityStateVal(final CapacityConfig capacityConfig) {
+    this.capacityConfig = capacityConfig;
+    final int maxCapacity = capacityConfig.maxCapacity();
+    this.weightPerMillisecond = maxCapacity / (double) capacityConfig.resetDuration().toMillis();
     this.millisPerWeight = Math.round(1 / weightPerMillisecond);
-    this.updateCapacity = (numRemaining, newCapacity) -> Math.min(maxCapacity, Math.max(minCapacity, numRemaining + newCapacity));
+    this.updateCapacity = (numRemaining, newCapacity) -> Math.min(maxCapacity, Math.max(capacityConfig.minCapacity(), numRemaining + newCapacity));
     this.capacity = new AtomicInteger(maxCapacity);
     this.updatedAt = new AtomicLong(System.currentTimeMillis());
+  }
+
+  @Override
+  public CapacityConfig capacityConfig() {
+    return capacityConfig;
   }
 
   @Override

@@ -27,22 +27,20 @@ public record CapacityConfig(int minCapacity,
   }
 
   public <E> CapacityMonitor<E> createMonitor(final String serviceName, final ErrorTrackerFactory<E> errorTrackerFactory) {
-    final var capacityState = new CapacityStateVal(minCapacity, maxCapacity, resetDuration);
+    final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,
-        this,
         capacityState,
-        errorTrackerFactory.createTracker(this, capacityState)
+        errorTrackerFactory.createTracker(capacityState)
     );
   }
 
   public CapacityMonitor<HttpResponse<byte[]>> createHttpResponseMonitor(final String serviceName) {
-    final var capacityState = new CapacityStateVal(minCapacity, maxCapacity, resetDuration);
+    final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,
-        this,
         capacityState,
-        HttpErrorTrackerFactory.INSTANCE.createTracker(this, capacityState)
+        HttpErrorTrackerFactory.INSTANCE.createTracker(capacityState)
     );
   }
 
