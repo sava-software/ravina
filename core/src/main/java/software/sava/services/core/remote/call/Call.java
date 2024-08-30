@@ -53,8 +53,10 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
 
   static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
                                    final Function<I, CompletableFuture<R>> call,
+                                   final boolean measureCallTime,
+                                   final BalancedErrorHandler<I> balancedErrorHandler,
                                    final ErrorHandler errorHandler) {
-    return new UncheckedBalancedCall<>(loadBalancer, call, errorHandler);
+    return new UncheckedBalancedCall<>(loadBalancer, call, measureCallTime, balancedErrorHandler, errorHandler);
   }
 
   static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
@@ -62,11 +64,14 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
                                    final CallContext callContext,
                                    final int runtimeWeight,
                                    final int maxTryClaim,
+                                   final boolean measureCallTime,
+                                   final BalancedErrorHandler<I> balancedErrorHandler,
                                    final ErrorHandler errorHandler) {
     return new CourteousBalancedCall<>(
         loadBalancer,
         call,
-        callContext, runtimeWeight, maxTryClaim, true,
+        callContext, runtimeWeight, maxTryClaim, true, measureCallTime,
+        balancedErrorHandler,
         errorHandler
     );
   }
@@ -76,11 +81,14 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
                                            final CallContext callContext,
                                            final int runtimeWeight,
                                            final int maxTryClaim,
+                                           final boolean measureCallTime,
+                                           final BalancedErrorHandler<I> balancedErrorHandler,
                                            final ErrorHandler errorHandler) {
     return new CourteousBalancedCall<>(
         loadBalancer,
         call,
-        callContext, runtimeWeight, maxTryClaim, false,
+        callContext, runtimeWeight, maxTryClaim, false, measureCallTime,
+        balancedErrorHandler,
         errorHandler
     );
   }
@@ -89,11 +97,14 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
                                    final Function<I, CompletableFuture<R>> call,
                                    final CallContext callContext,
                                    final int runtimeWeight,
+                                   final boolean measureCallTime,
+                                   final BalancedErrorHandler<I> balancedErrorHandler,
                                    final ErrorHandler errorHandler) {
     return new GreedyBalancedCall<>(
         loadBalancer,
         call,
-        callContext, runtimeWeight,
+        callContext, runtimeWeight, measureCallTime,
+        balancedErrorHandler,
         errorHandler
     );
   }

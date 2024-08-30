@@ -19,8 +19,10 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
                         final int callWeight,
                         final int maxTryClaim,
                         final boolean forceCall,
+                        final boolean measureCallTime,
+                        final BalancedErrorHandler<I> balancedErrorHandler,
                         final ErrorHandler errorHandler) {
-    super(loadBalancer, call, callContext, callWeight, errorHandler);
+    super(loadBalancer, call, callContext, callWeight, measureCallTime, balancedErrorHandler, errorHandler);
     this.maxTryClaim = maxTryClaim;
     this.forceCall = forceCall;
   }
@@ -28,23 +30,23 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
   @Override
   public CompletableFuture<R> call() {
     final int numClients = loadBalancer.size();
-    var next = loadBalancer.withContext();
+    this.next = loadBalancer.withContext();
     for (int i = 0; i < maxTryClaim; ++i) {
-      if (next.capacityState().tryClaimRequest(callContext, callWeight)) {
-        return call.apply(next.item());
+      if (this.next.capacityState().tryClaimRequest(callContext, callWeight)) {
+        return call.apply(this.next.item());
       } else {
         if (i < numClients) {
           loadBalancer.sort();
-          final var previous = next;
-          next = loadBalancer.withContext();
-          if (previous != next) {
+          final var previous = this.next;
+          this.next = loadBalancer.withContext();
+          if (previous != this.next) {
             continue;
           }
         }
-        final long delayMillis = next.capacityState().durationUntil(callContext, callWeight, MILLISECONDS);
+        final long delayMillis = this.next.capacityState().durationUntil(callContext, callWeight, MILLISECONDS);
         if (delayMillis <= 0) {
-          next.capacityState().claimRequest(callContext, callWeight);
-          return call.apply(next.item());
+          this.next.capacityState().claimRequest(callContext, callWeight);
+          return call.apply(this.next.item());
         } else {
           try {
             loadBalancer.sort();
@@ -53,13 +55,13 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
             throw new RuntimeException(e);
           }
           loadBalancer.sort();
-          next = loadBalancer.withContext();
+          this.next = loadBalancer.withContext();
         }
       }
     }
     if (forceCall) {
-      next.capacityState().claimRequest(callContext, callWeight);
-      return call.apply(next.item());
+      this.next.capacityState().claimRequest(callContext, callWeight);
+      return call.apply(this.next.item());
     } else {
       return null;
     }

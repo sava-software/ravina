@@ -11,11 +11,11 @@ public interface BalancedItem<T> {
 
   T item();
 
+  void failed(final int weight);
+
   default void failed() {
     failed(1);
   }
-
-  void failed(final int weight);
 
   void success();
 

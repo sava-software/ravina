@@ -15,16 +15,18 @@ class GreedyBalancedCall<I, R> extends UncheckedBalancedCall<I, R> {
                      final Function<I, CompletableFuture<R>> call,
                      final CallContext callContext,
                      final int callWeight,
+                     final boolean measureCallTime,
+                     final BalancedErrorHandler<I> balancedErrorHandler,
                      final ErrorHandler errorHandler) {
-    super(loadBalancer, call, errorHandler);
+    super(loadBalancer, call, measureCallTime, balancedErrorHandler, errorHandler);
     this.callContext = callContext;
     this.callWeight = callWeight;
   }
 
   @Override
   public CompletableFuture<R> call() {
-    final var next = loadBalancer.withContext();
-    next.capacityState().claimRequest(callContext, callWeight);
-    return call.apply(next.item());
+    this.next = loadBalancer.withContext();
+    this.next.capacityState().claimRequest(callContext, callWeight);
+    return call.apply(this.next.item());
   }
 }

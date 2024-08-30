@@ -43,7 +43,6 @@ final class ItemContext<T> implements BalancedItem<T> {
     if (sample < 0) {
       throw new IllegalArgumentException("Statistic samples must always be positive.");
     }
-
     final int sampleIndex = this.sampleIndex.updateAndGet(ROTATE_INDEX);
     final long previousSample = this.samples.getAndSet(sampleIndex, sample);
     this.localSampleArray[sampleIndex] = sample;
