@@ -13,6 +13,8 @@ public interface CapacityState {
 
   int capacity();
 
+  void addCapacity(final int delta);
+
   double capacityFor(final Duration duration);
 
   void reduceCapacityFor(final Duration duration);

@@ -2,7 +2,6 @@ package software.sava.services.core.request_capacity.trackers;
 
 import software.sava.services.core.request_capacity.CapacityState;
 
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,21 +15,21 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
   protected static final Function<String, ConcurrentLinkedQueue<ErrorResponseRecord>> INIT_ERROR_RESPONSE_GROUP = _ -> new ConcurrentLinkedQueue<>();
 
   protected final CapacityState capacityState;
-  protected final long groupedErrorExpirationMillis;
-  protected final Duration serverErrorBackOffDuration;
-  protected final Duration tooManyErrorsBackoffDuration;
-  protected final Duration rateLimitedBackOffDuration;
-  protected final AtomicInteger maxGroupedErrorCount;
-  protected final Map<String, ConcurrentLinkedQueue<ErrorResponseRecord>> errorResponses;
-  protected final int maxGroupedErrorResponses;
+  private final long groupedErrorExpirationMillis;
+  private final int serverErrorBackOffCapacity;
+  private final int tooManyErrorsBackoffCapacity;
+  private final int rateLimitedBackOffCapacity;
+  private final AtomicInteger maxGroupedErrorCount;
+  private final Map<String, ConcurrentLinkedQueue<ErrorResponseRecord>> errorResponses;
+  private final int maxGroupedErrorResponses;
 
   protected RootErrorTracker(final CapacityState capacityState) {
     this.capacityState = capacityState;
     final var config = capacityState.capacityConfig();
     this.groupedErrorExpirationMillis = config.maxGroupedErrorExpiration().toMillis();
-    this.serverErrorBackOffDuration = config.serverErrorBackOffDuration();
-    this.tooManyErrorsBackoffDuration = config.tooManyErrorsBackoffDuration();
-    this.rateLimitedBackOffDuration = config.rateLimitedBackOffDuration();
+    this.serverErrorBackOffCapacity = -(int) Math.ceil(capacityState.capacityFor(config.serverErrorBackOffDuration()));
+    this.tooManyErrorsBackoffCapacity = -(int) Math.ceil(capacityState.capacityFor(config.tooManyErrorsBackoffDuration()));
+    this.rateLimitedBackOffCapacity = -(int) Math.ceil(capacityState.capacityFor(config.rateLimitedBackOffDuration()));
     this.maxGroupedErrorCount = new AtomicInteger(0);
     this.errorResponses = new ConcurrentHashMap<>();
     this.maxGroupedErrorResponses = config.maxGroupedErrorResponses();
@@ -56,14 +55,14 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
 
   public boolean test(final R response) {
     if (isServerError(response)) {
-      capacityState.reduceCapacityFor(serverErrorBackOffDuration);
+      capacityState.addCapacity(serverErrorBackOffCapacity);
       logResponse(response);
     } else if (isRequestError(response)) {
       if (unableToHandleResponse(response)) {
         if (isRateLimited(response)) {
-          capacityState.reduceCapacityFor(rateLimitedBackOffDuration);
+          capacityState.addCapacity(rateLimitedBackOffCapacity);
         } else if (updateGroupedErrorResponseCount(response)) {
-          capacityState.reduceCapacityFor(tooManyErrorsBackoffDuration);
+          capacityState.addCapacity(tooManyErrorsBackoffCapacity);
         }
       }
       logResponse(response);
@@ -116,7 +115,8 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     if (numGroups == 0) {
       return Map.of();
     }
-    final var snapshot = new HashMap<String, List<ErrorResponseRecord>>(numGroups);
+
+    final var snapshot = HashMap.<String, List<ErrorResponseRecord>>newHashMap(numGroups);
     final long expireBefore = System.currentTimeMillis() - groupedErrorExpirationMillis;
     for (final var errorResponseEntry : errorResponses.entrySet()) {
       final var errorResponses = errorResponseEntry.getValue();

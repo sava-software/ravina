@@ -15,19 +15,19 @@ final class CapacityStateVal implements CapacityState {
 
   private final CapacityConfig capacityConfig;
   private final AtomicInteger capacity;
-  private final double weightPerMillisecond;
-  private final long millisPerWeight;
+  private final double weightPerNanosecond;
+  private final long nanosPerWeight;
   private final IntBinaryOperator updateCapacity;
-  private final AtomicLong updatedAt;
+  private final AtomicLong updatedAtSystemNanoTime;
 
   CapacityStateVal(final CapacityConfig capacityConfig) {
     this.capacityConfig = capacityConfig;
     final int maxCapacity = capacityConfig.maxCapacity();
-    this.weightPerMillisecond = maxCapacity / (double) capacityConfig.resetDuration().toMillis();
-    this.millisPerWeight = Math.round(1 / weightPerMillisecond);
+    this.weightPerNanosecond = maxCapacity / (double) capacityConfig.resetDuration().toNanos();
+    this.nanosPerWeight = Math.round(1 / weightPerNanosecond);
     this.updateCapacity = (numRemaining, newCapacity) -> Math.min(maxCapacity, Math.max(capacityConfig.minCapacity(), numRemaining + newCapacity));
     this.capacity = new AtomicInteger(maxCapacity);
-    this.updatedAt = new AtomicLong(System.currentTimeMillis());
+    this.updatedAtSystemNanoTime = new AtomicLong(System.nanoTime());
   }
 
   @Override
@@ -40,33 +40,38 @@ final class CapacityStateVal implements CapacityState {
     return capacity.get();
   }
 
-  private double capacityFor(final long millis) {
-    return millis * weightPerMillisecond;
+  @Override
+  public void addCapacity(final int delta) {
+    capacity.addAndGet(delta);
   }
 
-  private void reduceCapacityFor(final long millis) {
-    final double capacityFor = capacityFor(millis);
-    capacity.addAndGet(-((int) Math.ceil(capacityFor)));
+  private double capacityFor(final long nanos) {
+    return nanos * weightPerNanosecond;
+  }
+
+  private void reduceCapacityFor(final long nanos) {
+    final int capacityFor = -(int) Math.ceil(capacityFor(nanos));
+    addCapacity(capacityFor);
   }
 
   @Override
   public double capacityFor(final Duration duration) {
-    return capacityFor(duration.toMillis());
+    return capacityFor(duration.toNanos());
   }
 
   @Override
   public void reduceCapacityFor(final Duration duration) {
-    reduceCapacityFor(duration.toMillis());
+    reduceCapacityFor(duration.toNanos());
   }
 
   @Override
   public double capacityFor(final long duration, final TimeUnit timeUnit) {
-    return capacityFor(timeUnit.toMillis(duration));
+    return capacityFor(timeUnit.toNanos(duration));
   }
 
   @Override
   public void reduceCapacityFor(final long duration, final TimeUnit timeUnit) {
-    reduceCapacityFor(timeUnit.toMillis(duration));
+    reduceCapacityFor(timeUnit.toNanos(duration));
   }
 
   private int getCallWeight(final CallContext callContext, final int runtimeCallWeight) {
@@ -90,14 +95,14 @@ final class CapacityStateVal implements CapacityState {
   }
 
   private int tryUpdateCapacity() {
-    final long now = System.currentTimeMillis();
-    final long updatedAt = this.updatedAt.get();
-    final long millisSinceUpdated = now - updatedAt;
-    if (millisSinceUpdated < millisPerWeight) {
+    final long nanoTime = System.nanoTime();
+    final long updatedAtSystemNanoTime = this.updatedAtSystemNanoTime.get();
+    final long nanosSinceUpdated = nanoTime - updatedAtSystemNanoTime;
+    if (nanosSinceUpdated < nanosPerWeight) {
       return Integer.MIN_VALUE; // Allow callers to break out instead of double-checking the same value.
     } else {
-      return this.updatedAt.compareAndSet(updatedAt, now)
-          ? this.capacity.accumulateAndGet((int) Math.round(millisSinceUpdated * weightPerMillisecond), updateCapacity)
+      return this.updatedAtSystemNanoTime.compareAndSet(updatedAtSystemNanoTime, nanoTime)
+          ? this.capacity.accumulateAndGet((int) Math.round(nanosSinceUpdated * weightPerNanosecond), updateCapacity)
           : this.capacity.get();
     }
   }
@@ -119,21 +124,24 @@ final class CapacityStateVal implements CapacityState {
     }
   }
 
+
+  private boolean tryClaimRequest(final int callWeight, final CallContext callContext) {
+    final int minCapacity = getMinCapacity(callContext);
+    return callWeight > 0
+        ? tryClaimRequest(callWeight, minCapacity)
+        : hasCapacity(callWeight, minCapacity); // check for rate limited exceeded state (<0).
+  }
+
   @Override
   public boolean tryClaimRequest(final CallContext callContext, final int runtimeCallWeight) {
-    final int callWeight = getCallWeight(callContext, runtimeCallWeight);
-    return callWeight > 0
-        ? tryClaimRequest(callWeight, getMinCapacity(callContext))
-        : hasCapacity(callContext, callWeight); // check for rate limited exceeded state (<0).
+    final int callWeight = callContext.callWeight(runtimeCallWeight);
+    return tryClaimRequest(callWeight, callContext);
   }
 
   @Override
   public boolean tryClaimRequest(final CallContext callContext) {
     final int callWeight = callContext.callWeight();
-    final int minCapacity = getMinCapacity(callContext);
-    return callWeight > 0
-        ? tryClaimRequest(callWeight, minCapacity)
-        : hasCapacity(callWeight, minCapacity); // check for rate limited exceeded state (<0).
+    return tryClaimRequest(callWeight, callContext);
   }
 
   @Override
@@ -178,16 +186,16 @@ final class CapacityStateVal implements CapacityState {
           return 0;
         }
       }
-      final long millisUntil = Math.round(capacityNeeded * weightPerMillisecond);
-      return timeUnit.convert(millisUntil, TimeUnit.MILLISECONDS);
+      final long nanosUntil = Math.round(capacityNeeded * weightPerNanosecond);
+      return timeUnit.convert(nanosUntil, TimeUnit.NANOSECONDS);
     }
   }
 
   @Override
   public String toString() {
     return String.format(
-        "CapacityStateVal{capacity=%d, weightPerMillisecond=%.4f, millisPerWeight=%d, updatedAt=%d}",
-        capacity.get(), weightPerMillisecond, millisPerWeight, updatedAt.get()
+        "CapacityStateVal{capacity=%d, weightPerNanosecond=%.4f, nanosPerWeight=%d, updatedAtSystemNanoTime=%d}",
+        capacity.get(), weightPerNanosecond, nanosPerWeight, updatedAtSystemNanoTime.get()
     );
   }
 }

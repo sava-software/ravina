@@ -26,7 +26,7 @@ public record CapacityConfig(int minCapacity,
     return ji.testObject(new Builder(), PARSER).createConfig();
   }
 
-  public <E> CapacityMonitor<E> createMonitor(final String serviceName, final ErrorTrackerFactory<E> errorTrackerFactory) {
+  public <E> ErrorTrackedCapacityMonitor<E> createMonitor(final String serviceName, final ErrorTrackerFactory<E> errorTrackerFactory) {
     final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,
@@ -35,7 +35,7 @@ public record CapacityConfig(int minCapacity,
     );
   }
 
-  public CapacityMonitor<HttpResponse<byte[]>> createHttpResponseMonitor(final String serviceName) {
+  public ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> createHttpResponseMonitor(final String serviceName) {
     final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,
