@@ -1,6 +1,7 @@
 package software.sava.services.core.remote.load_balance;
 
 import software.sava.services.core.request_capacity.CapacityMonitor;
+import software.sava.services.core.request_capacity.CapacityState;
 
 public interface BalancedItem<T> {
 
@@ -27,4 +28,8 @@ public interface BalancedItem<T> {
   void selected();
 
   CapacityMonitor capacityMonitor();
+
+  default CapacityState capacityState() {
+    return capacityMonitor().capacityState();
+  }
 }

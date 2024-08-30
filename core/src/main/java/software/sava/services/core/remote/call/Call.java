@@ -1,6 +1,7 @@
 package software.sava.services.core.remote.call;
 
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.concurrent.CompletableFuture;
@@ -14,12 +15,54 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
     return new ComposedCall<>(call, errorHandler);
   }
 
-  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
-                                            final Function<I, CompletableFuture<R>> call,
-                                            final CallContext callContext,
-                                            final int runtimeWeight,
-                                            final int maxTryClaim,
-                                            final ErrorHandler errorHandler) {
+  static <T> Call<T> createCall(final Supplier<CompletableFuture<T>> call,
+                                final CapacityState capacityState,
+                                final CallContext callContext,
+                                final int callWeight,
+                                final ErrorHandler errorHandler) {
+    return new GreedyCall<>(call, capacityState, callContext, callWeight, errorHandler);
+  }
+
+  static <I, R> Call<R> createCall(final Supplier<CompletableFuture<R>> call,
+                                   final CapacityState capacityState,
+                                   final CallContext callContext,
+                                   final int runtimeWeight,
+                                   final int maxTryClaim,
+                                   final ErrorHandler errorHandler) {
+    return new CourteousCall<>(
+        call,
+        capacityState,
+        callContext, runtimeWeight, maxTryClaim, true,
+        errorHandler
+    );
+  }
+
+  static <I, R> Call<R> createCallOrGiveUp(final Supplier<CompletableFuture<R>> call,
+                                           final CapacityState capacityState,
+                                           final CallContext callContext,
+                                           final int runtimeWeight,
+                                           final int maxTryClaim,
+                                           final ErrorHandler errorHandler) {
+    return new CourteousCall<>(
+        call,
+        capacityState,
+        callContext, runtimeWeight, maxTryClaim, false,
+        errorHandler
+    );
+  }
+
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
+                                   final ErrorHandler errorHandler) {
+    return new UncheckedBalancedCall<>(loadBalancer, call, errorHandler);
+  }
+
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
+                                   final CallContext callContext,
+                                   final int runtimeWeight,
+                                   final int maxTryClaim,
+                                   final ErrorHandler errorHandler) {
     return new CourteousBalancedCall<>(
         loadBalancer,
         call,
@@ -28,12 +71,12 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
     );
   }
 
-  static <I, R> Call<R> createCourteousCallOrGiveUp(final LoadBalancer<I> loadBalancer,
-                                                    final Function<I, CompletableFuture<R>> call,
-                                                    final CallContext callContext,
-                                                    final int runtimeWeight,
-                                                    final int maxTryClaim,
-                                                    final ErrorHandler errorHandler) {
+  static <I, R> Call<R> createCallOrGiveUp(final LoadBalancer<I> loadBalancer,
+                                           final Function<I, CompletableFuture<R>> call,
+                                           final CallContext callContext,
+                                           final int runtimeWeight,
+                                           final int maxTryClaim,
+                                           final ErrorHandler errorHandler) {
     return new CourteousBalancedCall<>(
         loadBalancer,
         call,
@@ -42,11 +85,11 @@ public interface Call<T> extends Supplier<T>, ErrorHandler {
     );
   }
 
-  static <I, R> Call<R> createGreedyCall(final LoadBalancer<I> loadBalancer,
-                                         final Function<I, CompletableFuture<R>> call,
-                                         final CallContext callContext,
-                                         final int runtimeWeight,
-                                         final ErrorHandler errorHandler) {
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
+                                   final CallContext callContext,
+                                   final int runtimeWeight,
+                                   final ErrorHandler errorHandler) {
     return new GreedyBalancedCall<>(
         loadBalancer,
         call,

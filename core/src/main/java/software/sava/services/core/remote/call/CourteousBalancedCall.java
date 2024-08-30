@@ -8,7 +8,7 @@ import java.util.function.Function;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
-final class CourteousBalancedCall<I, R> extends BalancedCall<I, R> {
+final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
 
   private final int maxTryClaim;
   private final boolean forceCall;
@@ -29,9 +29,8 @@ final class CourteousBalancedCall<I, R> extends BalancedCall<I, R> {
   public CompletableFuture<R> call() {
     final int numClients = loadBalancer.size();
     var next = loadBalancer.withContext();
-    var capacityState = next.capacityMonitor().capacityState();
     for (int i = 0; i < maxTryClaim; ++i) {
-      if (capacityState.tryClaimRequest(callContext, callWeight)) {
+      if (next.capacityState().tryClaimRequest(callContext, callWeight)) {
         return call.apply(next.item());
       } else {
         if (i < numClients) {
@@ -42,9 +41,9 @@ final class CourteousBalancedCall<I, R> extends BalancedCall<I, R> {
             continue;
           }
         }
-        final long delayMillis = capacityState.durationUntil(callContext, callWeight, MILLISECONDS);
+        final long delayMillis = next.capacityState().durationUntil(callContext, callWeight, MILLISECONDS);
         if (delayMillis <= 0) {
-          capacityState.claimRequest(callContext, callWeight);
+          next.capacityState().claimRequest(callContext, callWeight);
           return call.apply(next.item());
         } else {
           try {
@@ -53,13 +52,13 @@ final class CourteousBalancedCall<I, R> extends BalancedCall<I, R> {
           } catch (final InterruptedException e) {
             throw new RuntimeException(e);
           }
+          loadBalancer.sort();
           next = loadBalancer.withContext();
-          capacityState = next.capacityMonitor().capacityState();
         }
       }
     }
     if (forceCall) {
-      capacityState.claimRequest(callContext, callWeight);
+      next.capacityState().claimRequest(callContext, callWeight);
       return call.apply(next.item());
     } else {
       return null;

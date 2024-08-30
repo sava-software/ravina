@@ -14,7 +14,13 @@ module software.sava.service_core {
   provides ErrorTrackerFactory with
       HttpErrorTrackerFactory;
 
+  exports software.sava.services.core.exceptions;
+
+  exports software.sava.services.core.remote.call;
+  exports software.sava.services.core.remote.load_balance;
+
   exports software.sava.services.core.request_capacity;
   exports software.sava.services.core.request_capacity.context;
   exports software.sava.services.core.request_capacity.trackers;
+
 }

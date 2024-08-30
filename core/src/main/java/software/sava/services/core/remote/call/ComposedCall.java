@@ -3,9 +3,9 @@ package software.sava.services.core.remote.call;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
-final class ComposedCall<T> implements Call<T> {
+class ComposedCall<T> implements Call<T> {
 
-  private final Supplier<CompletableFuture<T>> call;
+  protected final Supplier<CompletableFuture<T>> call;
   private final ErrorHandler errorHandler;
 
   ComposedCall(final Supplier<CompletableFuture<T>> call, final ErrorHandler errorHandler) {
@@ -14,7 +14,7 @@ final class ComposedCall<T> implements Call<T> {
   }
 
   @Override
-  public boolean onError(final int errorCount, final RuntimeException exception) {
+  public final boolean onError(final int errorCount, final RuntimeException exception) {
     return errorHandler.onError(errorCount, exception);
   }
 
