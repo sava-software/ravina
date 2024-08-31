@@ -52,6 +52,9 @@ final class LookupTableCacheMap implements LookupTableCache {
     };
   }
 
+  private record Entry(AddressLookupTable table, long fetchedAt) {
+  }
+
   @Override
   public LoadBalancer<SolanaRpcClient> rpcClients() {
     return rpcClients;
@@ -90,23 +93,12 @@ final class LookupTableCacheMap implements LookupTableCache {
     );
   }
 
-  private CompletableFuture<AddressLookupTable> fetchLookupTableAsync(final PublicKey lookupTableKey) {
-    return createFetchLookupTableCall(lookupTableKey).async(executorService).thenApply(handleResponse);
-  }
-
   @Override
   public CompletableFuture<AddressLookupTable> getOrFetchTableAsync(final PublicKey lookupTableKey) {
     final var entry = lookupTableCache.get(lookupTableKey);
-    if (entry == null) {
-      return fetchLookupTableAsync(lookupTableKey);
-    }
-    final var lookupTable = entry.table;
-    if (lookupTable.isActive()) {
-      return CompletableFuture.completedFuture(lookupTable);
-    } else {
-      lookupTableCache.remove(lookupTableKey);
-      return CompletableFuture.completedFuture(null);
-    }
+    return entry == null
+        ? createFetchLookupTableCall(lookupTableKey).async(executorService).thenApply(handleResponse)
+        : CompletableFuture.completedFuture(entry.table);
   }
 
   private AddressLookupTable fetchLookupTable(final PublicKey lookupTableKey) {
@@ -121,16 +113,7 @@ final class LookupTableCacheMap implements LookupTableCache {
   @Override
   public AddressLookupTable getOrFetchTable(final PublicKey lookupTableKey) {
     final var entry = lookupTableCache.get(lookupTableKey);
-    if (entry == null) {
-      return fetchLookupTable(lookupTableKey);
-    }
-    final var lookupTable = entry.table;
-    if (lookupTable.isActive()) {
-      return lookupTable;
-    } else {
-      lookupTableCache.remove(lookupTableKey);
-      return null;
-    }
+    return entry == null ? fetchLookupTable(lookupTableKey) : entry.table;
   }
 
   @Override
@@ -165,7 +148,6 @@ final class LookupTableCacheMap implements LookupTableCache {
 
       final int numToFetch = Integer.bitCount(fetchBitset);
       if (numToFetch > 0) {
-        int m = 1;
         if (numToFetch == 1) {
           final var lookupTableKey = lookupTableKeys.get(Integer.numberOfTrailingZeros(fetchBitset));
           final var lookupTable = fetchLookupTable(lookupTableKey);
@@ -175,7 +157,7 @@ final class LookupTableCacheMap implements LookupTableCache {
         } else {
           final var fetchKeys = new ArrayList<PublicKey>(numToFetch);
           final int to = numTables - Integer.numberOfLeadingZeros(fetchBitset);
-          for (int i = Integer.numberOfTrailingZeros(fetchBitset); i < to; ++i, m <<= 1) {
+          for (int i = Integer.numberOfTrailingZeros(fetchBitset), m = 1 << i; i < to; ++i, m <<= 1) {
             if ((fetchBitset & m) == m) {
               fetchKeys.add(lookupTableKeys.get(i));
             }
@@ -222,18 +204,18 @@ final class LookupTableCacheMap implements LookupTableCache {
     final int numStale = staleAccounts.size();
     for (int from = 0, to = Math.min(numStale, checkedBatchSize); from < numStale; ) {
       final var fetchKeys = staleAccounts.subList(from, to);
-      fetchTables(fetchKeys);
+      refreshTables(fetchKeys);
       from = to;
       to = Math.min(to + checkedBatchSize, numStale);
     }
   }
 
-  private void fetchTables(final List<PublicKey> fetchKeys) {
+  private void refreshTables(final List<PublicKey> fetchKeys) {
     if (!fetchKeys.isEmpty()) {
       final var lookupTableAccounts = Call.createCall(
           rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, AddressLookupTable.FACTORY),
           CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, true,
+          1, Integer.MAX_VALUE, false,
           balancedErrorHandler,
           "rpcClient::getMultipleAccounts"
       ).get();
@@ -257,10 +239,7 @@ final class LookupTableCacheMap implements LookupTableCache {
         .map(Entry::table)
         .map(AddressLookupTable::address)
         .toList();
-    fetchTables(fetchKeys);
+    refreshTables(fetchKeys);
     return fetchKeys.size();
-  }
-
-  private record Entry(AddressLookupTable table, long fetchedAt) {
   }
 }
