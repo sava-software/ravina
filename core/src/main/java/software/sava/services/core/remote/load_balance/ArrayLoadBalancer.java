@@ -44,6 +44,39 @@ final class ArrayLoadBalancer<T> implements LoadBalancer<T> {
   }
 
   @Override
+  public BalancedItem<T> peek() {
+    int i = this.i + 1;
+    if (i == items.length) {
+      i = 0;
+    }
+    final int to = i;
+
+    long minError = Long.MAX_VALUE;
+    int minErrorIndex = i;
+
+    BalancedItem<T> item;
+    long errorCount;
+    do {
+      item = items[i];
+      errorCount = item.errorCount();
+      if (errorCount == 0) {
+        return item;
+      }
+      errorCount -= (item.skipped() >> 1);  // reduce error count by 1 for every 2 skips.
+      if (errorCount <= 0) {
+        return item;
+      } else if (errorCount < minError) {
+        minError = errorCount;
+        minErrorIndex = i;
+      }
+      if (++i == items.length) {
+        i = 0;
+      }
+    } while (i != to);
+    return items[minErrorIndex];
+  }
+
+  @Override
   public BalancedItem<T> withContext() {
     if (++i == items.length) {
       i = 0;

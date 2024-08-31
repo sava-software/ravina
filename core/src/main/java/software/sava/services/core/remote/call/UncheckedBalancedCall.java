@@ -6,13 +6,15 @@ import software.sava.services.core.remote.load_balance.LoadBalancer;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+
 class UncheckedBalancedCall<I, R> implements Call<R> {
 
   protected final LoadBalancer<I> loadBalancer;
   protected final Function<I, CompletableFuture<R>> call;
   protected final boolean measureCallTime;
   private final BalancedErrorHandler<I> balancedErrorHandler;
-  protected final ErrorHandler errorHandler;
+  protected final String retryLogContext;
 
   protected BalancedItem<I> next;
 
@@ -20,12 +22,12 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
                         final Function<I, CompletableFuture<R>> call,
                         final boolean measureCallTime,
                         final BalancedErrorHandler<I> balancedErrorHandler,
-                        final ErrorHandler errorHandler) {
+                        final String retryLogContext) {
     this.loadBalancer = loadBalancer;
     this.call = call;
     this.measureCallTime = measureCallTime;
     this.balancedErrorHandler = balancedErrorHandler;
-    this.errorHandler = errorHandler;
+    this.retryLogContext = retryLogContext;
   }
 
   @Override
@@ -34,10 +36,12 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
     return call.apply(this.next.item());
   }
 
+  @Override
   public final R get() {
+    final int numItems = loadBalancer.size();
     long start = measureCallTime ? System.currentTimeMillis() : 0;
     var callFuture = call();
-    for (int errorCount = 0; ; ) {
+    for (int errorCount = 0, retry = 0; ; ) {
       try {
         if (callFuture == null) {
           return null;
@@ -50,24 +54,25 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
           return result;
         }
       } catch (final RuntimeException e) {
-        if (balancedErrorHandler.onError(this.next, ++errorCount, e)) {
-          if (onError(errorCount, e)) {
-            if (measureCallTime) {
-              start = System.currentTimeMillis();
-            }
-            callFuture = call();
-          } else {
-            return null;
-          }
-        } else {
+        final long sleep = balancedErrorHandler.onError(this.next, ++errorCount, retryLogContext, e, MILLISECONDS);
+        loadBalancer.sort();
+        if (sleep < 0) {
           return null;
         }
+        if (++retry < numItems && !loadBalancer.peek().equals(this.next)) {
+          errorCount = retry - 1; // try next balanced item.
+        } else if (sleep > 0) {
+          try {
+            Thread.sleep(sleep);
+          } catch (final InterruptedException ex) {
+            throw new RuntimeException(ex);
+          }
+        }
+        if (measureCallTime) {
+          start = System.currentTimeMillis();
+        }
+        callFuture = call();
       }
     }
-  }
-
-  @Override
-  public final boolean onError(final int errorCount, final RuntimeException exception) {
-    return errorHandler.onError(errorCount, exception);
   }
 }

@@ -1,13 +1,21 @@
 package software.sava.services.core.remote.call;
 
+import java.util.concurrent.TimeUnit;
+
 public interface ErrorHandler {
 
-  static ErrorHandler linearBackoff(int initialRetryDelaySeconds,
-                                    int maxRetryDelaySeconds,
-                                    int maxRetries,
-                                    String retryLogContext) {
-    return new LinearBackoffErrorHandler(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries, retryLogContext);
+  static ErrorHandler linearBackoff(final int initialRetryDelaySeconds,
+                                    final int maxRetryDelaySeconds,
+                                    final int maxRetries) {
+    return new LinearBackoffErrorHandler(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
   }
 
-  boolean onError(final int errorCount, final RuntimeException exception);
+  static ErrorHandler linearBackoff(final int initialRetryDelaySeconds, final int maxRetryDelaySeconds) {
+    return linearBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, Integer.MAX_VALUE);
+  }
+
+  long onError(final int errorCount,
+               final String retryLogContext,
+               final RuntimeException exception,
+               final TimeUnit timeUnit);
 }

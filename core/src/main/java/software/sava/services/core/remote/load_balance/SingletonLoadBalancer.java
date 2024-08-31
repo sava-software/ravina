@@ -34,6 +34,11 @@ public record SingletonLoadBalancer<T>(BalancedItem<T> item, List<BalancedItem<T
   }
 
   @Override
+  public BalancedItem<T> peek() {
+    return item;
+  }
+
+  @Override
   public BalancedItem<T> withContext() {
     return item;
   }

@@ -16,8 +16,9 @@ class GreedyCall<T> extends ComposedCall<T> {
              final CapacityState capacityState,
              final CallContext callContext,
              final int callWeight,
-             final ErrorHandler errorHandler) {
-    super(call, errorHandler);
+             final ErrorHandler errorHandler,
+             final String retryLogContext) {
+    super(call, errorHandler, retryLogContext);
     this.capacityState = capacityState;
     this.callContext = callContext;
     this.callWeight = callWeight;

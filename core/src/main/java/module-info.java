@@ -4,9 +4,6 @@ import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFac
 module software.sava.service_core {
   requires systems.comodal.json_iterator;
 
-  requires org.bouncycastle.provider;
-
-  requires software.sava.rpc;
   requires java.net.http;
 
   uses ErrorTrackerFactory;

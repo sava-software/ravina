@@ -1,4 +1,5 @@
 dependencies {
+  implementation project(":core")
   implementation libs.bouncycastle
   implementation libs.json.iterator
   implementation libs.sava.core

@@ -35,6 +35,11 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
   }
 
   @Override
+  public BalancedItem<T> peek() {
+    return items[0];
+  }
+
+  @Override
   public BalancedItem<T> withContext() {
     return items[0];
   }

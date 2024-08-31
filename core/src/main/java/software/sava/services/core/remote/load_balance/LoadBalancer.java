@@ -15,6 +15,8 @@ public interface LoadBalancer<T> {
 
   Stream<BalancedItem<T>> streamItems();
 
+  BalancedItem<T> peek();
+
   BalancedItem<T> withContext();
 
   List<BalancedItem<T>> items();

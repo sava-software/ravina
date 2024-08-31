@@ -19,8 +19,9 @@ final class CourteousCall<R> extends GreedyCall<R> {
                 final int callWeight,
                 final int maxTryClaim,
                 final boolean forceCall,
-                final ErrorHandler errorHandler) {
-    super(call, capacityState, callContext, callWeight, errorHandler);
+                final ErrorHandler errorHandler,
+                final String retryLogContext) {
+    super(call, capacityState, callContext, callWeight, errorHandler, retryLogContext);
     this.maxTryClaim = maxTryClaim;
     this.forceCall = forceCall;
   }

@@ -21,8 +21,8 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
                         final boolean forceCall,
                         final boolean measureCallTime,
                         final BalancedErrorHandler<I> balancedErrorHandler,
-                        final ErrorHandler errorHandler) {
-    super(loadBalancer, call, callContext, callWeight, measureCallTime, balancedErrorHandler, errorHandler);
+                        final String retryLogContext) {
+    super(loadBalancer, call, callContext, callWeight, measureCallTime, balancedErrorHandler, retryLogContext);
     this.maxTryClaim = maxTryClaim;
     this.forceCall = forceCall;
   }
