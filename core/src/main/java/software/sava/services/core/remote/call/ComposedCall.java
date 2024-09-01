@@ -41,8 +41,7 @@ class ComposedCall<T> implements Call<T> {
     }
   }
 
-  @Override
-  public CompletableFuture<T> call() {
+  protected CompletableFuture<T> call() {
     return call.get();
   }
 }

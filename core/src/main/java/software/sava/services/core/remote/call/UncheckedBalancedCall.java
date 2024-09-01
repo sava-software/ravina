@@ -30,8 +30,7 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
     this.retryLogContext = retryLogContext;
   }
 
-  @Override
-  public CompletableFuture<R> call() {
+  protected CompletableFuture<R> call() {
     this.next = loadBalancer.withContext();
     return call.apply(this.next.item());
   }
@@ -63,6 +62,7 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
           errorCount = retry - 1; // try next balanced item.
         } else if (sleep > 0) {
           try {
+            //noinspection BusyWait
             Thread.sleep(sleep);
           } catch (final InterruptedException ex) {
             throw new RuntimeException(ex);

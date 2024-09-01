@@ -111,8 +111,6 @@ public interface Call<T> extends Supplier<T> {
     );
   }
 
-  CompletableFuture<T> call();
-
   default CompletableFuture<T> async(final ExecutorService executorService) {
     return CompletableFuture.supplyAsync(this, executorService);
   }
