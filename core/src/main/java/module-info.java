@@ -1,7 +1,7 @@
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 
-module software.sava.service_core {
+module software.sava.core_services {
   requires systems.comodal.json_iterator;
 
   requires java.net.http;

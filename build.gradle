@@ -107,10 +107,10 @@ subprojects {
         from components.java
         artifact sourcesJar
         groupId project.group
-        artifactId project.name + 'services'
+        artifactId project.name + '-services'
         version = project.version
         pom {
-          name = project.name + 'services'
+          name = project.name + '-services'
           url = "$VCS_URL"
           scm {
             connection = 'scm:git:git@github.com:sava-software/services.git'
