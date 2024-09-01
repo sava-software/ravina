@@ -5,6 +5,10 @@ import software.sava.services.core.request_capacity.CapacityState;
 
 public interface BalancedItem<T> {
 
+  static <T> BalancedItem<T> createItem(final T item, final CapacityMonitor capacityMonitor) {
+    return new ItemContext<>(item, capacityMonitor);
+  }
+
   void sample(final long sample);
 
   long sampleMedian();

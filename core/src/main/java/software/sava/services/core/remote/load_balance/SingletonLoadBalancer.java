@@ -3,11 +3,7 @@ package software.sava.services.core.remote.load_balance;
 import java.util.List;
 import java.util.stream.Stream;
 
-public record SingletonLoadBalancer<T>(BalancedItem<T> item, List<BalancedItem<T>> items) implements LoadBalancer<T> {
-
-  public static <T> SingletonLoadBalancer<T> createSingleton(final BalancedItem<T> item) {
-    return new SingletonLoadBalancer<T>(item, List.of(item));
-  }
+record SingletonLoadBalancer<T>(BalancedItem<T> item, List<BalancedItem<T>> items) implements LoadBalancer<T> {
 
   @Override
   public int size() {
