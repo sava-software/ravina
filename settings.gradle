@@ -1,4 +1,4 @@
-rootProject.name = 'services'
+rootProject.name = 'sava-services'
 
 include 'core'
 include 'solana'
