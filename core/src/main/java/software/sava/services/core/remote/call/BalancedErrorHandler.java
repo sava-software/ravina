@@ -8,6 +8,7 @@ public interface BalancedErrorHandler<T> {
 
   long onError(final BalancedItem<T> item,
                final int errorCount,
-               final String retryLogContext, final RuntimeException exception,
+               final String retryLogContext,
+               final RuntimeException exception,
                final TimeUnit timeUnit);
 }

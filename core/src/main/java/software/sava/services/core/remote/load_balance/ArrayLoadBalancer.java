@@ -1,5 +1,7 @@
 package software.sava.services.core.remote.load_balance;
 
+import software.sava.services.core.remote.call.BalancedErrorHandler;
+
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -7,12 +9,20 @@ final class ArrayLoadBalancer<T> implements LoadBalancer<T> {
 
   private final BalancedItem<T>[] items;
   private final List<BalancedItem<T>> itemList;
+  private final BalancedErrorHandler<T> defaultErrorHandler;
   private int i;
 
-  ArrayLoadBalancer(final BalancedItem<T>[] items) {
+  ArrayLoadBalancer(final List<BalancedItem<T>> itemList,
+                    final BalancedItem<T>[] items,
+                    final BalancedErrorHandler<T> defaultErrorHandler) {
     this.items = items;
-    this.itemList = List.of(items);
+    this.itemList = itemList;
+    this.defaultErrorHandler = defaultErrorHandler;
     this.i = -1;
+  }
+
+  ArrayLoadBalancer(final BalancedItem<T>[] items, final BalancedErrorHandler<T> defaultErrorHandler) {
+    this(List.of(items), items, defaultErrorHandler);
   }
 
   @Override
@@ -117,5 +127,10 @@ final class ArrayLoadBalancer<T> implements LoadBalancer<T> {
   @Override
   public List<BalancedItem<T>> items() {
     return this.itemList;
+  }
+
+  @Override
+  public BalancedErrorHandler<T> defaultErrorHandler() {
+    return defaultErrorHandler;
   }
 }

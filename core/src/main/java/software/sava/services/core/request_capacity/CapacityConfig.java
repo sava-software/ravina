@@ -26,7 +26,7 @@ public record CapacityConfig(int minCapacity,
     return ji.testObject(new Builder(), PARSER).createConfig();
   }
 
-  public <E> ErrorTrackedCapacityMonitor<E> createMonitor(final String serviceName, final ErrorTrackerFactory<E> errorTrackerFactory) {
+  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName, final ErrorTrackerFactory<R> errorTrackerFactory) {
     final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,

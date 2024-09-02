@@ -1,5 +1,7 @@
 package software.sava.services.core.remote.load_balance;
 
+import software.sava.services.core.remote.call.BalancedErrorHandler;
+
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -24,12 +26,14 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
 
   private volatile BalancedItem<T>[] items;
   private final BalancedItem<T>[] noSkip;
+  private final BalancedErrorHandler<T> defaultErrorHandler;
   private final AtomicInteger i;
   private final int minTrimmedLength;
 
-  SortedLoadBalancer(final BalancedItem<T>[] items) {
+  SortedLoadBalancer(final BalancedItem<T>[] items, final BalancedErrorHandler<T> defaultErrorHandler) {
     this.items = items;
     this.noSkip = Arrays.copyOf(items, items.length);
+    this.defaultErrorHandler = defaultErrorHandler;
     this.i = new AtomicInteger(-1);
     this.minTrimmedLength = items.length >> 1;
   }
@@ -47,6 +51,11 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
   @Override
   public List<BalancedItem<T>> items() {
     return List.of(this.items);
+  }
+
+  @Override
+  public BalancedErrorHandler<T> defaultErrorHandler() {
+    return defaultErrorHandler;
   }
 
   @Override
