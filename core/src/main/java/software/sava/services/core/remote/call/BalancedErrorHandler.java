@@ -6,6 +6,14 @@ import java.util.concurrent.TimeUnit;
 
 public interface BalancedErrorHandler<T> {
 
+  static <T> BalancedErrorHandler<T> createFailAllHandler(final ErrorHandler errorHandler) {
+    return new FailAllBalancedItemErrorHandler<>(errorHandler);
+  }
+
+  static <T> BalancedErrorHandler<T> createFailNoneHandler(final ErrorHandler errorHandler) {
+    return new FailNoneBalancedItemErrorHandler<>(errorHandler);
+  }
+
   long onError(final BalancedItem<T> item,
                final int errorCount,
                final String retryLogContext,

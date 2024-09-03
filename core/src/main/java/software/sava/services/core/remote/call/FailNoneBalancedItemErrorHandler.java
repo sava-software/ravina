@@ -4,9 +4,9 @@ import software.sava.services.core.remote.load_balance.BalancedItem;
 
 import java.util.concurrent.TimeUnit;
 
-final class BalancedItemErrorHandler<T> extends RootBalancedErrorHandler<T> {
+final class FailNoneBalancedItemErrorHandler<T> extends RootBalancedErrorHandler<T> {
 
-  BalancedItemErrorHandler(final ErrorHandler errorHandler) {
+  FailNoneBalancedItemErrorHandler(final ErrorHandler errorHandler) {
     super(errorHandler);
   }
 
@@ -16,7 +16,6 @@ final class BalancedItemErrorHandler<T> extends RootBalancedErrorHandler<T> {
                       final String retryLogContext,
                       final RuntimeException exception,
                       final TimeUnit timeUnit) {
-    item.failed();
     return errorHandler.onError(errorCount, retryLogContext, exception, timeUnit);
   }
 }
