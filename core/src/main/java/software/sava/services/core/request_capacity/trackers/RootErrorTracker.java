@@ -67,7 +67,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
       }
       logResponse(response);
     }
-    return false;
+    return true;
   }
 
   @Override
