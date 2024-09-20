@@ -19,6 +19,7 @@ import software.sava.solana.programs.clients.NativeProgramClient;
 import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,8 +35,9 @@ import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.*;
+import static java.nio.file.StandardOpenOption.*;
+import static java.util.concurrent.TimeUnit.HOURS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static software.sava.core.accounts.lookup.AddressLookupTable.AUTHORITY_OPTION_OFFSET;
 import static software.sava.core.accounts.lookup.AddressLookupTable.DEACTIVATION_SLOT_OFFSET;
@@ -70,18 +72,23 @@ public final class LookupTableDiscoveryService implements Runnable {
     PARTITION_FILTERS = partitionFilters;
   }
 
+  private final ExecutorService executorService;
   private final CompletableFuture<Integer> initialized;
   private final PublicKey altProgram;
   private final int maxConcurrentRequests;
   private final AtomicReferenceArray<IndexedTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
+  private final Path altCacheDirectory;
 
   public LookupTableDiscoveryService(final ExecutorService executorService,
                                      final LoadBalancer<SolanaRpcClient> rpcClients,
                                      final BalancedErrorHandler<SolanaRpcClient> balancedErrorHandler,
                                      final NativeProgramClient nativeProgramClient,
                                      final int maxConcurrentRequests,
-                                     final int minAccountsPerTable) {
+                                     final int minAccountsPerTable,
+                                     final Path altCacheDirectory) {
+    this.executorService = executorService;
+    this.altCacheDirectory = altCacheDirectory;
     this.initialized = new CompletableFuture<>();
     this.altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
     this.maxConcurrentRequests = maxConcurrentRequests;
@@ -198,25 +205,58 @@ public final class LookupTableDiscoveryService implements Runnable {
 
   private static record Worker(AtomicInteger nextPartition,
                                CountDownLatch latch,
-                               PartitionedLookupTableCallHandler[] partitionedCallHandlers) implements Runnable {
+                               PartitionedLookupTableCallHandler[] partitionedCallHandlers,
+                               Path altCacheDirectory) implements Runnable {
 
     @Override
     public void run() {
-      for (; ; ) {
-        final int partition = nextPartition.incrementAndGet();
+      for (long start; ; ) {
+        final int partition = nextPartition.getAndIncrement();
         if (partition >= NUM_PARTITIONS) {
           return;
         }
         try {
+          start = System.currentTimeMillis();
           final var tables = partitionedCallHandlers[partition].callAndApply().join();
+          latch.countDown();
+          final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
+
           final var stats = Arrays.stream(tables)
               .map(IndexedTable::table)
               .mapToInt(AddressLookupTable::numAccounts)
               .summaryStatistics();
           logger.log(INFO, String.format("""
-              [partition=%d] [numTables=%s] [averageNumAccounts=%f.1]
-              """, partition, tables.length, stats.getAverage()));
-          latch.countDown();
+              [partition=%d] [numTables=%s] [averageNumAccounts=%f.1] [duration=%s]
+              """, partition, tables.length, stats.getAverage(), duration));
+
+          if (altCacheDirectory != null) {
+            final int byteLength = Arrays.stream(tables)
+                .map(IndexedTable::table)
+                .mapToInt(AddressLookupTable::dataLength)
+                .sum();
+            final byte[] out = new byte[Integer.BYTES // numTables
+                + (tables.length * PublicKey.PUBLIC_KEY_LENGTH) // addresses for each table
+                + (tables.length * Integer.BYTES) // serialized lengths for each table
+                + byteLength // sum of table lengths
+                ];
+            ByteUtil.putInt32LE(out, 0, tables.length);
+            for (int i = 0, offset = Integer.BYTES; i < tables.length; ++i) {
+              final var table = tables[i].table();
+              offset += table.address().write(out, offset);
+              ByteUtil.putInt32LE(out, offset, table.dataLength());
+              offset += Integer.BYTES;
+              offset += table.write(out, offset);
+            }
+            try {
+              Files.write(
+                  altCacheDirectory.resolve(partition + ".dat"),
+                  out,
+                  CREATE, WRITE, TRUNCATE_EXISTING
+              );
+            } catch (final IOException e) {
+              logger.log(WARNING, "Failed to write lookup tables to " + altCacheDirectory, e);
+            }
+          }
         } catch (final RuntimeException ex) {
           logger.log(ERROR, "Failed to get lookup tables for partition " + partition, ex);
           throw ex;
@@ -225,28 +265,66 @@ public final class LookupTableDiscoveryService implements Runnable {
     }
   }
 
-  @SuppressWarnings("unchecked")
   public void run() {
-    try (final var executor = Executors.newFixedThreadPool(maxConcurrentRequests)) {
-      final var nextPartition = new AtomicInteger(0);
-      final var latch = new CountDownLatch(NUM_PARTITIONS);
-      final var workers = IntStream.range(0, maxConcurrentRequests)
-          .mapToObj(i -> new Worker(nextPartition, latch, partitionedCallHandlers))
-          .toArray(Worker[]::new);
+    if (altCacheDirectory != null) {
+      final long numLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
+        final var cacheFile = altCacheDirectory.resolve(partition + ".dat");
+        try {
+          if (Files.exists(cacheFile)) {
+            final byte[] data = Files.readAllBytes(cacheFile);
+            final int numTables = ByteUtil.getInt32LE(data, 0);
+            int offset = Integer.BYTES;
+            final var tables = new IndexedTable[numTables];
+            for (int i = 0; offset < data.length; ++i) {
+              final var address = PublicKey.readPubKey(data, offset);
+              offset += PublicKey.PUBLIC_KEY_LENGTH;
+              final int length = ByteUtil.getInt32LE(data, offset);
+              offset += Integer.BYTES;
+              final var table = AddressLookupTable.read(
+                  address,
+                  Arrays.copyOfRange(data, offset, offset + length)
+              );
+              offset += table.dataLength();
+              tables[i] = new IndexedTable(i, table);
+            }
+            partitions.set(partition, tables);
+            return true;
+          } else {
+            return false;
+          }
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }).count();
+
+      if ((numLoaded / (double) NUM_PARTITIONS) > .9) {
+        final int numTables = IntStream.range(0, NUM_PARTITIONS)
+            .map(i -> partitions.get(i).length)
+            .sum();
+        initialized.complete(numTables);
+      }
+    }
+
+    try {
+      final var nextPartition = new AtomicInteger();
 
       for (long start; ; ) {
-        for (final var worker : workers) {
-          executor.execute(worker);
-        }
+        nextPartition.set(0);
+        final var latch = new CountDownLatch(NUM_PARTITIONS);
+        IntStream.range(0, 1)
+            .mapToObj(i -> new Worker(
+                    nextPartition,
+                    latch,
+                    partitionedCallHandlers,
+                    altCacheDirectory
+                )
+            ).forEach(executorService::execute);
         start = System.currentTimeMillis();
         latch.await();
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
 
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
-            .mapToObj(partitions::get)
-            .flatMap(Arrays::stream)
-            .map(IndexedTable::table)
-            .mapToInt(AddressLookupTable::numAccounts)
+            .map(i -> partitions.get(i).length)
             .sum();
 
         initialized.complete(numTables);
@@ -254,10 +332,8 @@ public final class LookupTableDiscoveryService implements Runnable {
             %s to fetch all %d tables.""", duration, numTables
         ));
 
-        nextPartition.set(0);
         MINUTES.sleep(60);
       }
-
     } catch (final InterruptedException e) {
       // return;
     } catch (final RuntimeException ex) {
@@ -266,10 +342,11 @@ public final class LookupTableDiscoveryService implements Runnable {
     }
   }
 
-  public static void main(final String[] args) throws IOException {
+  public static void main(final String[] args) throws IOException, InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newHttpClient()) {
-        final var configFile = Path.of("").toAbsolutePath().resolve(System.getProperty("software.sava.services.solana.rpcConfigFile"));
+        final var altCacheDirectory = Path.of(System.getProperty("software.sava.services.solana.altCacheDirectory")).toAbsolutePath();
+        final var configFile = Path.of(System.getProperty("software.sava.services.solana.rpcConfigFile")).toAbsolutePath();
         final UriCapacityConfig rpcConfig = UriCapacityConfig.parseConfig(JsonIterator.parse(Files.readAllBytes(configFile)));
         final var endpoint = rpcConfig.endpoint();
         final var monitor = rpcConfig.createMonitor(endpoint.getHost(), null);
@@ -283,11 +360,14 @@ public final class LookupTableDiscoveryService implements Runnable {
             LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, monitor), defaultErrorHandler),
             defaultErrorHandler,
             nativeProgramClient,
-            4,
-            3
+            10,
+            3,
+            altCacheDirectory
         );
         executorService.execute(tableService);
         tableService.initialized.join();
+
+        HOURS.sleep(24);
       }
     }
   }
