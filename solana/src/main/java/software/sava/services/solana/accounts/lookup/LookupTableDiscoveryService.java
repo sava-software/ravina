@@ -72,6 +72,12 @@ public final class LookupTableDiscoveryService implements Runnable {
     PARTITION_FILTERS = partitionFilters;
   }
 
+  private static final int LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST = 10;
+
+  private static Path resolvePartitionCacheFile(final Path altCacheDirectory, final int partition) {
+    return altCacheDirectory.resolve(partition + ".dat");
+  }
+
   private final ExecutorService executorService;
   private final CompletableFuture<Integer> initialized;
   private final PublicKey altProgram;
@@ -79,6 +85,7 @@ public final class LookupTableDiscoveryService implements Runnable {
   private final AtomicReferenceArray<IndexedTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
   private final Path altCacheDirectory;
+  private final boolean cacheOnly;
 
   public LookupTableDiscoveryService(final ExecutorService executorService,
                                      final LoadBalancer<SolanaRpcClient> rpcClients,
@@ -86,9 +93,11 @@ public final class LookupTableDiscoveryService implements Runnable {
                                      final NativeProgramClient nativeProgramClient,
                                      final int maxConcurrentRequests,
                                      final int minAccountsPerTable,
-                                     final Path altCacheDirectory) {
+                                     final Path altCacheDirectory,
+                                     final boolean cacheOnly) {
     this.executorService = executorService;
     this.altCacheDirectory = altCacheDirectory;
+    this.cacheOnly = cacheOnly;
     this.initialized = new CompletableFuture<>();
     this.altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
     this.maxConcurrentRequests = maxConcurrentRequests;
@@ -142,7 +151,6 @@ public final class LookupTableDiscoveryService implements Runnable {
     }
   }
 
-
   private static ScoredTable[] rankTables(final IndexedTable[] partition,
                                           final Set<PublicKey> accounts,
                                           final int limit) {
@@ -168,7 +176,7 @@ public final class LookupTableDiscoveryService implements Runnable {
 
   public List<AddressLookupTable> findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
     final var scoredTables = IntStream.range(0, NUM_PARTITIONS).parallel()
-        .mapToObj(i -> rankTables(partitions.get(i), distinctAccounts, 10))
+        .mapToObj(i -> rankTables(partitions.get(i), distinctAccounts, LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST))
         .flatMap(Arrays::stream)
         .sorted()
         .toArray(ScoredTable[]::new);
@@ -193,12 +201,18 @@ public final class LookupTableDiscoveryService implements Runnable {
   }
 
   public List<AddressLookupTable> findOptimalSetOfTables(final Transaction transaction) {
+    final var instructions = transaction.instructions();
+    final var invokedPrograms = HashSet.<PublicKey>newHashSet(instructions.size());
+    for (final var ix : instructions) {
+      invokedPrograms.add(ix.programId().publicKey());
+    }
     final var distinctAccounts = HashSet.<PublicKey>newHashSet(MAX_ACCOUNTS_PER_TX);
-    transaction.instructions()
+    instructions
         .stream()
         .map(Instruction::accounts)
         .flatMap(List::stream)
         .map(AccountMeta::publicKey)
+        .filter(publicKey -> !invokedPrograms.contains(publicKey)) // invoked program accounts must be hard wired.
         .forEach(distinctAccounts::add);
     return findOptimalSetOfTables(distinctAccounts);
   }
@@ -207,6 +221,37 @@ public final class LookupTableDiscoveryService implements Runnable {
                                CountDownLatch latch,
                                PartitionedLookupTableCallHandler[] partitionedCallHandlers,
                                Path altCacheDirectory) implements Runnable {
+
+    private void cacheTables(final int partition, final IndexedTable[] tables) {
+      if (altCacheDirectory != null) {
+        final int byteLength = Arrays.stream(tables)
+            .map(IndexedTable::table)
+            .mapToInt(AddressLookupTable::dataLength)
+            .sum();
+        final byte[] out = new byte[Integer.BYTES // numTables
+            + (tables.length * PublicKey.PUBLIC_KEY_LENGTH) // addresses for each table
+            + (tables.length * Integer.BYTES) // serialized lengths for each table
+            + byteLength // sum of table lengths
+            ];
+        ByteUtil.putInt32LE(out, 0, tables.length);
+        for (int i = 0, offset = Integer.BYTES; i < tables.length; ++i) {
+          final var table = tables[i].table();
+          offset += table.address().write(out, offset);
+          ByteUtil.putInt32LE(out, offset, table.dataLength());
+          offset += Integer.BYTES;
+          offset += table.write(out, offset);
+        }
+        try {
+          Files.write(
+              resolvePartitionCacheFile(altCacheDirectory, partition),
+              out,
+              CREATE, WRITE, TRUNCATE_EXISTING
+          );
+        } catch (final IOException e) {
+          logger.log(WARNING, "Failed to write lookup tables to " + altCacheDirectory, e);
+        }
+      }
+    }
 
     @Override
     public void run() {
@@ -229,34 +274,7 @@ public final class LookupTableDiscoveryService implements Runnable {
               [partition=%d] [numTables=%s] [averageNumAccounts=%f.1] [duration=%s]
               """, partition, tables.length, stats.getAverage(), duration));
 
-          if (altCacheDirectory != null) {
-            final int byteLength = Arrays.stream(tables)
-                .map(IndexedTable::table)
-                .mapToInt(AddressLookupTable::dataLength)
-                .sum();
-            final byte[] out = new byte[Integer.BYTES // numTables
-                + (tables.length * PublicKey.PUBLIC_KEY_LENGTH) // addresses for each table
-                + (tables.length * Integer.BYTES) // serialized lengths for each table
-                + byteLength // sum of table lengths
-                ];
-            ByteUtil.putInt32LE(out, 0, tables.length);
-            for (int i = 0, offset = Integer.BYTES; i < tables.length; ++i) {
-              final var table = tables[i].table();
-              offset += table.address().write(out, offset);
-              ByteUtil.putInt32LE(out, offset, table.dataLength());
-              offset += Integer.BYTES;
-              offset += table.write(out, offset);
-            }
-            try {
-              Files.write(
-                  altCacheDirectory.resolve(partition + ".dat"),
-                  out,
-                  CREATE, WRITE, TRUNCATE_EXISTING
-              );
-            } catch (final IOException e) {
-              logger.log(WARNING, "Failed to write lookup tables to " + altCacheDirectory, e);
-            }
-          }
+          cacheTables(partition, tables);
         } catch (final RuntimeException ex) {
           logger.log(ERROR, "Failed to get lookup tables for partition " + partition, ex);
           throw ex;
@@ -265,10 +283,11 @@ public final class LookupTableDiscoveryService implements Runnable {
     }
   }
 
-  public void run() {
+  private void loadCache() {
     if (altCacheDirectory != null) {
+      final long start = System.currentTimeMillis();
       final long numLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
-        final var cacheFile = altCacheDirectory.resolve(partition + ".dat");
+        final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);
         try {
           if (Files.exists(cacheFile)) {
             final byte[] data = Files.readAllBytes(cacheFile);
@@ -297,28 +316,35 @@ public final class LookupTableDiscoveryService implements Runnable {
         }
       }).count();
 
-      if ((numLoaded / (double) NUM_PARTITIONS) > .9) {
+      if ((numLoaded / (double) NUM_PARTITIONS) > 0.8) {
+        final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
             .map(i -> partitions.get(i).length)
             .sum();
         initialized.complete(numTables);
+        logger.log(INFO, String.format("""
+            Loaded %d tables from the Lookup Table Cache in %s.""", numTables, duration));
       }
     }
+  }
 
+  public void run() {
+    loadCache();
+    if (cacheOnly) {
+      return;
+    }
     try {
       final var nextPartition = new AtomicInteger();
-
       for (long start; ; ) {
         nextPartition.set(0);
         final var latch = new CountDownLatch(NUM_PARTITIONS);
-        IntStream.range(0, 1)
-            .mapToObj(i -> new Worker(
-                    nextPartition,
-                    latch,
-                    partitionedCallHandlers,
-                    altCacheDirectory
-                )
-            ).forEach(executorService::execute);
+        IntStream.range(0, maxConcurrentRequests).mapToObj(i -> new Worker(
+            nextPartition,
+            latch,
+            partitionedCallHandlers,
+            altCacheDirectory
+        )).forEach(executorService::execute);
+
         start = System.currentTimeMillis();
         latch.await();
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
@@ -327,7 +353,7 @@ public final class LookupTableDiscoveryService implements Runnable {
             .map(i -> partitions.get(i).length)
             .sum();
 
-        initialized.complete(numTables);
+        initialized.obtrudeValue(numTables);
         logger.log(INFO, String.format("""
             %s to fetch all %d tables.""", duration, numTables
         ));
@@ -362,7 +388,8 @@ public final class LookupTableDiscoveryService implements Runnable {
             nativeProgramClient,
             10,
             3,
-            altCacheDirectory
+            altCacheDirectory,
+            true
         );
         executorService.execute(tableService);
         tableService.initialized.join();
