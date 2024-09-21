@@ -1,5 +1,12 @@
 package software.sava.services.solana.accounts.lookup;
 
+import software.sava.anchor.programs.drift.DriftProduct;
+import software.sava.anchor.programs.drift.DriftProgramClient;
+import software.sava.anchor.programs.drift.DriftUtil;
+import software.sava.anchor.programs.drift.anchor.types.MarketType;
+import software.sava.anchor.programs.drift.anchor.types.OrderType;
+import software.sava.anchor.programs.drift.anchor.types.PositionDirection;
+import software.sava.anchor.programs.drift.anchor.types.PostOnlyParam;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.AccountMeta;
@@ -193,6 +200,7 @@ public final class LookupTableDiscoveryService implements Runnable {
       final var table = scoredTable.table();
       final var iterator = distinctAccounts.iterator();
       numRemoved = 0;
+
       do {
         next = iterator.next();
         if (table.containKey(next)) {
@@ -205,12 +213,13 @@ public final class LookupTableDiscoveryService implements Runnable {
           ++numRemoved;
         }
       } while (iterator.hasNext());
+
       if (numRemoved > 1) {
         tables.add(table);
         if (totalAccountsFound == breakOut) { // Only one account remaining.
           return tables;
         }
-      } else if (numRemoved == 1) { // No point in referencing an ALT if it only contains one account.
+      } else if (numRemoved == 1) { // No point in referencing an ALT if it only contains one account. Rollback.
         distinctAccounts.add(removed);
         --totalAccountsFound;
       }
@@ -232,6 +241,7 @@ public final class LookupTableDiscoveryService implements Runnable {
         .map(AccountMeta::publicKey)
         .filter(publicKey -> !invokedPrograms.contains(publicKey)) // invoked program accounts must be hard wired.
         .forEach(distinctAccounts::add);
+
     return findOptimalSetOfTables(distinctAccounts);
   }
 
@@ -398,10 +408,11 @@ public final class LookupTableDiscoveryService implements Runnable {
         final var defaultErrorHandler = createRpcClientErrorHandler(
             linearBackoff(1, 21)
         );
+        final var rpcClients = LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, monitor), defaultErrorHandler);
         final var nativeProgramClient = NativeProgramClient.createClient();
         final var tableService = new LookupTableDiscoveryService(
             executorService,
-            LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, monitor), defaultErrorHandler),
+            rpcClients,
             defaultErrorHandler,
             nativeProgramClient,
             10,
@@ -412,6 +423,49 @@ public final class LookupTableDiscoveryService implements Runnable {
         executorService.execute(tableService);
         tableService.initialized.join();
 
+
+        final var feePayer = AccountMeta.createFeePayer(PublicKey.fromBase58Encoded("savaKKJmmwDsHHhxV6G293hrRM4f1p6jv6qUF441QD3"));
+        final var nativeAccountClient = nativeProgramClient.createAccountClient(feePayer);
+        final var driftClient = DriftProgramClient.createClient(nativeAccountClient);
+
+        final var mainAccountFuture = Call.createCall(
+            rpcClients, driftClient::fetchUser,
+            CallContext.DEFAULT_CALL_CONTEXT,
+            1, Integer.MAX_VALUE, false,
+            defaultErrorHandler,
+            "driftClient::fetchUser"
+        ).async(executorService);
+
+        final var marketConfig = driftClient.perpMarket(DriftProduct.SOL_PERP);
+        final var extras = driftClient.extraAccounts();
+        final var mainAccount = mainAccountFuture.join();
+        extras.userAndMarket(mainAccount.data(), marketConfig);
+        final var extraMetas = extras.toList();
+
+        final var orderParam = DriftUtil.simpleOrder(
+            OrderType.Limit,
+            MarketType.Perp,
+            PositionDirection.Long,
+            0,
+            1_0000_0000,
+            1_0000_0000,
+            marketConfig.marketIndex(),
+            false,
+            PostOnlyParam.MustPostOnly,
+            false
+        );
+        final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
+        final var placeOrderTx = Transaction.createTx(feePayer, placeOrderIx);
+
+        for (int i = 0; i < 100; ++i) {
+          final long start = System.currentTimeMillis();
+          final var tables = tableService.findOptimalSetOfTables(placeOrderTx);
+          final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
+          System.out.println(duration);
+          System.out.println(tables.size());
+          tables.stream().map(AddressLookupTable::address).forEach(System.out::println);
+          Thread.sleep(200);
+        }
         HOURS.sleep(24);
       }
     }
