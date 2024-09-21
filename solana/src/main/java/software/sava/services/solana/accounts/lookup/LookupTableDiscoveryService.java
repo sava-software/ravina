@@ -182,20 +182,38 @@ public final class LookupTableDiscoveryService implements Runnable {
         .toArray(ScoredTable[]::new);
 
     final int numAccounts = distinctAccounts.size();
+    final int breakOut = numAccounts - 1;
     final var tables = new ArrayList<AddressLookupTable>(MAX_ACCOUNTS_PER_TX >> 1);
-    int numFound = 0;
 
+    int totalAccountsFound = 0;
+    PublicKey next;
+    PublicKey removed = null;
+    int numRemoved;
     for (final var scoredTable : scoredTables) {
       final var table = scoredTable.table();
       final var iterator = distinctAccounts.iterator();
+      numRemoved = 0;
       do {
-        if (table.containKey(iterator.next())) {
-          iterator.remove();
-          if (++numFound == numAccounts) {
+        next = iterator.next();
+        if (table.containKey(next)) {
+          if (++totalAccountsFound == numAccounts) {
+            tables.add(table);
             return tables;
           }
+          iterator.remove();
+          removed = next;
+          ++numRemoved;
         }
       } while (iterator.hasNext());
+      if (numRemoved > 1) {
+        tables.add(table);
+        if (totalAccountsFound == breakOut) { // Only one account remaining.
+          return tables;
+        }
+      } else if (numRemoved == 1) { // No point in referencing an ALT if it only contains one account.
+        distinctAccounts.add(removed);
+        --totalAccountsFound;
+      }
     }
     return tables;
   }
