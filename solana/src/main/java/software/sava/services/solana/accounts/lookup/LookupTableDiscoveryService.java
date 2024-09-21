@@ -79,8 +79,6 @@ public final class LookupTableDiscoveryService implements Runnable {
     PARTITION_FILTERS = partitionFilters;
   }
 
-  private static final int LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST = 10;
-
   private static Path resolvePartitionCacheFile(final Path altCacheDirectory, final int partition) {
     return altCacheDirectory.resolve(partition + ".dat");
   }
@@ -161,9 +159,15 @@ public final class LookupTableDiscoveryService implements Runnable {
   private static ScoredTable[] rankTables(final IndexedTable[] partition,
                                           final Set<PublicKey> accounts,
                                           final int limit) {
-    final int[] scores = new int[partition.length];
+    final ScoredTable[] rankedTables = new ScoredTable[limit];
+
     IndexedTable table;
-    for (int i = 0, score; i < scores.length; ++i) {
+    int minScore = Integer.MAX_VALUE;
+    int i = 0;
+    int score;
+    int added = 0;
+
+    for (; i < partition.length; ++i) {
       table = partition[i];
       score = 0;
       for (final var pubKey : accounts) {
@@ -171,42 +175,146 @@ public final class LookupTableDiscoveryService implements Runnable {
           ++score;
         }
       }
-      scores[i] = score;
+      if (score > 1) {
+        rankedTables[added] = new ScoredTable(score, table.table());
+        if (score < minScore) {
+          minScore = score;
+        }
+        if (++added == limit) {
+          break;
+        }
+      }
     }
-    return Arrays.stream(partition)
-        .filter(t -> scores[t.index()] > 1)
-        .sorted((a, b) -> Integer.compare(scores[b.index()], scores[a.index()]))
-        .limit(limit)
-        .map(t -> new ScoredTable(scores[t.index()], t.table()))
-        .toArray(ScoredTable[]::new);
+
+    if (added < limit) {
+      if (added == 0) {
+        return null;
+      } else {
+        return Arrays.copyOfRange(rankedTables, 0, added);
+      }
+    } else {
+      Arrays.sort(rankedTables);
+      final int removeIndex = limit - 1;
+      for (; i < partition.length; ++i) {
+        table = partition[i];
+        score = 0;
+        for (final var pubKey : accounts) {
+          if (table.table().containKey(pubKey)) {
+            ++score;
+          }
+        }
+        if (score > minScore) {
+          rankedTables[removeIndex] = new ScoredTable(score, table.table());
+          Arrays.sort(rankedTables);
+          minScore = rankedTables[removeIndex].score();
+        }
+      }
+      return rankedTables;
+    }
   }
 
-  public List<AddressLookupTable> findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
-    final var scoredTables = IntStream.range(0, NUM_PARTITIONS).parallel()
-        .mapToObj(i -> rankTables(partitions.get(i), distinctAccounts, LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST))
+  private static int rankTables(final IndexedTable[] partition,
+                                final Set<PublicKey> accounts,
+                                final ScoredTable[] rankedTables,
+                                final int from,
+                                final int limit) {
+    final int to = from + limit;
+
+    IndexedTable table;
+    int minScore = Integer.MAX_VALUE;
+    int i = 0;
+    int score;
+    int added = 0;
+
+    for (; i < partition.length; ++i) {
+      table = partition[i];
+      score = 0;
+      for (final var pubKey : accounts) {
+        if (table.table().containKey(pubKey)) {
+          ++score;
+        }
+      }
+      if (score > 1) {
+        rankedTables[from + added] = new ScoredTable(score, table.table());
+        if (score < minScore) {
+          minScore = score;
+        }
+        if (++added == limit) {
+          break;
+        }
+      }
+    }
+
+    if (added < limit) {
+      return added;
+    } else {
+      Arrays.sort(rankedTables, from, to);
+      final int removeIndex = from + limit - 1;
+      for (; i < partition.length; ++i) {
+        table = partition[i];
+        score = 0;
+        for (final var pubKey : accounts) {
+          if (table.table().containKey(pubKey)) {
+            ++score;
+          }
+        }
+        if (score > minScore) {
+          rankedTables[removeIndex] = new ScoredTable(score, table.table());
+          Arrays.sort(rankedTables, from, to);
+          minScore = rankedTables[removeIndex].score();
+        }
+      }
+      return limit;
+    }
+  }
+
+  private static final int LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST = 16;
+  private static final int MAX_NUM_TABLES = LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST * NUM_PARTITIONS;
+  private static final Comparator<ScoredTable> NULLS_LAST_SCORED_TABLE_COMPARATOR = Comparator.nullsLast(ScoredTable::compareTo);
+
+  public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
+    final var scoredTables = IntStream.range(0, NUM_PARTITIONS)
+        .parallel()
+        .mapToObj(i -> rankTables(partitions.getOpaque(i), distinctAccounts, LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST))
+        .filter(Objects::nonNull)
         .flatMap(Arrays::stream)
         .sorted()
         .toArray(ScoredTable[]::new);
+    // Arrays.sort(scoredTables);
+    final int numAdded = scoredTables.length;
+
+//    final var scoredTables = new ScoredTable[MAX_NUM_TABLES];
+//    final int numAdded = IntStream.range(0, NUM_PARTITIONS)
+//        .parallel()
+//        .map(i -> rankTables(
+//            partitions.getOpaque(i),
+//            distinctAccounts,
+//            scoredTables,
+//            i * LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST,
+//            LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST
+//        )).sum();
+//    Arrays.sort(scoredTables, NULLS_LAST_SCORED_TABLE_COMPARATOR);
 
     final int numAccounts = distinctAccounts.size();
     final int breakOut = numAccounts - 1;
-    final var tables = new ArrayList<AddressLookupTable>(MAX_ACCOUNTS_PER_TX >> 1);
+    final var tables = new AddressLookupTable[MAX_ACCOUNTS_PER_TX >> 1];
 
     int totalAccountsFound = 0;
     PublicKey next;
     PublicKey removed = null;
     int numRemoved;
-    for (final var scoredTable : scoredTables) {
-      final var table = scoredTable.table();
+    int t = 0;
+    final int to = numAdded;
+    for (int i = 0; i < to; ++i) {
+      final var table = scoredTables[i].table();
       final var iterator = distinctAccounts.iterator();
       numRemoved = 0;
-
       do {
         next = iterator.next();
         if (table.containKey(next)) {
           if (++totalAccountsFound == numAccounts) {
-            tables.add(table);
-            return tables;
+            tables[t++] = table;
+            return Arrays.copyOfRange(tables, 0, t);
           }
           iterator.remove();
           removed = next;
@@ -215,33 +323,30 @@ public final class LookupTableDiscoveryService implements Runnable {
       } while (iterator.hasNext());
 
       if (numRemoved > 1) {
-        tables.add(table);
+        tables[t++] = table;
         if (totalAccountsFound == breakOut) { // Only one account remaining.
-          return tables;
+          return Arrays.copyOfRange(tables, 0, t);
         }
       } else if (numRemoved == 1) { // No point in referencing an ALT if it only contains one account. Rollback.
         distinctAccounts.add(removed);
         --totalAccountsFound;
       }
     }
-    return tables;
+    return t == 0 ? null : Arrays.copyOfRange(tables, 0, t);
   }
 
-  public List<AddressLookupTable> findOptimalSetOfTables(final Transaction transaction) {
+  public AddressLookupTable[] findOptimalSetOfTables(final Transaction transaction) {
     final var instructions = transaction.instructions();
-    final var invokedPrograms = HashSet.<PublicKey>newHashSet(instructions.size());
-    for (final var ix : instructions) {
-      invokedPrograms.add(ix.programId().publicKey());
-    }
     final var distinctAccounts = HashSet.<PublicKey>newHashSet(MAX_ACCOUNTS_PER_TX);
     instructions
         .stream()
+        // .parallel()
         .map(Instruction::accounts)
         .flatMap(List::stream)
-        .map(AccountMeta::publicKey)
-        .filter(publicKey -> !invokedPrograms.contains(publicKey)) // invoked program accounts must be hard wired.
-        .forEach(distinctAccounts::add);
-
+        .forEach(account -> distinctAccounts.add(account.publicKey()));
+    for (final var ix : instructions) {
+      distinctAccounts.remove(ix.programId().publicKey());
+    }
     return findOptimalSetOfTables(distinctAccounts);
   }
 
@@ -347,7 +452,7 @@ public final class LookupTableDiscoveryService implements Runnable {
       if ((numLoaded / (double) NUM_PARTITIONS) > 0.8) {
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
-            .map(i -> partitions.get(i).length)
+            .map(i -> partitions.getOpaque(i).length)
             .sum();
         initialized.complete(numTables);
         logger.log(INFO, String.format("""
@@ -378,7 +483,7 @@ public final class LookupTableDiscoveryService implements Runnable {
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
 
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
-            .map(i -> partitions.get(i).length)
+            .map(i -> partitions.getOpaque(i).length)
             .sum();
 
         initialized.obtrudeValue(numTables);
@@ -457,15 +562,22 @@ public final class LookupTableDiscoveryService implements Runnable {
         final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
         final var placeOrderTx = Transaction.createTx(feePayer, placeOrderIx);
 
-        for (int i = 0; i < 100; ++i) {
+        final long[] samples = new long[32];
+        for (int i = 0; i < samples.length; ++i) {
           final long start = System.currentTimeMillis();
           final var tables = tableService.findOptimalSetOfTables(placeOrderTx);
-          final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
-          System.out.println(duration);
-          System.out.println(tables.size());
-          tables.stream().map(AddressLookupTable::address).forEach(System.out::println);
-          Thread.sleep(200);
+          final long sample = System.currentTimeMillis() - start;
+          samples[i] = sample;
+//          Arrays.stream(tables).map(AddressLookupTable::address).forEach(System.out::println);
+//          Thread.sleep(2);
         }
+        System.out.println(Arrays.stream(samples).skip(1).summaryStatistics());
+        Arrays.sort(samples);
+        final int middle = samples.length / 2;
+        System.out.format("Median=%f.0%n", (double) ((samples.length & 1) == 1
+            ? (double) samples[middle]
+            : (samples[middle - 1] + samples[middle]) / 2.0
+        ));
         HOURS.sleep(24);
       }
     }
