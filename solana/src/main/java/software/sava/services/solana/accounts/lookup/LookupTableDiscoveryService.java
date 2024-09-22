@@ -663,22 +663,24 @@ public final class LookupTableDiscoveryService implements Runnable {
     final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
     final var transaction = Transaction.createTx(feePayer, placeOrderIx);
 
+
+    var tables = tableService.findOptimalSetOfTables(transaction);
+    Arrays.stream(tables).map(AddressLookupTable::address).forEach(System.out::println);
+    final var distinctAccounts = distinctAccounts(transaction);
+    final var _tables = tables;
+    final long count = distinctAccounts.stream()
+        .filter(account -> Arrays.stream(_tables)
+            .anyMatch(table -> table.containKey(account))
+        )
+        .count();
+    System.out.format("Matched %d/%d accounts.%n", count, distinctAccounts.size());
+
     final long[] samples = new long[32];
     for (int i = 0; i < samples.length; ++i) {
       final long start = System.currentTimeMillis();
-      final var tables = tableService.findOptimalSetOfTables(transaction);
+      tables = tableService.findOptimalSetOfTables(transaction);
       final long sample = System.currentTimeMillis() - start;
       samples[i] = sample;
-      if (i == 0) {
-        Arrays.stream(tables).map(AddressLookupTable::address).forEach(System.out::println);
-        final var distinctAccounts = distinctAccounts(transaction);
-        final long count = distinctAccounts.stream()
-            .filter(account -> Arrays.stream(tables)
-                .anyMatch(table -> table.containKey(account))
-            )
-            .count();
-        System.out.format("Matched %d/%d accounts.%n", count, distinctAccounts.size());
-      }
     }
     System.out.println(Arrays.stream(samples).skip(1).summaryStatistics());
     Arrays.sort(samples);

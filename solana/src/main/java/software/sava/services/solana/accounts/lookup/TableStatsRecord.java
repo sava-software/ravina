@@ -8,16 +8,16 @@ import java.util.concurrent.atomic.LongAdder;
 
 record TableStatsRecord(Set<Set<PublicKey>> accountSets,
                         LongAdder duplicateAccountSets,
-                        double minEfficientRatio,
+                        double minEfficiencyRatio,
                         LongAdder inneficientTables) implements TableStats {
 
   @Override
   public boolean addAccountSet(final AddressLookupTable table) {
-    if ((table.numUniqueAccounts() / (double) table.numAccounts()) < minEfficientRatio) {
-      return false;
-    }
-    if (accountSets.add(table.uniqueAccounts())) {
+    final double efficiency = table.numUniqueAccounts() / (double) table.numAccounts();
+    if (efficiency < minEfficiencyRatio) {
       inneficientTables.increment();
+      return false;
+    } else if (accountSets.add(table.uniqueAccounts())) {
       return true;
     } else {
       duplicateAccountSets.increment();
@@ -28,11 +28,11 @@ record TableStatsRecord(Set<Set<PublicKey>> accountSets,
   @Override
   public String toString() {
     return String.format("""
-            [duplicateSets=%d] [inneficientTables=%d] [minEfficientRatio=%.2f]
+            [duplicateSets=%d] [inneficientTables=%d] [minEfficiencyRatio=%.2f]
             """,
         duplicateAccountSets.sum(),
         inneficientTables.sum(),
-        minEfficientRatio
+        minEfficiencyRatio
     );
   }
 
@@ -40,7 +40,6 @@ record TableStatsRecord(Set<Set<PublicKey>> accountSets,
   public void reset() {
     accountSets.clear();
     duplicateAccountSets.reset();
-    ;
     inneficientTables.reset();
   }
 }
