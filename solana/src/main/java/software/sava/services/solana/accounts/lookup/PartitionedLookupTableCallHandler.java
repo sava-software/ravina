@@ -12,21 +12,22 @@ import java.util.function.Predicate;
 final class PartitionedLookupTableCallHandler extends LookupTableCallHandler {
 
   private final int partition;
-  private final AtomicReferenceArray<IndexedTable[]> partitions;
+  private final AtomicReferenceArray<AddressLookupTable[]> partitions;
 
   PartitionedLookupTableCallHandler(final ExecutorService executorService,
                                     final Call<List<AccountInfo<AddressLookupTable>>> call,
                                     final Predicate<AddressLookupTable> minAccountsFilter,
+                                    final TableStats tableStats,
                                     final int partition,
-                                    final AtomicReferenceArray<IndexedTable[]> partitions) {
-    super(executorService, call, minAccountsFilter);
+                                    final AtomicReferenceArray<AddressLookupTable[]> partitions) {
+    super(executorService, call, minAccountsFilter, tableStats);
     this.partition = partition;
     this.partitions = partitions;
   }
 
 
   @Override
-  public IndexedTable[] apply(final List<AccountInfo<AddressLookupTable>> accountInfos) {
+  public AddressLookupTable[] apply(final List<AccountInfo<AddressLookupTable>> accountInfos) {
     final var tables = super.apply(accountInfos);
     partitions.set(partition, tables);
     return tables;
