@@ -15,6 +15,8 @@ import java.util.List;
 
 final class TxHandler extends LookupTableDiscoveryServiceHandler {
 
+  private static final System.Logger logger = System.getLogger(TxHandler.class.getName());
+
   TxHandler(final LookupTableDiscoveryService tableService,
             final LookupTableCache tableCache) {
     super(tableService, tableCache);
@@ -54,69 +56,74 @@ final class TxHandler extends LookupTableDiscoveryServiceHandler {
       return;
     }
     final byte[] body = exchange.getRequestBody().readAllBytes();
+    try {
+      final var headers = exchange.getRequestHeaders();
+      final var encodingHeaders = headers.get("X-TX-ENCODING");
+      final var encoding = encodingHeaders == null || encodingHeaders.isEmpty() ? null : encodingHeaders.getFirst();
 
-    final var headers = exchange.getRequestHeaders();
-    final var encodingHeaders = headers.get("X-TX-ENCODING");
-    final var encoding = encodingHeaders.isEmpty() ? null : encodingHeaders.getFirst();
-
-    final byte[] txBytes;
-    if (encoding == null || encoding.equalsIgnoreCase("base64")) {
-      txBytes = Base64.getDecoder().decode(body);
-    } else {
-      writeResponse(400, exchange, "Only base64 encoding is supported not " + encoding);
-      return;
-    }
-
-    final var skeleton = TransactionSkeleton.deserializeSkeleton(txBytes);
-    if (skeleton.isLegacy()) {
-      final var accounts = skeleton.parseNonSignerPublicKeys();
-      final var programs = skeleton.parseProgramAccounts();
-      final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
-      writeResponse(exchange, lookupTables);
-    } else {
-      final int txVersion = skeleton.version();
-      if (txVersion == 0) {
-        final var lookupTableAccounts = skeleton.lookupTableAccounts();
-        final int numTableAccounts = lookupTableAccounts.length;
-        final var lookupTables = HashMap
-            .<PublicKey, AddressLookupTable>newHashMap(numTableAccounts);
-        List<PublicKey> notCached = null;
-        for (final var key : lookupTableAccounts) {
-          var lookupTable = tableCache.getTable(key);
-          if (lookupTable == null) {
-            lookupTable = tableService.scanForTable(key);
-            if (lookupTable == null) {
-              if (notCached == null) {
-                notCached = new ArrayList<>();
-              }
-              notCached.add(key);
-              continue;
-            }
-            lookupTables.put(lookupTable.address(), lookupTable);
-          }
-        }
-        if (notCached != null) {
-          final var tables = tableCache.getOrFetchTables(notCached);
-          for (final var tableMeta : tables) {
-            final var table = tableMeta.lookupTable();
-            lookupTables.put(table.address(), table);
-          }
-          if (lookupTables.size() != numTableAccounts) {
-            for (final var key : lookupTableAccounts) {
-              if (!lookupTables.containsKey(key)) {
-                writeResponse(400, exchange, "Failed to find address lookup table " + key);
-                return;
-              }
-            }
-          }
-        }
-
-        final var instructions = skeleton.parseInstructions(skeleton.parseAccounts(lookupTables));
-        final var optimalTables = tableService.findOptimalSetOfTables(instructions);
-        writeResponse(exchange, optimalTables);
+      final byte[] txBytes;
+      if (encoding == null || encoding.equalsIgnoreCase("base64")) {
+        txBytes = Base64.getDecoder().decode(new String(body));
       } else {
-        writeResponse(400, exchange, "Unsupported tx version " + txVersion);
+        writeResponse(400, exchange, "Only base64 encoding is supported not " + encoding);
+        return;
       }
+
+      final var skeleton = TransactionSkeleton.deserializeSkeleton(txBytes);
+      if (skeleton.isLegacy()) {
+        final var accounts = skeleton.parseNonSignerPublicKeys();
+        final var programs = skeleton.parseProgramAccounts();
+        final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
+        writeResponse(exchange, lookupTables);
+      } else {
+        final int txVersion = skeleton.version();
+        if (txVersion == 0) {
+          final var lookupTableAccounts = skeleton.lookupTableAccounts();
+          final int numTableAccounts = lookupTableAccounts.length;
+          final var lookupTables = HashMap
+              .<PublicKey, AddressLookupTable>newHashMap(numTableAccounts);
+          List<PublicKey> notCached = null;
+          for (final var key : lookupTableAccounts) {
+            var lookupTable = tableCache.getTable(key);
+            if (lookupTable == null) {
+              lookupTable = tableService.scanForTable(key);
+              if (lookupTable == null) {
+                if (notCached == null) {
+                  notCached = new ArrayList<>();
+                }
+                notCached.add(key);
+                continue;
+              }
+              lookupTables.put(lookupTable.address(), lookupTable);
+            }
+          }
+          if (notCached != null) {
+            final var tables = tableCache.getOrFetchTables(notCached);
+            for (final var tableMeta : tables) {
+              final var table = tableMeta.lookupTable();
+              lookupTables.put(table.address(), table);
+            }
+            if (lookupTables.size() != numTableAccounts) {
+              for (final var key : lookupTableAccounts) {
+                if (!lookupTables.containsKey(key)) {
+                  writeResponse(400, exchange, "Failed to find address lookup table " + key);
+                  return;
+                }
+              }
+            }
+          }
+
+          final var instructions = skeleton.parseInstructions(skeleton.parseAccounts(lookupTables));
+          final var optimalTables = tableService.findOptimalSetOfTables(instructions);
+          writeResponse(exchange, optimalTables);
+        } else {
+          writeResponse(400, exchange, "Unsupported tx version " + txVersion);
+        }
+      }
+    } catch (final RuntimeException ex) {
+      final var bodyString = new String(body);
+      logger.log(System.Logger.Level.ERROR, "Failed to process tx request " + bodyString, ex);
+      writeResponse(400, exchange, bodyString);
     }
   }
 }

@@ -26,9 +26,7 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -421,10 +419,10 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
         joinPartitions();
         initialized.complete(null);
 
-        IntStream.range(0, NUM_PARTITIONS)
-            .map(i -> partitions.getOpaque(i).length)
-            .sorted()
-            .forEach(System.out::println);
+//        IntStream.range(0, NUM_PARTITIONS)
+//            .map(i -> partitions.getOpaque(i).length)
+//            .sorted()
+//            .forEach(System.out::println);
 
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
             .map(i -> partitions.getOpaque(i).length)
@@ -553,10 +551,6 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
     );
     final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
     final var transaction = Transaction.createTx(feePayer, placeOrderIx);
-    final var request = HttpRequest.newBuilder(URI.create("[0:0:0:0:0:0:0:0]:56966"))
-        .POST(HttpRequest.BodyPublishers.ofByteArray(transaction.serialized()));
-
-
 
     var tables = tableService.findOptimalSetOfTables(transaction);
     Arrays.stream(tables).map(AddressLookupTable::address).forEach(System.out::println);
