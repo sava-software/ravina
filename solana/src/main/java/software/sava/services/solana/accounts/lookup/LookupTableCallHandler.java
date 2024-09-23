@@ -17,6 +17,7 @@ class LookupTableCallHandler implements Function<List<AccountInfo<AddressLookupT
   private final ExecutorService executorService;
   private final Call<List<AccountInfo<AddressLookupTable>>> call;
   private final Predicate<AddressLookupTable> filter;
+  private final TableStats tableStats;
 
   LookupTableCallHandler(final ExecutorService executorService,
                          final Call<List<AccountInfo<AddressLookupTable>>> call,
@@ -24,13 +25,15 @@ class LookupTableCallHandler implements Function<List<AccountInfo<AddressLookupT
                          final TableStats tableStats) {
     this.executorService = executorService;
     this.call = call;
-    this.filter = IS_ACTIVE.and(minAccountsFilter).and(tableStats::addAccountSet);
+    this.filter = IS_ACTIVE.and(minAccountsFilter).and(tableStats);
+    this.tableStats = tableStats;
   }
 
   @Override
   public AddressLookupTable[] apply(final List<AccountInfo<AddressLookupTable>> accountInfos) {
     return accountInfos.stream()
         .map(AccountInfo::data)
+        .peek(tableStats)
         .filter(filter)
         .sorted((a, b) -> Integer.compare(b.numUniqueAccounts(), a.numUniqueAccounts()))
         .toArray(AddressLookupTable[]::new);

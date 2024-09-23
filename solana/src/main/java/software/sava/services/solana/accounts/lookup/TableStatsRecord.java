@@ -3,16 +3,23 @@ package software.sava.services.solana.accounts.lookup;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.LongAdder;
 
 record TableStatsRecord(Set<Set<PublicKey>> accountSets,
                         LongAdder duplicateAccountSets,
                         double minEfficiencyRatio,
-                        LongAdder inneficientTables) implements TableStats {
+                        LongAdder inneficientTables,
+                        Map<PublicKey, SingleTableStats> tableStats) implements TableStats {
 
   @Override
-  public boolean addAccountSet(final AddressLookupTable table) {
+  public void accept(final AddressLookupTable lookupTable) {
+    tableStats.put(lookupTable.address(), SingleTableStats.createStats(lookupTable));
+  }
+
+  @Override
+  public boolean test(final AddressLookupTable table) {
     final double efficiency = table.numUniqueAccounts() / (double) table.numAccounts();
     if (efficiency < minEfficiencyRatio) {
       inneficientTables.increment();
@@ -28,8 +35,9 @@ record TableStatsRecord(Set<Set<PublicKey>> accountSets,
   @Override
   public String toString() {
     return String.format("""
-            [duplicateSets=%d] [inneficientTables=%d] [minEfficiencyRatio=%.2f]
+            [totalTables=%d] [duplicateSets=%d] [inneficientTables=%d] [minEfficiencyRatio=%.2f]
             """,
+        tableStats.size(),
         duplicateAccountSets.sum(),
         inneficientTables.sum(),
         minEfficiencyRatio

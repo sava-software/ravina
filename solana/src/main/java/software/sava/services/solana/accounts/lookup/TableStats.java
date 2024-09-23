@@ -3,11 +3,15 @@ package software.sava.services.solana.accounts.lookup;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
-public interface TableStats {
+public interface TableStats extends Consumer<AddressLookupTable>, Predicate<AddressLookupTable> {
 
   static TableStats createStats(double minEfficiencyRatio) {
     final var accountSets = new ConcurrentSkipListSet<Set<PublicKey>>((a, b) -> {
@@ -26,11 +30,12 @@ public interface TableStats {
         accountSets,
         new LongAdder(),
         minEfficiencyRatio,
-        new LongAdder()
+        new LongAdder(),
+        HashMap.newHashMap(1 << 21)
     );
   }
 
-  boolean addAccountSet(final AddressLookupTable table);
-
   void reset();
+
+  Map<PublicKey, SingleTableStats> tableStats();
 }
