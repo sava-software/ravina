@@ -26,7 +26,9 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -300,6 +302,19 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
   }
 
   @Override
+  public AddressLookupTable scanForTable(final PublicKey publicKey) {
+    return IntStream.range(0, NUM_PARTITIONS).parallel().mapToObj(partition -> {
+      final var tables = partitions.get(partition);
+      for (final var table : tables) {
+        if (table.address().equals(publicKey)) {
+          return table;
+        }
+      }
+      return null;
+    }).filter(Objects::nonNull).findFirst().orElse(null);
+  }
+
+  @Override
   public AddressLookupTable[] findOptimalSetOfTables(final Transaction transaction) {
     return findOptimalSetOfTables(LookupTableDiscoveryService.distinctAccounts(transaction));
   }
@@ -538,6 +553,9 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
     );
     final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
     final var transaction = Transaction.createTx(feePayer, placeOrderIx);
+    final var request = HttpRequest.newBuilder(URI.create("[0:0:0:0:0:0:0:0]:56966"))
+        .POST(HttpRequest.BodyPublishers.ofByteArray(transaction.serialized()));
+
 
 
     var tables = tableService.findOptimalSetOfTables(transaction);
