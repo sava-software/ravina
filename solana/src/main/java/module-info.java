@@ -7,7 +7,10 @@ module software.sava.solana_services {
   requires systems.comodal.json_iterator;
   requires java.net.http;
   requires software.sava.core;
+  requires jdk.httpserver;
+  requires org.bouncycastle.provider;
 
   exports software.sava.services.solana.accounts.lookup;
   exports software.sava.services.solana.remote.call;
+  exports software.sava.services.solana.accounts.lookup.http;
 }
