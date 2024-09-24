@@ -51,16 +51,16 @@ abstract class RootHttpHandler implements HttpHandler {
     }
   }
 
-  protected final Encoding getEncoding(final HttpExchange exchange) {
+  protected final ByteEncoding getEncoding(final HttpExchange exchange) {
     final var headers = exchange.getRequestHeaders();
-    final var encodingHeaders = headers.get("X-ENCODING");
+    final var encodingHeaders = headers.get("X-BYTE-ENCODING");
     if (encodingHeaders == null || encodingHeaders.isEmpty()) {
-      return Encoding.base64;
+      return ByteEncoding.base64;
     } else {
       try {
-        return Encoding.valueOf(encodingHeaders.getFirst());
+        return ByteEncoding.valueOf(encodingHeaders.getFirst());
       } catch (final RuntimeException ex) {
-        writeResponse(415, exchange, String.format("Supported encodings %s, not %s", Arrays.toString(Encoding.values()), encodingHeaders));
+        writeResponse(415, exchange, String.format("Supported encodings %s, not %s", Arrays.toString(ByteEncoding.values()), encodingHeaders));
         return null;
       }
     }

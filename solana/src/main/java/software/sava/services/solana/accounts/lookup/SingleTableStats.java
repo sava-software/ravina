@@ -7,4 +7,8 @@ public record SingleTableStats(long numAccounts, long distinctAccount) {
   static SingleTableStats createStats(final AddressLookupTable table) {
     return new SingleTableStats(table.numAccounts(), table.numUniqueAccounts());
   }
+
+  double accountEfficiency() {
+    return distinctAccount / (double) numAccounts;
+  }
 }

@@ -11,17 +11,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
-final class TxHandler extends LookupTableDiscoveryServiceHandler {
+final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
 
-  private static final System.Logger logger = System.getLogger(TxHandler.class.getName());
+  private static final System.Logger logger = System.getLogger(RawTxHandler.class.getName());
 
-  TxHandler(final LookupTableDiscoveryService tableService,
-            final LookupTableCache tableCache) {
+  RawTxHandler(final LookupTableDiscoveryService tableService,
+               final LookupTableCache tableCache) {
     super(tableService, tableCache);
   }
 
   private void writeResponse(final HttpExchange exchange,
-                             final Encoding encoding,
+                             final ByteEncoding encoding,
                              final AddressLookupTable[] lookupTables) {
     if (lookupTables.length == 0) {
       writeResponse(exchange, """

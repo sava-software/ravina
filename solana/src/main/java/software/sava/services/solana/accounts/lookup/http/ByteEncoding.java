@@ -5,7 +5,7 @@ import software.sava.core.encoding.Jex;
 import java.util.Base64;
 import java.util.function.Function;
 
-public enum Encoding {
+public enum ByteEncoding {
 
   base64(Base64.getDecoder()::decode, Base64.getEncoder()::encodeToString),
   hex(Jex::decode, Jex::encode);
@@ -13,8 +13,8 @@ public enum Encoding {
   private final Function<String, byte[]> decodeString;
   private final Function<byte[], String> encodeToString;
 
-  Encoding(final Function<String, byte[]> decodeString,
-           final Function<byte[], String> encodeToString) {
+  ByteEncoding(final Function<String, byte[]> decodeString,
+               final Function<byte[], String> encodeToString) {
     this.decodeString = decodeString;
     this.encodeToString = encodeToString;
   }

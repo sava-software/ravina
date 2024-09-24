@@ -8,12 +8,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-public interface TableStats extends Consumer<AddressLookupTable>, Predicate<AddressLookupTable> {
+public interface TableStats extends Predicate<AddressLookupTable> {
 
-  static TableStats createStats(double minEfficiencyRatio) {
+  static TableStats createStats(int minAccountsPerTable, double minEfficiencyRatio) {
     final var accountSets = new ConcurrentSkipListSet<Set<PublicKey>>((a, b) -> {
       final int sizeCompare = Integer.compare(a.size(), b.size());
       if (sizeCompare == 0) {
@@ -29,7 +28,9 @@ public interface TableStats extends Consumer<AddressLookupTable>, Predicate<Addr
     return new TableStatsRecord(
         accountSets,
         new LongAdder(),
+        minAccountsPerTable,
         minEfficiencyRatio,
+        new LongAdder(),
         new LongAdder(),
         HashMap.newHashMap(1 << 21)
     );

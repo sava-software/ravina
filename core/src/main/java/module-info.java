@@ -5,6 +5,7 @@ module software.sava.core_services {
   requires systems.comodal.json_iterator;
 
   requires java.net.http;
+  requires java.management;
 
   uses ErrorTrackerFactory;
 

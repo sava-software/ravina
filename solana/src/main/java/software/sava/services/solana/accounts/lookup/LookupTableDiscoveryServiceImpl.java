@@ -12,7 +12,6 @@ import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.core.accounts.sysvar.Clock;
 import software.sava.core.encoding.ByteUtil;
-import software.sava.core.encoding.Jex;
 import software.sava.core.rpc.Filter;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
@@ -27,11 +26,15 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -39,30 +42,33 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiFunction;
-import java.util.function.Predicate;
 import java.util.stream.IntStream;
 
 import static java.lang.System.Logger.Level.*;
 import static java.nio.file.StandardOpenOption.*;
 import static java.util.concurrent.TimeUnit.HOURS;
-import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static software.sava.core.accounts.lookup.AddressLookupTable.AUTHORITY_OPTION_OFFSET;
 import static software.sava.core.accounts.lookup.AddressLookupTable.DEACTIVATION_SLOT_OFFSET;
 import static software.sava.services.core.remote.call.ErrorHandler.linearBackoff;
+import static software.sava.services.solana.accounts.lookup.LookupTableCallHandler.BY_UNIQUE_ACCOUNTS_REVERSED;
 import static software.sava.services.solana.remote.call.RemoteCallUtil.createRpcClientErrorHandler;
 
-public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryService {
+final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryService {
 
   private static final System.Logger logger = System.getLogger(LookupTableDiscoveryServiceImpl.class.getName());
 
+
   static final int MAX_ACCOUNTS_PER_TX = 64;
 
-  private static final BiFunction<PublicKey, byte[], AddressLookupTable> WITHOUT_REVERSE_LOOKUP_FACTORY = AddressLookupTable::readWithoutReverseLookup;
+  static final BiFunction<PublicKey, byte[], AddressLookupTable> WITHOUT_REVERSE_LOOKUP_FACTORY = AddressLookupTable::readWithoutReverseLookup;
 
-  private static final int NUM_PARTITIONS = 257;
-  private static final Filter ACTIVE_FILTER;
-  private static final Filter NO_AUTHORITY_FILTER = Filter.createMemCompFilter(AUTHORITY_OPTION_OFFSET, new byte[]{0});
-  private static final Filter[] PARTITION_FILTERS;
+  static final int NUM_PARTITIONS = 257;
+  static final Filter ACTIVE_FILTER;
+  static final Filter NO_AUTHORITY_FILTER = Filter.createMemCompFilter(AUTHORITY_OPTION_OFFSET, new byte[]{0});
+  static final Filter[] PARTITION_FILTERS;
+
+  private static final VarHandle ALL_TABLES;
 
   static {
     final byte[] stillActive = new byte[Long.BYTES];
@@ -76,6 +82,12 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
       partitionFilters[i] = Filter.createMemCompFilter(AUTHORITY_OPTION_OFFSET, partition);
     }
     PARTITION_FILTERS = partitionFilters;
+    try {
+      final var l = MethodHandles.lookup();
+      ALL_TABLES = l.findVarHandle(LookupTableDiscoveryServiceImpl.class, "allTables", AddressLookupTable[].class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
   }
 
   private static Path resolvePartitionCacheFile(final Path altCacheDirectory, final int partition) {
@@ -84,89 +96,48 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
 
   private final ExecutorService executorService;
   private final CompletableFuture<Void> initialized;
-  private final PublicKey altProgram;
   private final int maxConcurrentRequests;
   private final TableStats tableStats;
   private final AtomicReferenceArray<AddressLookupTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
   private final Path altCacheDirectory;
-  private final boolean cacheOnly;
+  private final Duration reloadDelay;
+  // Query
+  private final int numPartitionsPerQuery;
+  private final int topTablesPerPartition;
+  private final int minScore;
+  private volatile AddressLookupTable[] allTables;
 
-  private AddressLookupTable[] allTables;
+  LookupTableDiscoveryServiceImpl(final ExecutorService executorService,
+                                  final int maxConcurrentRequests,
+                                  final TableStats tableStats,
+                                  final AtomicReferenceArray<AddressLookupTable[]> partitions,
+                                  final PartitionedLookupTableCallHandler[] partitionedCallHandlers,
+                                  final Path altCacheDirectory,
+                                  final Duration reloadDelay,
+                                  final int numPartitionsPerQuery,
+                                  final int topTablesPerPartition,
+                                  final int minScore) {
+    this.executorService = executorService;
+    this.initialized = new CompletableFuture<>();
+    this.maxConcurrentRequests = maxConcurrentRequests;
+    this.tableStats = tableStats;
+    this.partitions = partitions;
+    this.partitionedCallHandlers = partitionedCallHandlers;
+    this.altCacheDirectory = altCacheDirectory;
+    this.reloadDelay = reloadDelay;
+    this.numPartitionsPerQuery = numPartitionsPerQuery;
+    this.topTablesPerPartition = topTablesPerPartition;
+    this.minScore = minScore;
+    this.allTables = new AddressLookupTable[0];
+  }
 
   private void joinPartitions() {
     allTables = IntStream.range(0, NUM_PARTITIONS)
         .mapToObj(partitions::getOpaque)
         .flatMap(Arrays::stream)
-        .sorted(Comparator.comparingInt(AddressLookupTable::numUniqueAccounts).reversed())
+        .sorted(BY_UNIQUE_ACCOUNTS_REVERSED)
         .toArray(AddressLookupTable[]::new);
-  }
-
-  public LookupTableDiscoveryServiceImpl(final ExecutorService executorService,
-                                         final LoadBalancer<SolanaRpcClient> rpcClients,
-                                         final BalancedErrorHandler<SolanaRpcClient> balancedErrorHandler,
-                                         final NativeProgramClient nativeProgramClient,
-                                         final int maxConcurrentRequests,
-                                         final int minAccountsPerTable,
-                                         final Path altCacheDirectory,
-                                         final boolean cacheOnly) {
-    this.executorService = executorService;
-    this.altCacheDirectory = altCacheDirectory;
-    this.cacheOnly = cacheOnly;
-    this.initialized = new CompletableFuture<>();
-    this.altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
-    this.maxConcurrentRequests = maxConcurrentRequests;
-    this.partitions = new AtomicReferenceArray<>(NUM_PARTITIONS);
-    final Predicate<AddressLookupTable> minAccountsFilter = alt -> alt.numUniqueAccounts() > minAccountsPerTable;
-    final var noAuthorityCall = Call.createCall(
-        rpcClients, rpcClient -> rpcClient.getProgramAccounts(
-            altProgram,
-            List.of(
-                ACTIVE_FILTER,
-                NO_AUTHORITY_FILTER
-            ),
-            AddressLookupTable.FACTORY
-        ),
-        CallContext.DEFAULT_CALL_CONTEXT,
-        1, Integer.MAX_VALUE, false,
-        balancedErrorHandler,
-        "rpcClient::getProgramAccounts"
-    );
-    this.partitionedCallHandlers = new PartitionedLookupTableCallHandler[NUM_PARTITIONS];
-    this.tableStats = TableStats.createStats(.8);
-    this.partitionedCallHandlers[0] = new PartitionedLookupTableCallHandler(
-        executorService,
-        noAuthorityCall,
-        minAccountsFilter,
-        tableStats,
-        0,
-        partitions
-    );
-    for (int i = 1; i < NUM_PARTITIONS; ++i) {
-      final var partitionFilter = PARTITION_FILTERS[i];
-      final var call = Call.createCall(
-          rpcClients, rpcClient -> rpcClient.getProgramAccounts(
-              altProgram,
-              List.of(
-                  ACTIVE_FILTER,
-                  partitionFilter
-              ),
-              WITHOUT_REVERSE_LOOKUP_FACTORY
-          ),
-          CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, false,
-          balancedErrorHandler,
-          "rpcClient::getProgramAccounts"
-      );
-      this.partitionedCallHandlers[i] = new PartitionedLookupTableCallHandler(
-          executorService,
-          call,
-          minAccountsFilter,
-          tableStats,
-          i,
-          partitions
-      );
-    }
   }
 
   @Override
@@ -177,6 +148,7 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
   private static ScoredTable[] rankTables(final AddressLookupTable[] partition,
                                           final int from, final int to,
                                           final Set<PublicKey> accounts,
+                                          final int minScorePerTable,
                                           final int limit) {
     final ScoredTable[] rankedTables = new ScoredTable[limit];
 
@@ -194,7 +166,7 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
           ++score;
         }
       }
-      if (score > 1) {
+      if (score > minScorePerTable) {
         rankedTables[added] = new ScoredTable(score, table);
         if (score < minScore) {
           minScore = score;
@@ -223,7 +195,6 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
           }
         }
         if (score > minScore) {
-
           int r = removeIndex - 1;
           rankedTables[removeIndex] = rankedTables[r];
           for (; r >= 0; --r) {
@@ -242,19 +213,19 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
   }
 
 
-  private static final int LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST = 16;
-
   public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
+    final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
-    final int windowSize = numTables / 8;
+    final int windowSize = numTables / numPartitionsPerQuery;
     final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
         .parallel()
         .mapToObj(i -> rankTables(
             allTables,
             i, Math.min(i + windowSize, numTables),
             distinctAccounts,
-            LIMIT_TOP_TABLES_PER_PARTITION_PER_REQUEST)
-        )
+            minScore,
+            topTablesPerPartition
+        ))
         .filter(Objects::nonNull)
         .flatMap(Arrays::stream)
         .sorted()
@@ -381,6 +352,11 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
     }
   }
 
+  @Override
+  public CompletableFuture<Void> initialized() {
+    return initialized;
+  }
+
   private void loadCache() {
     if (altCacheDirectory != null) {
       final long start = System.currentTimeMillis();
@@ -472,7 +448,7 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
 
   public void run() {
     loadCache();
-    if (cacheOnly) {
+    if (reloadDelay == null) {
       return;
     }
     try {
@@ -504,12 +480,12 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
 
         System.out.println(tableStats);
         tableStats.reset();
-        MINUTES.sleep(60);
+        SECONDS.sleep(reloadDelay.toSeconds());
       }
     } catch (final InterruptedException e) {
       // return;
     } catch (final RuntimeException ex) {
-      initialized.completeExceptionally(ex);
+      initialized.obtrudeException(ex);
       throw ex;
     }
   }
@@ -580,7 +556,7 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
   public static void main(final String[] args) throws IOException, InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newHttpClient()) {
-        final var altCacheDirectory = Path.of(System.getProperty("software.sava.services.solana.altCacheDirectory")).toAbsolutePath();
+        final var serviceConfig = LookupTableServiceConfig.loadConfig();
         final var configFile = Path.of(System.getProperty("software.sava.services.solana.rpcConfigFile")).toAbsolutePath();
         final UriCapacityConfig rpcConfig = UriCapacityConfig.parseConfig(JsonIterator.parse(Files.readAllBytes(configFile)));
         final var endpoint = rpcConfig.endpoint();
@@ -591,21 +567,17 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
         );
         final var rpcClients = LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, monitor), defaultErrorHandler);
         final var nativeProgramClient = NativeProgramClient.createClient();
-        final boolean cacheOnly = true;
-        final var tableService = new LookupTableDiscoveryServiceImpl(
+
+        final var tableService = LookupTableDiscoveryService.createService(
             executorService,
-            rpcClients,
+            serviceConfig,
             defaultErrorHandler,
-            nativeProgramClient,
-            10,
-            34,
-            altCacheDirectory,
-            cacheOnly
+            nativeProgramClient
         );
         executorService.execute(tableService);
-        tableService.initialized.join();
+        tableService.initialized().join();
 
-        if (cacheOnly) {
+        if (serviceConfig.discoveryConfig().remoteLoadConfig().reloadDelay() == null) {
           test(
               nativeProgramClient,
               rpcClients,
@@ -615,7 +587,6 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
           );
         }
         HOURS.sleep(24);
-        return;
       }
     }
   }

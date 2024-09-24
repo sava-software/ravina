@@ -7,7 +7,6 @@ import software.sava.services.core.remote.call.Call;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReferenceArray;
-import java.util.function.Predicate;
 
 final class PartitionedLookupTableCallHandler extends LookupTableCallHandler {
 
@@ -16,11 +15,10 @@ final class PartitionedLookupTableCallHandler extends LookupTableCallHandler {
 
   PartitionedLookupTableCallHandler(final ExecutorService executorService,
                                     final Call<List<AccountInfo<AddressLookupTable>>> call,
-                                    final Predicate<AddressLookupTable> minAccountsFilter,
                                     final TableStats tableStats,
                                     final int partition,
                                     final AtomicReferenceArray<AddressLookupTable[]> partitions) {
-    super(executorService, call, minAccountsFilter, tableStats);
+    super(executorService, call, tableStats);
     this.partition = partition;
     this.partitions = partitions;
   }
