@@ -12,6 +12,7 @@ import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.core.accounts.sysvar.Clock;
 import software.sava.core.encoding.ByteUtil;
+import software.sava.core.encoding.Jex;
 import software.sava.core.rpc.Filter;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
@@ -99,7 +100,6 @@ public final class LookupTableDiscoveryServiceImpl implements LookupTableDiscove
         .flatMap(Arrays::stream)
         .sorted(Comparator.comparingInt(AddressLookupTable::numUniqueAccounts).reversed())
         .toArray(AddressLookupTable[]::new);
-
   }
 
   public LookupTableDiscoveryServiceImpl(final ExecutorService executorService,

@@ -51,7 +51,7 @@ public final class LookupTableWebService {
         );
         executorService.execute(tableService);
 
-        final var httpServer = HttpServer.create(new InetSocketAddress(0), 0);
+        final var httpServer = HttpServer.create(new InetSocketAddress(4242), 0);
         httpServer.setExecutor(executorService);
 
         final var tableCache = LookupTableCache.createCache(executorService, 32_000, rpcClients);

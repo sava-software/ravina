@@ -7,9 +7,7 @@ import software.sava.core.tx.TransactionSkeleton;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 
@@ -22,14 +20,16 @@ final class TxHandler extends LookupTableDiscoveryServiceHandler {
     super(tableService, tableCache);
   }
 
-  private void writeResponse(final HttpExchange exchange, final AddressLookupTable[] lookupTables) {
+  private void writeResponse(final HttpExchange exchange,
+                             final Encoding encoding,
+                             final AddressLookupTable[] lookupTables) {
     if (lookupTables.length == 0) {
       writeResponse(exchange, """
           {"tables":{}}""");
     } else if (lookupTables.length == 1) {
       final var table = lookupTables[0];
       writeResponse(exchange, """
-          {"tables":{\"""" + table.address().toBase58() + "\":\"" + Base64.getEncoder().encodeToString(table.data()) + "\"}}");
+          {"tables":{\"""" + table.address().toBase58() + "\":\"" + encoding.encodeToString(table.data()) + "\"}}");
     } else {
       final var response = new StringBuilder(1_024 + (1_024 * lookupTables.length));
       response.append("""
@@ -37,7 +37,7 @@ final class TxHandler extends LookupTableDiscoveryServiceHandler {
       for (int i = 0; ; ++i) {
         final var table = lookupTables[i];
         response.append('"').append(table.address().toBase58()).append("""
-            ":\"""").append(Base64.getEncoder().encodeToString(table.data())).append('"');
+            ":\"""").append(encoding.encodeToString(table.data())).append('"');
         if (++i == lookupTables.length) {
           break;
         } else {
@@ -50,31 +50,28 @@ final class TxHandler extends LookupTableDiscoveryServiceHandler {
   }
 
   @Override
-  public void handle(final HttpExchange exchange) throws IOException {
-    if (!exchange.getRequestMethod().equals("POST")) {
+  public void handle(final HttpExchange exchange) {
+    if (!"POST".equals(exchange.getRequestMethod())) {
       writeResponse(400, exchange, "Must be a POST request not " + exchange.getRequestMethod());
       return;
     }
-    final byte[] body = exchange.getRequestBody().readAllBytes();
+    final var bodyString = readBodyAsString(exchange);
+    if (bodyString == null) {
+      return;
+    }
     try {
-      final var headers = exchange.getRequestHeaders();
-      final var encodingHeaders = headers.get("X-TX-ENCODING");
-      final var encoding = encodingHeaders == null || encodingHeaders.isEmpty() ? null : encodingHeaders.getFirst();
-
-      final byte[] txBytes;
-      if (encoding == null || encoding.equalsIgnoreCase("base64")) {
-        txBytes = Base64.getDecoder().decode(new String(body));
-      } else {
-        writeResponse(400, exchange, "Only base64 encoding is supported not " + encoding);
+      final var encoding = getEncoding(exchange);
+      if (encoding == null) {
         return;
       }
+      final byte[] txBytes = encoding.decode(bodyString);
 
       final var skeleton = TransactionSkeleton.deserializeSkeleton(txBytes);
       if (skeleton.isLegacy()) {
         final var accounts = skeleton.parseNonSignerPublicKeys();
         final var programs = skeleton.parseProgramAccounts();
         final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
-        writeResponse(exchange, lookupTables);
+        writeResponse(exchange, encoding, lookupTables);
       } else {
         final int txVersion = skeleton.version();
         if (txVersion == 0) {
@@ -115,14 +112,13 @@ final class TxHandler extends LookupTableDiscoveryServiceHandler {
 
           final var instructions = skeleton.parseInstructions(skeleton.parseAccounts(lookupTables));
           final var optimalTables = tableService.findOptimalSetOfTables(instructions);
-          writeResponse(exchange, optimalTables);
+          writeResponse(exchange, encoding, optimalTables);
         } else {
-          writeResponse(400, exchange, "Unsupported tx version " + txVersion);
+          writeResponse(400, exchange, "Unsupported transaction version " + txVersion);
         }
       }
     } catch (final RuntimeException ex) {
-      final var bodyString = new String(body);
-      logger.log(System.Logger.Level.ERROR, "Failed to process tx request " + bodyString, ex);
+      logger.log(System.Logger.Level.ERROR, "Failed to process request " + bodyString, ex);
       writeResponse(400, exchange, bodyString);
     }
   }
