@@ -12,15 +12,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 
+import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
                                  ErrorHandler defaultErrorHandler,
-                                 List<UriCapacityConfig> rpcConfigs) {
+                                 List<UriCapacityConfig> resourceConfigs) {
+
+  public <T> ArrayList<BalancedItem<T>> createItems(final BalanceItemFactory<T> createItem) {
+    final var items = new ArrayList<BalancedItem<T>>(resourceConfigs.size());
+    for (final var resourceConfig : resourceConfigs) {
+      final var endpoint = resourceConfig.endpoint();
+      final var serviceName = endpoint.getHost();
+      final var monitor = resourceConfig.createMonitor(
+          serviceName,
+          defaultCapacityConfig
+      );
+      final var errorHandler = requireNonNullElse(resourceConfig.errorHandler(), defaultErrorHandler);
+      final var item = createItem.createItem(resourceConfig, monitor, errorHandler);
+      items.add(item);
+    }
+    return items;
+  }
 
   public <T> ArrayList<BalancedItem<T>> createItems(final BiFunction<LoadBalancerConfig, UriCapacityConfig, BalancedItem<T>> createItem) {
-    final var items = new ArrayList<BalancedItem<T>>(rpcConfigs.size());
-    for (final var rpcConfig : rpcConfigs) {
+    final var items = new ArrayList<BalancedItem<T>>(resourceConfigs.size());
+    for (final var rpcConfig : resourceConfigs) {
       final var item = createItem.apply(this, rpcConfig);
       items.add(item);
     }
@@ -37,7 +54,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
 
     private CapacityConfig defaultCapacityConfig;
     private ErrorHandler defaultErrorHandler;
-    private List<UriCapacityConfig> rpcConfigs;
+    private List<UriCapacityConfig> resourceConfigs;
 
     private Builder() {
     }
@@ -46,7 +63,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       return new LoadBalancerConfig(
           defaultCapacityConfig,
           defaultErrorHandler,
-          rpcConfigs
+          resourceConfigs
       );
     }
 
@@ -62,7 +79,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
           final var rpcConfig = UriCapacityConfig.parseConfig(ji);
           rpcConfigs.add(rpcConfig);
         }
-        this.rpcConfigs = rpcConfigs;
+        this.resourceConfigs = rpcConfigs;
       } else {
         ji.skip();
       }
