@@ -237,7 +237,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         if (((mask & maskIndex) == maskIndex) && table.containKey(accountsArray[a])) {
           if (++totalAccountsFound == breakOut) {
             tables[t] = table;
-            return Arrays.copyOfRange(tables, 0, t);
+            return Arrays.copyOfRange(tables, 0, t + 1);
           }
           if (++numRemoved > 1) {
             mask ^= maskIndex;
@@ -484,6 +484,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       throw ex;
     }
   }
+
 
   public static void main(final String[] args) throws InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
