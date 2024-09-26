@@ -91,7 +91,7 @@ public interface LookupTableDiscoveryService extends Runnable {
   }
 
   static Set<PublicKey> distinctAccounts(final Instruction[] instructions) {
-    final var distinctAccounts = HashSet.<PublicKey>newHashSet(LookupTableDiscoveryServiceImpl.MAX_ACCOUNTS_PER_TX);
+    final var distinctAccounts = HashSet.<PublicKey>newHashSet(Transaction.MAX_ACCOUNTS);
     for (final var ix : instructions) {
       for (final var account : ix.accounts()) {
         if (!account.signer() && !account.invoked()) {
@@ -106,7 +106,7 @@ public interface LookupTableDiscoveryService extends Runnable {
   }
 
   static Set<PublicKey> distinctAccounts(final Transaction transaction) {
-    final var distinctAccounts = HashSet.<PublicKey>newHashSet(LookupTableDiscoveryServiceImpl.MAX_ACCOUNTS_PER_TX);
+    final var distinctAccounts = HashSet.<PublicKey>newHashSet(Transaction.MAX_ACCOUNTS);
     final var instructions = transaction.instructions();
     for (final var ix : instructions) {
       for (final var account : ix.accounts()) {
@@ -120,7 +120,9 @@ public interface LookupTableDiscoveryService extends Runnable {
 
   static Set<PublicKey> distinctAccounts(final PublicKey[] accounts, final PublicKey[] programs) {
     final var distinctAccounts = HashSet.<PublicKey>newHashSet(accounts.length);
+    //noinspection ManualArrayToCollectionCopy
     for (final var account : accounts) {
+      //noinspection UseBulkOperation
       distinctAccounts.add(account);
     }
     for (final var program : programs) {
@@ -146,4 +148,6 @@ public interface LookupTableDiscoveryService extends Runnable {
   AddressLookupTable scanForTable(final PublicKey publicKey);
 
   CompletableFuture<Void> initialized();
+
+  void loadCache();
 }

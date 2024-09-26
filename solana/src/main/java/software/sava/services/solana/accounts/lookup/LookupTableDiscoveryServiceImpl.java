@@ -1,23 +1,11 @@
 package software.sava.services.solana.accounts.lookup;
 
-import software.sava.anchor.programs.drift.DriftProduct;
-import software.sava.anchor.programs.drift.DriftProgramClient;
-import software.sava.anchor.programs.drift.DriftUtil;
-import software.sava.anchor.programs.drift.anchor.types.MarketType;
-import software.sava.anchor.programs.drift.anchor.types.OrderType;
-import software.sava.anchor.programs.drift.anchor.types.PositionDirection;
-import software.sava.anchor.programs.drift.anchor.types.PostOnlyParam;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
-import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.core.accounts.sysvar.Clock;
 import software.sava.core.encoding.ByteUtil;
 import software.sava.core.rpc.Filter;
 import software.sava.core.tx.Transaction;
-import software.sava.rpc.json.http.client.SolanaRpcClient;
-import software.sava.services.core.remote.call.Call;
-import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.io.IOException;
@@ -29,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -52,9 +39,6 @@ import static software.sava.services.solana.accounts.lookup.LookupTableCallHandl
 final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryService {
 
   private static final System.Logger logger = System.getLogger(LookupTableDiscoveryServiceImpl.class.getName());
-
-
-  static final int MAX_ACCOUNTS_PER_TX = 64;
 
   static final BiFunction<PublicKey, byte[], AddressLookupTable> WITHOUT_REVERSE_LOOKUP_FACTORY = AddressLookupTable::readWithoutReverseLookup;
 
@@ -142,7 +126,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
   private static ScoredTable[] rankTables(final AddressLookupTable[] partition,
                                           final int from, final int to,
-                                          final Set<PublicKey> accounts,
+                                          final PublicKey[] accounts,
                                           final int minScorePerTable,
                                           final int limit) {
     final var rankedTables = new ScoredTable[limit];
@@ -156,8 +140,9 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     for (; i < to; ++i) {
       table = partition[i];
       score = 0;
-      for (var pubKey : accounts) {
-        if (table.containKey(pubKey)) {
+      //noinspection ForLoopReplaceableByForEach
+      for (int a = 0; a < accounts.length; ++a) {
+        if (table.containKey(accounts[a])) {
           ++score;
         }
       }
@@ -184,8 +169,9 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       for (int r; i < to; ++i) {
         table = partition[i];
         score = 0;
-        for (var pubKey : accounts) {
-          if (table.containKey(pubKey)) {
+        //noinspection ForLoopReplaceableByForEach
+        for (int a = 0; a < accounts.length; ++a) {
+          if (table.containKey(accounts[a])) {
             ++score;
           }
         }
@@ -207,16 +193,18 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
+  @Override
   public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
     final int windowSize = numTables / numPartitionsPerQuery;
+    final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
     final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
         .parallel()
         .mapToObj(i -> rankTables(
             allTables,
             i, Math.min(i + windowSize, numTables),
-            distinctAccounts,
+            accountsArray,
             minScore,
             topTablesPerPartition
         ))
@@ -228,38 +216,44 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
     final int numAccounts = distinctAccounts.size();
     final int breakOut = numAccounts - 1;
-    final var tables = new AddressLookupTable[MAX_ACCOUNTS_PER_TX >> 1];
+    final var tables = new AddressLookupTable[Transaction.MAX_ACCOUNTS >> 1];
 
-    int totalAccountsFound = 0;
-    PublicKey next;
-    PublicKey removed = null;
-    int numRemoved;
     int t = 0;
-    Iterator<PublicKey> iterator;
-    // TODO: mark first removal only to avoid rollback.
-    for (var table : scoredTables) {
-      iterator = distinctAccounts.iterator();
+
+    long mask = 0xFFFFFFFFFFFFFFFFL >>> (Long.SIZE - numAccounts);
+    long maskIndex = 1;
+    long firstMaskIndex = 0;
+
+    AddressLookupTable table;
+    for (int i = 0,
+         totalAccountsFound = 0,
+         from = 0,
+         to = Long.SIZE - Long.numberOfLeadingZeros(mask),
+         numRemoved,
+         a; i < tables.length; ++i) {
+      table = scoredTables[i];
       numRemoved = 0;
-      do {
-        next = iterator.next();
-        if (table.containKey(next)) {
-          if (++totalAccountsFound == numAccounts) {
-            tables[t++] = table;
+      for (a = from; a < to; ++a, maskIndex <<= 1) {
+        if (((mask & maskIndex) == maskIndex) && table.containKey(accountsArray[a])) {
+          if (++totalAccountsFound == breakOut) {
+            tables[t] = table;
             return Arrays.copyOfRange(tables, 0, t);
           }
-          iterator.remove();
-          removed = next;
-          ++numRemoved;
+          if (++numRemoved > 1) {
+            mask ^= maskIndex;
+          } else {
+            firstMaskIndex = maskIndex;
+          }
         }
-      } while (iterator.hasNext());
+      }
 
       if (numRemoved > 1) {
         tables[t++] = table;
-        if (totalAccountsFound == breakOut) { // Only one account remaining.
-          return Arrays.copyOfRange(tables, 0, t);
-        }
+        mask ^= firstMaskIndex;
+        maskIndex = Long.lowestOneBit(mask);
+        from = Long.numberOfTrailingZeros(mask);
+        to = Long.SIZE - Long.numberOfLeadingZeros(mask);
       } else if (numRemoved == 1) { // No point in referencing an ALT if it only contains one account. Rollback.
-        distinctAccounts.add(removed);
         --totalAccountsFound;
       }
     }
@@ -353,7 +347,8 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     return initialized;
   }
 
-  private void loadCache() {
+  @Override
+  public void loadCache() {
     if (altCacheDirectory != null) {
       final long start = System.currentTimeMillis();
       final long numPartitionsLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
@@ -443,7 +438,9 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   public void run() {
-    loadCache();
+    if (allTables.length == 0) {
+      loadCache();
+    }
     if (reloadDelay == null) {
       return;
     }
@@ -488,68 +485,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
-  private static void test(final NativeProgramClient nativeProgramClient,
-                           final LoadBalancer<SolanaRpcClient> rpcClients,
-                           final ExecutorService executorService,
-                           final LookupTableDiscoveryService tableService) {
-    final var feePayer = AccountMeta.createFeePayer(PublicKey.fromBase58Encoded("savaKKJmmwDsHHhxV6G293hrRM4f1p6jv6qUF441QD3"));
-    final var nativeAccountClient = nativeProgramClient.createAccountClient(feePayer);
-    final var driftClient = DriftProgramClient.createClient(nativeAccountClient);
-
-    final var mainAccountFuture = Call.createCall(
-        rpcClients, driftClient::fetchUser,
-        CallContext.DEFAULT_CALL_CONTEXT,
-        1, Integer.MAX_VALUE, false,
-        "driftClient::fetchUser"
-    ).async(executorService);
-
-    final var marketConfig = driftClient.perpMarket(DriftProduct.SOL_PERP);
-    final var extras = driftClient.extraAccounts();
-    final var mainAccount = mainAccountFuture.join();
-    extras.userAndMarket(mainAccount.data(), marketConfig);
-    final var extraMetas = extras.toList();
-
-    final var orderParam = DriftUtil.simpleOrder(
-        OrderType.Limit,
-        MarketType.Perp,
-        PositionDirection.Long,
-        0,
-        1_0000_0000,
-        1_0000_0000,
-        marketConfig.marketIndex(),
-        false,
-        PostOnlyParam.MustPostOnly,
-        false
-    );
-    final var placeOrderIx = driftClient.placePerpOrder(orderParam).extraAccounts(extraMetas);
-    final var transaction = Transaction.createTx(feePayer, placeOrderIx);
-
-    var tables = tableService.findOptimalSetOfTables(transaction);
-    Arrays.stream(tables).map(AddressLookupTable::address).forEach(System.out::println);
-    final var distinctAccounts = LookupTableDiscoveryService.distinctAccounts(transaction);
-    final var _tables = tables;
-    final long count = distinctAccounts.stream()
-        .filter(account -> Arrays.stream(_tables)
-            .anyMatch(table -> table.containKey(account))
-        )
-        .count();
-    System.out.format("Matched %d/%d accounts.%n", count, distinctAccounts.size());
-
-    final long[] samples = new long[32];
-    for (int i = 0; i < samples.length; ++i) {
-      final long start = System.currentTimeMillis();
-      tableService.findOptimalSetOfTables(transaction);
-      final long sample = System.currentTimeMillis() - start;
-      samples[i] = sample;
-    }
-    System.out.println(Arrays.stream(samples).skip(1).summaryStatistics());
-    Arrays.sort(samples);
-    final int middle = samples.length / 2;
-    System.out.format("Median=%.0f%n", (samples[middle - 1] + samples[middle]) / 2.0
-    );
-  }
-
-  public static void main(final String[] args) throws IOException, InterruptedException {
+  public static void main(final String[] args) throws InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newHttpClient()) {
         final var serviceConfig = LookupTableServiceConfig.loadConfig(httpClient);
@@ -562,15 +498,6 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         );
         executorService.execute(tableService);
         tableService.initialized().join();
-
-        if (serviceConfig.discoveryConfig().remoteLoadConfig().reloadDelay() == null) {
-          test(
-              nativeProgramClient,
-              serviceConfig.rpcClients(),
-              executorService,
-              tableService
-          );
-        }
         HOURS.sleep(24);
       }
     }
