@@ -69,8 +69,8 @@ table authority, and one for tables with no authority (frozen).
 While fetching remote tables it filters out subjectively non-useful tables using the discovery parameters documented
 below.
 
-Once all tables are retrieved they are joined into a single array. The size after filtering currently does not justify
-creating indexes to support queries, however a parallel score/map and reduce does improve performance.
+Once all tables are retrieved they are joined into a single array. Per query there is a parallel score/map and reduce
+step.
 
 Scoring a table represents how many indexable accounts from the query exist in the table.
 
