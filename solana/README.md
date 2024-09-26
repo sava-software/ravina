@@ -74,12 +74,12 @@ creating indexes to support queries, however a parallel score/map and reduce doe
 
 Scoring a table represents how my indexable accounts from the query exist in the table.
 
-* **cacheDirectory**: Binary files of lookup tables with be stored here. This allows the server to bootstrap more
-  quickly.
-* **remoteLoad**: parameters relevant to loading tables from remote RPC nodes.
+* **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
+  couple of seconds (local ssd).
+* **remoteLoad**: Parameters relevant to loading tables from remote RPC nodes.
     * minUniqueAccountsPerTable
-    * minTableEfficiency: uniqueAccounts / numAccounts
-    * maxConcurrentRequests: max number of partitions that can be fetched concurrently.
+    * minTableEfficiency: `uniqueAccounts / numAccounts`
+    * maxConcurrentRequests: Max number of partitions that can be fetched concurrently.
     * reloadDelay: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
 * **query**: Per query related parameters.
     * numPartitions: The initial task of scoring tables will be divided into this many parallel window.
@@ -88,7 +88,7 @@ Scoring a table represents how my indexable accounts from the query exist in the
 
 ### web
 
-* **port**: port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
+* **port**: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
   to will be logged to the terminal.
 
 ### tableCache
