@@ -199,6 +199,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     final int numTables = allTables.length;
     final int windowSize = numTables / numPartitionsPerQuery;
     final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
+
     final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
         .parallel()
         .mapToObj(i -> rankTables(
@@ -214,7 +215,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         .map(ScoredTable::table)
         .toArray(AddressLookupTable[]::new);
 
-    final int numAccounts = distinctAccounts.size();
+    final int numAccounts = accountsArray.length;
     final int breakOut = numAccounts - 1;
     final var tables = new AddressLookupTable[Transaction.MAX_ACCOUNTS >> 1];
 
@@ -228,7 +229,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     for (int i = 0,
          totalAccountsFound = 0,
          from = 0,
-         to = Long.SIZE - Long.numberOfLeadingZeros(mask),
+         to = numAccounts,
          numRemoved,
          a; i < tables.length; ++i) {
       table = scoredTables[i];
@@ -257,6 +258,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         --totalAccountsFound;
       }
     }
+
     return t == 0 ? null : Arrays.copyOfRange(tables, 0, t);
   }
 
