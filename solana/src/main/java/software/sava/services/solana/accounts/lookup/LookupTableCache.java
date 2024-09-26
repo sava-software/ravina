@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
+import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_MULTIPLE_ACCOUNTS;
+
 public interface LookupTableCache {
 
   static LookupTableCache createCache(final ExecutorService executorService,
@@ -38,8 +40,12 @@ public interface LookupTableCache {
   void refreshStaleAccounts(final Duration staleIfOlderThan, final int batchSize);
 
   default void refreshStaleAccounts(final Duration staleIfOlderThan) {
-    refreshStaleAccounts(staleIfOlderThan, SolanaRpcClient.MAX_MULTIPLE_ACCOUNTS);
+    refreshStaleAccounts(staleIfOlderThan, MAX_MULTIPLE_ACCOUNTS);
   }
 
   int refreshOldestAccounts(final int limit);
+
+  default int refreshOldestAccounts() {
+    return refreshOldestAccounts(MAX_MULTIPLE_ACCOUNTS);
+  }
 }

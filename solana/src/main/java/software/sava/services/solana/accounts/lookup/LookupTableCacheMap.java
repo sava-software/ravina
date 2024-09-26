@@ -5,7 +5,6 @@ import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
-import software.sava.services.core.remote.call.BalancedErrorHandler;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;

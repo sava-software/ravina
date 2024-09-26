@@ -76,9 +76,9 @@ Scoring a table represents how many indexable accounts from the query exist in t
 
 * **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
   couple of seconds (local SSD).
-* **remoteLoad**: Parameters relevant to loading tables from remote RPC nodes.
+* **remoteLoad**: Parameters relevant to loading and filtering tables from remote RPC nodes.
     * **minUniqueAccountsPerTable**
-    * **minTableEfficiency**: `uniqueAccounts / numAccounts`
+    * **minTableEfficiency**: `numUniqueAccounts / numAccounts`
     * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
     * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
 * **query**: Per query related parameters.
@@ -91,7 +91,7 @@ Scoring a table represents how many indexable accounts from the query exist in t
 Web Server parameters.
 
 * **port**: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
-  to will be logged to the terminal.
+  to will be logged.
 
 ### tableCache
 
