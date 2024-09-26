@@ -66,27 +66,29 @@
 The service loads all lookup tables stored on chain, and does so in 257 partitions. 256 based on the first byte of the
 table authority, and one for tables with no authority (frozen).
 
-While fetching remote tables it subjectively filters out non-useful tables using the discovery parameters documented
+While fetching remote tables it filters out subjectively non-useful tables using the discovery parameters documented
 below.
 
 Once all tables are retrieved they are joined into a single array. The size after filtering currently does not justify
-creating indexes to support queries, however a parallel score/map and reduce does improve performance per query.
+creating indexes to support queries, however a parallel score/map and reduce does improve performance.
 
-Scoring a table represents how my indexable accounts from the query exist in the table.
+Scoring a table represents how many indexable accounts from the query exist in the table.
 
 * **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
-  couple of seconds (local ssd).
+  couple of seconds (local SSD).
 * **remoteLoad**: Parameters relevant to loading tables from remote RPC nodes.
     * **minUniqueAccountsPerTable**
     * **minTableEfficiency**: `uniqueAccounts / numAccounts`
     * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
     * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
 * **query**: Per query related parameters.
-    * **numPartitions**: The initial task of scoring tables will be divided into this many parallel window.
+    * **numPartitions**: The initial task of scoring tables will be divided into this many parallel windows.
     * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
     * **minScore**: Minimum score at the map/score step for a table to be eligible for reduction.
 
 ### web
+
+Web Server parameters.
 
 * **port**: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
   to will be logged to the terminal.
@@ -97,7 +99,15 @@ The table cache is used to support requests which send a versioned transaction. 
 re-optimize an existing versioned transaction with multiple lookup tables or if you would like to recover rent from a
 redundant table account.
 
-* initialCapacity: If you do not intend to send versioned transactions to this service, set this to 0. Otherwise, try to
+* **initialCapacity**: If you do not intend to send versioned transactions to this service, set this to 0. Otherwise,
+  try to
   estimate how many unique table accounts will be encountered via queries.
-* refreshStaleItemsDelay: `java.time.Duration` encoded delay between driving a refresh of the table cache.
-* consideredStale: `java.time.Duration` encoded duration to define tables which are stale versus their on-chain state.
+* **refreshStaleItemsDelay**: `java.time.Duration` encoded delay between driving a refresh of the table cache.
+* **consideredStale**: `java.time.Duration` encoded duration to define tables which are stale versus their on-chain
+  state.
+
+### rpc
+
+1-N remote RPC node configurations.
+
+* **defaultCapacity**: 
