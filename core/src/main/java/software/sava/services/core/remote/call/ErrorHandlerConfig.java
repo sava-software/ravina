@@ -19,7 +19,7 @@ public record ErrorHandlerConfig(BackoffStrategy strategy,
     };
   }
 
-  private static ErrorHandlerConfig parseConfig(final JsonIterator ji) {
+  public static ErrorHandlerConfig parseConfig(final JsonIterator ji) {
     final var parser = new Builder();
     ji.testObject(parser);
     return parser.create();

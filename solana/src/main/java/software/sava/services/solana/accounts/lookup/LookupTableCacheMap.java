@@ -27,7 +27,6 @@ final class LookupTableCacheMap implements LookupTableCache {
 
   private final ExecutorService executorService;
   private final LoadBalancer<SolanaRpcClient> rpcClients;
-  private final BalancedErrorHandler<SolanaRpcClient> balancedErrorHandler;
   private final ConcurrentHashMap<PublicKey, Entry> lookupTableCache;
   private final int defaultMaxAccounts;
   private final Function<AccountInfo<AddressLookupTable>, AddressLookupTable> handleResponse;
@@ -35,10 +34,8 @@ final class LookupTableCacheMap implements LookupTableCache {
   LookupTableCacheMap(final ExecutorService executorService,
                       final int initialCapacity,
                       final LoadBalancer<SolanaRpcClient> rpcClients,
-                      final BalancedErrorHandler<SolanaRpcClient> balancedErrorHandler,
                       final int defaultMaxAccounts) {
     this.executorService = executorService;
-    this.balancedErrorHandler = balancedErrorHandler;
     this.rpcClients = rpcClients;
     this.lookupTableCache = new ConcurrentHashMap<>(initialCapacity);
     this.defaultMaxAccounts = defaultMaxAccounts;
@@ -88,7 +85,6 @@ final class LookupTableCacheMap implements LookupTableCache {
         rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, AddressLookupTable.FACTORY),
         CallContext.DEFAULT_CALL_CONTEXT,
         1, Integer.MAX_VALUE, true,
-        balancedErrorHandler,
         "rpcClient::getAccountInfo"
     );
   }
@@ -167,7 +163,6 @@ final class LookupTableCacheMap implements LookupTableCache {
               rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, AddressLookupTable.FACTORY),
               CallContext.DEFAULT_CALL_CONTEXT,
               1, Integer.MAX_VALUE, true,
-              balancedErrorHandler,
               "rpcClient::getMultipleAccounts"
           ).get();
           final long fetchedAt = System.currentTimeMillis();
@@ -216,7 +211,6 @@ final class LookupTableCacheMap implements LookupTableCache {
           rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, AddressLookupTable.FACTORY),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,
-          balancedErrorHandler,
           "rpcClient::getMultipleAccounts"
       ).get();
       final long fetchedAt = System.currentTimeMillis();

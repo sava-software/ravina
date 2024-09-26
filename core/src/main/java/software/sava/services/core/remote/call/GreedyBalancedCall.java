@@ -16,9 +16,8 @@ class GreedyBalancedCall<I, R> extends UncheckedBalancedCall<I, R> {
                      final CallContext callContext,
                      final int callWeight,
                      final boolean measureCallTime,
-                     final BalancedErrorHandler<I> balancedErrorHandler,
                      final String retryLogContext) {
-    super(loadBalancer, call, measureCallTime, balancedErrorHandler, retryLogContext);
+    super(loadBalancer, call, measureCallTime, retryLogContext);
     this.callContext = callContext;
     this.callWeight = callWeight;
   }

@@ -12,24 +12,18 @@ import java.net.http.HttpClient;
 import java.util.concurrent.Executors;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static software.sava.services.core.remote.call.ErrorHandler.linearBackoff;
-import static software.sava.services.solana.remote.call.RemoteCallUtil.createRpcClientErrorHandler;
 
 public final class LookupTableWebService {
 
   public static void main(final String[] args) throws IOException, InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newBuilder().executor(executorService).build()) {
-        final var serviceConfig = LookupTableServiceConfig.loadConfig();
+        final var serviceConfig = LookupTableServiceConfig.loadConfig(httpClient);
 
-        final var defaultErrorHandler = createRpcClientErrorHandler(
-            linearBackoff(1, 21)
-        );
         final var nativeProgramClient = NativeProgramClient.createClient();
         final var tableService = LookupTableDiscoveryService.createService(
             executorService,
             serviceConfig,
-            defaultErrorHandler,
             nativeProgramClient
         );
         executorService.execute(tableService);

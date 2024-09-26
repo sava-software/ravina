@@ -15,14 +15,10 @@ import software.sava.core.encoding.ByteUtil;
 import software.sava.core.rpc.Filter;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
-import software.sava.services.core.remote.call.BalancedErrorHandler;
 import software.sava.services.core.remote.call.Call;
-import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.core.request_capacity.UriCapacityConfig;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.solana.programs.clients.NativeProgramClient;
-import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -33,6 +29,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -50,9 +47,7 @@ import static java.util.concurrent.TimeUnit.HOURS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static software.sava.core.accounts.lookup.AddressLookupTable.AUTHORITY_OPTION_OFFSET;
 import static software.sava.core.accounts.lookup.AddressLookupTable.DEACTIVATION_SLOT_OFFSET;
-import static software.sava.services.core.remote.call.ErrorHandler.linearBackoff;
 import static software.sava.services.solana.accounts.lookup.LookupTableCallHandler.BY_UNIQUE_ACCOUNTS_REVERSED;
-import static software.sava.services.solana.remote.call.RemoteCallUtil.createRpcClientErrorHandler;
 
 final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryService {
 
@@ -150,7 +145,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
                                           final Set<PublicKey> accounts,
                                           final int minScorePerTable,
                                           final int limit) {
-    final ScoredTable[] rankedTables = new ScoredTable[limit];
+    final var rankedTables = new ScoredTable[limit];
 
     AddressLookupTable table;
     int minScore = Integer.MAX_VALUE;
@@ -161,7 +156,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     for (; i < to; ++i) {
       table = partition[i];
       score = 0;
-      for (final var pubKey : accounts) {
+      for (var pubKey : accounts) {
         if (table.containKey(pubKey)) {
           ++score;
         }
@@ -186,16 +181,16 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     } else {
       Arrays.sort(rankedTables);
       final int removeIndex = limit - 1;
-      for (; i < to; ++i) {
+      for (int r; i < to; ++i) {
         table = partition[i];
         score = 0;
-        for (final var pubKey : accounts) {
+        for (var pubKey : accounts) {
           if (table.containKey(pubKey)) {
             ++score;
           }
         }
         if (score > minScore) {
-          int r = removeIndex - 1;
+          r = removeIndex - 1;
           rankedTables[removeIndex] = rankedTables[r];
           for (; r >= 0; --r) {
             if (score > rankedTables[r].score()) {
@@ -211,7 +206,6 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       return rankedTables;
     }
   }
-
 
   public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
@@ -241,8 +235,10 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     PublicKey removed = null;
     int numRemoved;
     int t = 0;
-    for (final var table : scoredTables) {
-      final var iterator = distinctAccounts.iterator();
+    Iterator<PublicKey> iterator;
+    // TODO: mark first removal only to avoid rollback.
+    for (var table : scoredTables) {
+      iterator = distinctAccounts.iterator();
       numRemoved = 0;
       do {
         next = iterator.next();
@@ -467,7 +463,9 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         start = System.currentTimeMillis();
         latch.await();
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
+
         joinPartitions();
+
         initialized.obtrudeValue(null);
 
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
@@ -492,7 +490,6 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
   private static void test(final NativeProgramClient nativeProgramClient,
                            final LoadBalancer<SolanaRpcClient> rpcClients,
-                           final BalancedErrorHandler<SolanaRpcClient> defaultErrorHandler,
                            final ExecutorService executorService,
                            final LookupTableDiscoveryService tableService) {
     final var feePayer = AccountMeta.createFeePayer(PublicKey.fromBase58Encoded("savaKKJmmwDsHHhxV6G293hrRM4f1p6jv6qUF441QD3"));
@@ -503,7 +500,6 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         rpcClients, driftClient::fetchUser,
         CallContext.DEFAULT_CALL_CONTEXT,
         1, Integer.MAX_VALUE, false,
-        defaultErrorHandler,
         "driftClient::fetchUser"
     ).async(executorService);
 
@@ -556,22 +552,12 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   public static void main(final String[] args) throws IOException, InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newHttpClient()) {
-        final var serviceConfig = LookupTableServiceConfig.loadConfig();
-        final var configFile = Path.of(System.getProperty("software.sava.services.solana.rpcConfigFile")).toAbsolutePath();
-        final UriCapacityConfig rpcConfig = UriCapacityConfig.parseConfig(JsonIterator.parse(Files.readAllBytes(configFile)));
-        final var endpoint = rpcConfig.endpoint();
-        final var monitor = rpcConfig.createMonitor(endpoint.getHost(), null);
-        final var rpcClient = SolanaRpcClient.createClient(rpcConfig.endpoint(), httpClient, monitor.errorTracker());
-        final var defaultErrorHandler = createRpcClientErrorHandler(
-            linearBackoff(1, 21)
-        );
-        final var rpcClients = LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, monitor), defaultErrorHandler);
+        final var serviceConfig = LookupTableServiceConfig.loadConfig(httpClient);
         final var nativeProgramClient = NativeProgramClient.createClient();
 
         final var tableService = LookupTableDiscoveryService.createService(
             executorService,
             serviceConfig,
-            defaultErrorHandler,
             nativeProgramClient
         );
         executorService.execute(tableService);
@@ -580,8 +566,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         if (serviceConfig.discoveryConfig().remoteLoadConfig().reloadDelay() == null) {
           test(
               nativeProgramClient,
-              rpcClients,
-              defaultErrorHandler,
+              serviceConfig.rpcClients(),
               executorService,
               tableService
           );

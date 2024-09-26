@@ -7,12 +7,14 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
-import java.util.Objects;
 
+import static java.util.Objects.requireNonNull;
+import static software.sava.services.solana.load_balance.LoadBalanceUtil.createRPCLoadBalancer;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
@@ -20,9 +22,10 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
                                        Web webConfig,
                                        TableCache tableCacheConfig) {
 
-  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile) {
+  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile,
+                                                    final HttpClient httpClient) {
     try (final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile))) {
-      final var parser = new Builder();
+      final var parser = new Builder(httpClient);
       ji.testObject(parser);
       return parser.create();
     } catch (final IOException e) {
@@ -30,19 +33,21 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
-  public static LookupTableServiceConfig loadConfig() {
+  public static LookupTableServiceConfig loadConfig(final HttpClient httpClient) {
     final var serviceConfigFile = Path.of(System.getProperty(LookupTableServiceConfig.class.getName())).toAbsolutePath();
-    return loadConfig(serviceConfigFile);
+    return loadConfig(serviceConfigFile, httpClient);
   }
 
   private static final class Builder implements FieldBufferPredicate {
 
+    private final HttpClient httpClient;
     private LoadBalancer<SolanaRpcClient> rpcClients;
     private Discovery discoveryConfig;
     private Web webConfig;
     private TableCache tableCacheConfig;
 
-    private Builder() {
+    private Builder(final HttpClient httpClient) {
+      this.httpClient = httpClient;
     }
 
     private LookupTableServiceConfig create() {
@@ -62,8 +67,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
         webConfig = Web.parse(ji);
       } else if (fieldEquals("tableCache", buf, offset, len)) {
         tableCacheConfig = TableCache.parse(ji);
-//      } else if (fieldEquals("rpcClients", buf, offset, len)) {
-//        rpcClients = null;
+      } else if (fieldEquals("rpc", buf, offset, len)) {
+        rpcClients = createRPCLoadBalancer(LoadBalancerConfig.parse(ji), httpClient);
       } else {
         ji.skip();
       }
@@ -97,7 +102,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
 
       private Discovery create() {
         return new Discovery(
-            Objects.requireNonNull(cacheDirectory, "Must provide a cache directory."),
+            requireNonNull(cacheDirectory, "Must provide a cache directory."),
             remoteLoad == null ? new RemoteLoad.Builder().create() : remoteLoad,
             query == null ? new Query.Builder().create() : query
         );

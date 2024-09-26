@@ -1,21 +1,25 @@
 package software.sava.services.core.request_capacity;
 
+import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.ErrorHandlerConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpResponse;
-import java.util.Objects;
 
+import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
-public record UriCapacityConfig(URI endpoint, CapacityConfig capacityConfig) {
+public record UriCapacityConfig(URI endpoint,
+                                CapacityConfig capacityConfig,
+                                ErrorHandler errorHandler) {
 
   public static UriCapacityConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.STRING) {
       final var endpoint = ji.readString();
-      return new UriCapacityConfig(URI.create(endpoint), null);
+      return new UriCapacityConfig(URI.create(endpoint), null, null);
     } else {
       final var parser = new UriCapacityConfig.Builder();
       ji.testObject(parser);
@@ -24,20 +28,21 @@ public record UriCapacityConfig(URI endpoint, CapacityConfig capacityConfig) {
   }
 
   public ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> createMonitor(final String serviceName,
-                                                                         final CapacityConfig defaultConfig) {
-    return Objects.requireNonNullElse(capacityConfig, defaultConfig).createHttpResponseMonitor(serviceName);
+                                                                         final CapacityConfig defaultCapacityConfig) {
+    return requireNonNullElse(capacityConfig, defaultCapacityConfig).createHttpResponseMonitor(serviceName);
   }
 
   private static final class Builder implements FieldBufferPredicate {
 
     private URI endpoint;
     private CapacityConfig capacityConfig;
+    private ErrorHandler errorHandler;
 
     private Builder() {
     }
 
     private UriCapacityConfig create() {
-      return new UriCapacityConfig(endpoint, capacityConfig);
+      return new UriCapacityConfig(endpoint, capacityConfig, errorHandler);
     }
 
     @Override
@@ -49,6 +54,8 @@ public record UriCapacityConfig(URI endpoint, CapacityConfig capacityConfig) {
         }
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
+      } else if (fieldEquals("backoff", buf, offset, len)) {
+        errorHandler = ErrorHandlerConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }

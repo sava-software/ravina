@@ -1,13 +1,9 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.BalancedErrorHandler;
-
 import java.util.List;
 import java.util.stream.Stream;
 
-record SingletonLoadBalancer<T>(BalancedItem<T> item,
-                                List<BalancedItem<T>> items,
-                                BalancedErrorHandler<T> defaultErrorHandler) implements LoadBalancer<T> {
+record SingletonLoadBalancer<T>(BalancedItem<T> item, List<BalancedItem<T>> items) implements LoadBalancer<T> {
 
   @Override
   public int size() {

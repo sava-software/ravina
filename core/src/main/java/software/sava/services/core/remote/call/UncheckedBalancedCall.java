@@ -13,7 +13,6 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
   protected final LoadBalancer<I> loadBalancer;
   protected final Function<I, CompletableFuture<R>> call;
   protected final boolean measureCallTime;
-  private final BalancedErrorHandler<I> balancedErrorHandler;
   protected final String retryLogContext;
 
   protected BalancedItem<I> next;
@@ -21,12 +20,10 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
   UncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
                         final Function<I, CompletableFuture<R>> call,
                         final boolean measureCallTime,
-                        final BalancedErrorHandler<I> balancedErrorHandler,
                         final String retryLogContext) {
     this.loadBalancer = loadBalancer;
     this.call = call;
     this.measureCallTime = measureCallTime;
-    this.balancedErrorHandler = balancedErrorHandler;
     this.retryLogContext = retryLogContext;
   }
 
@@ -53,7 +50,7 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
           return result;
         }
       } catch (final RuntimeException e) {
-        final long sleep = balancedErrorHandler.onError(this.next, ++errorCount, retryLogContext, e, MILLISECONDS);
+        final long sleep = this.next.onError(++errorCount, retryLogContext, e, MILLISECONDS);
         loadBalancer.sort();
         if (sleep < 0) {
           return null;

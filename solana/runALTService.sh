@@ -6,20 +6,11 @@ readonly targetJavaVersion=23
 readonly moduleName="software.sava.solana_services"
 readonly package="software.sava.services.solana.accounts.lookup"
 readonly mainClass="$package.http.LookupTableWebService"
-projectDirectory="$(pwd)"
-readonly projectDirectory
-
-javaArgs=(
-  '--enable-preview'
-  '-XX:+UseZGC'
-  '-Xms256M'
-  '-Xmx1024M'
-  '-server'
-)
 
 screen=0;
 logLevel="INFO";
 configFile="";
+jvmArgs="-server --finalization=disabled -XX:+UseZGC -Xms4096M -Xmx8192M"
 
 for arg in "$@"
 do
@@ -37,7 +28,6 @@ do
               exit 2;
             ;;
           esac
-          javaArgs+=("-D$moduleName.logLevel=$logLevel")
         ;;
 
       screen)
@@ -50,6 +40,8 @@ do
           ;;
         esac
         ;;
+
+      jvm) jvmArgs="$val";;
 
       tjv | targetJavaVersion) targetJavaVersion="$val";;
 
@@ -73,21 +65,4 @@ if [[ "$javaVersion" -ne "$targetJavaVersion" ]]; then
   exit 3
 fi
 
-./gradlew --stacktrace "-PmainClassName=$mainClass" clean jlink
-
-vcsRef="$(git rev-parse --short HEAD)"
-readonly vcsRef
-readonly javaExe="$projectDirectory/build/$vcsRef/bin/java"
-
-javaArgs+=(
-  "-D$package.LookupTableServiceConfig=$configFile"
-  '-m' "$moduleName/$mainClass"
-)
-
-if [[ "$screen" == 0 ]]; then
-  set -x
-  "$javaExe" "${javaArgs[@]}"
-else
-  set -x
-  screen -S "anchor-src-gen" "$javaExe" "${javaArgs[@]}"
-fi
+./gradlew -q --console=plain --no-daemon :solana:runSolanaService -PserviceMainClass="$mainClass" -PjvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$package.LookupTableServiceConfig=$configFile"

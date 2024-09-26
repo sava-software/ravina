@@ -4,8 +4,6 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
-import software.sava.rpc.json.http.client.SolanaRpcClient;
-import software.sava.services.core.remote.call.BalancedErrorHandler;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.solana.programs.clients.NativeProgramClient;
@@ -23,14 +21,14 @@ public interface LookupTableDiscoveryService extends Runnable {
 
   static LookupTableDiscoveryService createService(final ExecutorService executorService,
                                                    final LookupTableServiceConfig serviceConfig,
-                                                   final BalancedErrorHandler<SolanaRpcClient> balancedErrorHandler,
                                                    final NativeProgramClient nativeProgramClient) {
     final var discoveryConfig = serviceConfig.discoveryConfig();
     final var loadConfig = discoveryConfig.remoteLoadConfig();
     final var altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
     final var partitions = new AtomicReferenceArray<AddressLookupTable[]>(NUM_PARTITIONS);
+    final var rpcClients = serviceConfig.rpcClients();
     final var noAuthorityCall = Call.createCall(
-        serviceConfig.rpcClients(), rpcClient -> rpcClient.getProgramAccounts(
+        rpcClients, rpcClient -> rpcClient.getProgramAccounts(
             altProgram,
             List.of(
                 ACTIVE_FILTER,
@@ -40,7 +38,6 @@ public interface LookupTableDiscoveryService extends Runnable {
         ),
         CallContext.DEFAULT_CALL_CONTEXT,
         1, Integer.MAX_VALUE, false,
-        balancedErrorHandler,
         "rpcClient::getProgramAccounts"
     );
     final var partitionedCallHandlers = new PartitionedLookupTableCallHandler[NUM_PARTITIONS];
@@ -68,7 +65,6 @@ public interface LookupTableDiscoveryService extends Runnable {
           ),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,
-          balancedErrorHandler,
           "rpcClient::getProgramAccounts"
       );
       partitionedCallHandlers[i] = new PartitionedLookupTableCallHandler(

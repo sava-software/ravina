@@ -1,16 +1,8 @@
-import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
-import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
-
 module software.sava.core_services {
   requires systems.comodal.json_iterator;
 
   requires java.net.http;
   requires java.management;
-
-  uses ErrorTrackerFactory;
-
-  provides ErrorTrackerFactory with
-      HttpErrorTrackerFactory;
 
   exports software.sava.services.core.exceptions;
 
@@ -20,5 +12,10 @@ module software.sava.core_services {
   exports software.sava.services.core.request_capacity;
   exports software.sava.services.core.request_capacity.context;
   exports software.sava.services.core.request_capacity.trackers;
+
+  uses software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
+
+  provides software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory with
+      software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 
 }

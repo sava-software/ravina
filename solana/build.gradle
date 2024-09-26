@@ -9,3 +9,12 @@ dependencies {
   implementation libs.sava.anchor.src.gen
   implementation libs.sava.anchor.programs
 }
+
+task runSolanaService(type: JavaExec) {
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = project.findProperty('serviceMainClass') as String
+  var args = project.findProperty('jvmArgs');
+  if (args != null) {
+    jvmArgs = List.of((args as String).split('\\s+'))
+  }
+}
