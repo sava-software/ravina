@@ -7,10 +7,9 @@ readonly moduleName="software.sava.solana_services"
 readonly package="software.sava.services.solana.accounts.lookup"
 readonly mainClass="$package.http.LookupTableWebService"
 
-screen=0;
 logLevel="INFO";
 configFile="";
-jvmArgs="-server --finalization=disabled -XX:+UseZGC -Xms4096M -Xmx8192M"
+jvmArgs="-server --finalization=disabled -XX:+UseZGC -Xms8192M -Xmx16384M"
 
 for arg in "$@"
 do
@@ -28,17 +27,6 @@ do
               exit 2;
             ;;
           esac
-        ;;
-
-      screen)
-        case "$val" in
-          1|*screen) screen=1 ;;
-          0) screen=0 ;;
-          *)
-            printf "'%sscreen=[0|1]' or '%sscreen' not '%s'.\n" "--" "--" "$arg";
-            exit 2;
-          ;;
-        esac
         ;;
 
       jvm) jvmArgs="$val";;
@@ -65,4 +53,5 @@ if [[ "$javaVersion" -ne "$targetJavaVersion" ]]; then
   exit 3
 fi
 
-./gradlew -q --console=plain --no-daemon :solana:runSolanaService -PserviceMainClass="$mainClass" -PjvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$package.LookupTableServiceConfig=$configFile"
+jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$package.LookupTableServiceConfig=$configFile"
+./gradlew -q --console=plain --no-daemon :solana:runSolanaService -PserviceMainClass="$mainClass" -PjvmArgs="$jvmArgs"

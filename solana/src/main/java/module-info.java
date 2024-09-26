@@ -11,6 +11,7 @@ module software.sava.solana_services {
   requires org.bouncycastle.provider;
 
   exports software.sava.services.solana.accounts.lookup;
-  exports software.sava.services.solana.remote.call;
   exports software.sava.services.solana.accounts.lookup.http;
+  exports software.sava.services.solana.load_balance;
+  exports software.sava.services.solana.remote.call;
 }
