@@ -77,14 +77,14 @@ Scoring a table represents how my indexable accounts from the query exist in the
 * **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
   couple of seconds (local ssd).
 * **remoteLoad**: Parameters relevant to loading tables from remote RPC nodes.
-    * minUniqueAccountsPerTable
-    * minTableEfficiency: `uniqueAccounts / numAccounts`
-    * maxConcurrentRequests: Max number of partitions that can be fetched concurrently.
-    * reloadDelay: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
+    * **minUniqueAccountsPerTable**
+    * **minTableEfficiency**: `uniqueAccounts / numAccounts`
+    * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
+    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
 * **query**: Per query related parameters.
-    * numPartitions: The initial task of scoring tables will be divided into this many parallel window.
-    * topTablesPerPartition: The number of top scored tables for each window/partition to return.
-    * minScore: Minimum score at the map/score step for a table to be eligible for reduction.
+    * **numPartitions**: The initial task of scoring tables will be divided into this many parallel window.
+    * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
+    * **minScore**: Minimum score at the map/score step for a table to be eligible for reduction.
 
 ### web
 
