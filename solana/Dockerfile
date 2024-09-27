@@ -18,6 +18,8 @@ RUN adduser \
     service_user
 USER service_user
 
-COPY --from=jlink /services/solana/build/solana .
+WORKDIR /sava
+
+COPY --from=jlink /services/solana/build/solana /sava
 
 ENTRYPOINT [ "./bin/java" ]

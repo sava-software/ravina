@@ -110,6 +110,18 @@ redundant table account.
 
 ### rpc
 
-1-N remote RPC node configurations.
+An array of remote RPC node configurations.
 
-* **defaultCapacity**: 
+* **defaultCapacity**:
+
+
+docker run --rm \
+  --name=alt \
+  -p 4242:4242 \
+  --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json \
+  --mount type=bind,source="$(pwd)"/solana/alt_cache,target=/sava/solana/alt_cache \
+  sava/lookup_table_service:latest \
+  -server --finalization=disabled -XX:+UseZGC -Xms8192M -Xmx16384M \
+  -Dsoftware.sava.services.solana.accounts.lookup.LookupTableServiceConfig=config.json \
+  -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
+ 
