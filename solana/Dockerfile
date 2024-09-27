@@ -1,11 +1,9 @@
 FROM eclipse-temurin:23-jdk-alpine AS jlink
 
-ARG MAIN_CLASS="software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
+WORKDIR /services
 
-WORKDIR /build
-
-COPY . ./
-RUN ./gradlew clean -PmainClassName=${MAIN_CLASS} --no-daemon --exclude-task=test :solana:jlink -PnoVersionTag=true
+COPY . .
+RUN ./gradlew clean --no-daemon --exclude-task=test :solana:jlink -PnoVersionTag=true
 
 FROM alpine:3 AS final
 
@@ -17,11 +15,9 @@ RUN adduser \
     --shell "/sbin/nologin" \
     --no-create-home \
     --uid "${UID}" \
-    appuser
-USER appuser
+    service_user
+USER service_user
 
-COPY --from=jlink /build/solana/build/solana .
-
-EXPOSE 6148
+COPY --from=jlink /services/solana/build/solana .
 
 ENTRYPOINT [ "./bin/java" ]
