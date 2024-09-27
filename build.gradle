@@ -1,4 +1,18 @@
-def getAppVersion = { ->
+buildscript {
+  repositories {
+    maven { url = 'https://plugins.gradle.org/m2/' }
+    mavenCentral()
+  }
+  dependencies {
+    // https://plugins.gradle.org/plugin/org.beryx.jlink
+    classpath "org.beryx:badass-jlink-plugin:3.0.1"
+  }
+}
+
+def getAppVersionUnchecked = { ->
+  if (project.hasProperty("noVersionTag")) {
+    return ''
+  }
   try (final var gitTagOut = new ByteArrayOutputStream()) {
     exec {
       commandLine 'git', 'tag', '--points-at', 'HEAD'
@@ -17,6 +31,13 @@ def getAppVersion = { ->
       return tagName
     }
   }
+} as Object
+
+def getAppVersion = { ->
+  if (project.hasProperty("noVersionTag")) {
+    return ''
+  }
+  return getAppVersionUnchecked();
 } as Object
 
 

@@ -8,6 +8,7 @@ import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -15,6 +16,33 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public record UriCapacityConfig(URI endpoint,
                                 CapacityConfig capacityConfig,
                                 ErrorHandler errorHandler) {
+
+
+  public static void main(final String[] args) throws InterruptedException {
+    final var resetDuration = Duration.ofSeconds(2);
+    final var config = new CapacityConfig(
+        -(13 * 2),
+        200,
+        Duration.ofSeconds(2),
+        5,
+        Duration.ofHours(1),
+        resetDuration,
+        resetDuration,
+        resetDuration
+    );
+
+    final var monitor = config.createHttpResponseMonitor("test");
+    final var monitorState = monitor.capacityState();
+
+    for (long now, from = System.currentTimeMillis(); ; ) {
+      if (monitorState.tryClaimRequest()) {
+        now = System.currentTimeMillis();
+        System.out.println(now - from);
+        from = now;
+      }
+      Thread.sleep(10);
+    }
+  }
 
   public static UriCapacityConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.STRING) {

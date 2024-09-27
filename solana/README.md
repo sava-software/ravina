@@ -4,6 +4,8 @@
 
 ### Example Configuration
 
+Reference the documentation below for anything that is not implicitly clear and needs context.
+
 ```json
 {
   "discovery": {
