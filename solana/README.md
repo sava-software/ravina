@@ -120,13 +120,13 @@ An array of remote RPC node configurations.
 
 ##### Build
 
-jlink is used to create an executable JVM with the minimal set of modules.
+jlink is used to create an executable JVM which contains the minimal set of modules.
 
 ```shell
 docker build -t lookup_table_service:latest .
 ```
 
-##### Create Lookup Table Cache Volume
+##### Create Address Lookup Table Cache Volume
 
 Used to support faster restarts.
 
@@ -144,19 +144,20 @@ chown sava /sava/.sava && chgrp nogroup /sava/.sava
 
 ##### Run
 
-Mount your local service configuration file to `/sava/config.json`. Make sure the port you expose matches the port in
-the configuration file.
+Mount your local service configuration file to `/sava/config.json`.
 
-Pass any JVM options you prefer to the container as well as the `module/main_class` you want to run.
+Make sure the port you expose matches the port in your configuration file.
+
+Pass any JVM options you prefer to the container as well as the `-m module/main_class` you want to run.
 
 ```shell
 docker run --rm \
-  --name=table_service \
-  --memory=16g \
-  -p 4242:4242 \
+  --name table_service \
+  --memory 8g \
+  --publish 4242:4242 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
     sava/lookup_table_service:latest \
-      -server -XX:+UseZGC -Xms8192M -Xmx16384M \
+      -server -XX:+UseZGC -Xms5G -Xmx8G \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 ```

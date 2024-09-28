@@ -13,8 +13,7 @@ RUN ./gradlew clean --no-daemon --exclude-task=test :${PROJECT}:jlink -PnoVersio
 FROM alpine:3 AS final
 
 ARG UID=10001
-RUN mkdir /.sava; \
-    adduser \
+RUN adduser \
     --disabled-password \
     --gecos "" \
     --home "/nonexistent" \

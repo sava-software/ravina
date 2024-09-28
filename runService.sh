@@ -9,7 +9,7 @@ configProperty="$moduleName.LookupTableServiceConfig"
 package="software.sava.services.solana.accounts.lookup"
 mainClass="$package.http.LookupTableWebService"
 
-jvmArgs="-server -XX:+DisableExplicitGC -XX:+UseZGC -Xms8192M -Xmx16384M"
+jvmArgs="-server -XX:+DisableExplicitGC -XX:+UseZGC -Xms5G -Xmx8G"
 logLevel="INFO";
 configFile="";
 
