@@ -22,8 +22,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
                                        Web webConfig,
                                        TableCache tableCacheConfig) {
 
-  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile,
-                                                    final HttpClient httpClient) {
+  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile, final HttpClient httpClient) {
     try (final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile))) {
       final var parser = new Builder(httpClient);
       ji.testObject(parser);
@@ -34,8 +33,20 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
   }
 
   public static LookupTableServiceConfig loadConfig(final HttpClient httpClient) {
-    final var serviceConfigFile = Path.of(System.getProperty(LookupTableServiceConfig.class.getName())).toAbsolutePath();
-    return loadConfig(serviceConfigFile, httpClient);
+    final var moduleNameConfigProperty = LookupTableServiceConfig.class.getModule().getName() + ".LookupTableServiceConfig";
+    final var propertyValue = System.getProperty(moduleNameConfigProperty);
+    final Path serviceConfigFile;
+    if (propertyValue == null || propertyValue.isBlank()) {
+      serviceConfigFile = Path.of("config.json");
+      if (!Files.exists(serviceConfigFile)) {
+        throw new IllegalStateException(String.format("""
+            Provide a service configuration file via the System Property [%s], or via the default location [config.json]
+            """, moduleNameConfigProperty));
+      }
+    } else {
+      serviceConfigFile = Path.of(propertyValue);
+    }
+    return loadConfig(serviceConfigFile.toAbsolutePath(), httpClient);
   }
 
   private static final class Builder implements FieldBufferPredicate {

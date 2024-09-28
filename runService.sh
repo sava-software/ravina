@@ -3,13 +3,15 @@
 set -e
 
 readonly targetJavaVersion=23
-readonly moduleName="software.sava.solana_services"
-readonly package="software.sava.services.solana.accounts.lookup"
-readonly mainClass="$package.http.LookupTableWebService"
+simpleProjectName="solana"
+moduleName="software.sava.solana_services"
+configProperty="$moduleName.LookupTableServiceConfig"
+package="software.sava.services.solana.accounts.lookup"
+mainClass="$package.http.LookupTableWebService"
 
+jvmArgs="-server -XX:+DisableExplicitGC -XX:+UseZGC -Xms8192M -Xmx16384M"
 logLevel="INFO";
 configFile="";
-jvmArgs="-server --finalization=disabled -XX:+UseZGC -Xms8192M -Xmx16384M"
 
 for arg in "$@"
 do
@@ -29,8 +31,13 @@ do
           esac
         ;;
 
-      jvm) jvmArgs="$val";;
+      cp | configProperty) configProperty="$val";;
+      mc | mainClass) mainClass="$val";;
+      mn | moduleName) moduleName="$val";;
+      p | package) package="$val";;
+      spn | simpleProjectName) simpleProjectName="$val";;
 
+      jvm | jvmArgs) jvmArgs="$val";;
       tjv | targetJavaVersion) targetJavaVersion="$val";;
 
       cf | configFile) configFile="$val";;
@@ -53,5 +60,13 @@ if [[ "$javaVersion" -ne "$targetJavaVersion" ]]; then
   exit 3
 fi
 
-jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$package.LookupTableServiceConfig=$configFile"
-./gradlew -q --console=plain --no-daemon :solana:runSolanaService -PserviceMainClass="$mainClass" -PjvmArgs="$jvmArgs"
+./gradlew --exclude-task=test :"$simpleProjectName":jlink -PnoVersionTag=true
+
+javaExe="$(pwd)/$simpleProjectName/build/$simpleProjectName/bin/java"
+readonly javaExe
+
+jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$configProperty=$configFile -m $moduleName/$mainClass"
+IFS=' ' read -r -a jvmArgsArray <<< "$jvmArgs"
+
+set -x
+"$javaExe" "${jvmArgsArray[@]}"

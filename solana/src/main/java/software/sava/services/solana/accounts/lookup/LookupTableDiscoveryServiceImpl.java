@@ -352,6 +352,11 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   @Override
   public void loadCache() {
     if (altCacheDirectory != null) {
+      try {
+        Files.createDirectories(altCacheDirectory);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
       final long start = System.currentTimeMillis();
       final long numPartitionsLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
         final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);

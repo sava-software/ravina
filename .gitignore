@@ -25,3 +25,5 @@ gradle.properties
 ignore
 configs
 /solana/alt_cache/
+/sava
+/.sava

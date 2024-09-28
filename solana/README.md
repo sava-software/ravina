@@ -112,16 +112,51 @@ redundant table account.
 
 An array of remote RPC node configurations.
 
-* **defaultCapacity**:
+**defaultCapacity**:
 
+## Run
 
+### Docker
+
+##### Build
+
+jlink is used to create an executable JVM with the minimal set of modules.
+
+```shell
+docker build -t lookup_table_service:latest .
+```
+
+##### Create Lookup Table Cache Volume
+
+Used to support faster restarts.
+
+```shell
+docker volume create sava-solana-table-cache
+
+docker run --rm -it \
+  --user root \
+  --mount source=sava-solana-table-cache,target=/sava/.sava \
+  --entrypoint=ash \
+    sava/lookup_table_service:latest
+    
+chown sava /sava/.sava && chgrp nogroup /sava/.sava
+```
+
+##### Run
+
+Mount your local service configuration file to `/sava/config.json`. Make sure the port you expose matches the port in
+the configuration file.
+
+Pass any JVM options you prefer to the container as well as the `module/main_class` you want to run.
+
+```shell
 docker run --rm \
-  --name=alt \
+  --name=table_service \
+  --memory=16g \
   -p 4242:4242 \
-  --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json \
-  --mount type=bind,source="$(pwd)"/solana/alt_cache,target=/sava/solana/alt_cache \
-  sava/lookup_table_service:latest \
-  -server --finalization=disabled -XX:+UseZGC -Xms8192M -Xmx16384M \
-  -Dsoftware.sava.services.solana.accounts.lookup.LookupTableServiceConfig=config.json \
-  -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
- 
+  --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
+  --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
+    sava/lookup_table_service:latest \
+      -server -XX:+UseZGC -Xms8192M -Xmx16384M \
+      -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
+```
