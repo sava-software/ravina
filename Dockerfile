@@ -10,7 +10,7 @@ ARG PROJECT
 RUN ./gradlew clean --no-daemon --exclude-task=test :${PROJECT}:jlink -PnoVersionTag=true
 
 
-FROM alpine:3 AS final
+FROM alpine:3
 
 ARG UID=10001
 RUN adduser \

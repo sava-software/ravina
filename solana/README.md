@@ -8,10 +8,10 @@ Attempts to find one or more tables to help minimize the size of a transaction.
 
 #### POST `/v0/alt/discover/tx/raw`
 
-Post a serialized and encoded legacy or version zero transaction.
+Post a serialized and encoded, legacy or v0, transaction.
 
 ```shell
-curl -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcJDPVl6eB0qtYSlYif4b0tHW4ZfMrzSctd89y3PLhgsgb5JSlSZ9949Yv51O5NL2l3MVmpE3aLBgO3xqjQetH9/VRfow6jvD88KWbai2w9/vjTq32lfKAjKlTkoCZP/8PCCVTbvp7JYMmKeik/4hM2lm/hgNFRrkuBeVYfiYVKU/bMt8aVjwPz6dRn5EI8Gsat6wewXzwVooLo4DMVwF9Wd5cdDKvImMwegHYSrqlRr4mPm/gqRPWD+8llAWp4/D4KbwB9xBeu8gamlEHq3LaZuMqqSvkDUq1wkM++qfgfpGsr1lQqaOSFYS9WELcT14N7mJY9eLJbJXlsZ9Z5/AUPNko+70sDyCpxWZ6gehbuS89tzjE1fYRgsqwb1MOphgydAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwgIAQAEBQIHBihFoV3KeH5MuQEBAAAA4fUFAAAAAADh9QUAAAAAAAAAAQAAAAAAAAAA' \
+curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcJDPVl6eB0qtYSlYif4b0tHW4ZfMrzSctd89y3PLhgsgb5JSlSZ9949Yv51O5NL2l3MVmpE3aLBgO3xqjQetH9/VRfow6jvD88KWbai2w9/vjTq32lfKAjKlTkoCZP/8PCCVTbvp7JYMmKeik/4hM2lm/hgNFRrkuBeVYfiYVKU/bMt8aVjwPz6dRn5EI8Gsat6wewXzwVooLo4DMVwF9Wd5cdDKvImMwegHYSrqlRr4mPm/gqRPWD+8llAWp4/D4KbwB9xBeu8gamlEHq3LaZuMqqSvkDUq1wkM++qfgfpGsr1lQqaOSFYS9WELcT14N7mJY9eLJbJXlsZ9Z5/AUPNko+70sDyCpxWZ6gehbuS89tzjE1fYRgsqwb1MOphgydAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwgIAQAEBQIHBihFoV3KeH5MuQEBAAAA4fUFAAAAAADh9QUAAAAAAAAAAQAAAAAAAAAA' \
   'http://localhost:4242/v0/alt/tx/raw?accountsOnly=true'; 
 ```
 
@@ -23,15 +23,13 @@ curl -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     * **accountsOnly**:
         * `true`: An array of base58 encoded lookup table public keys will be returned.
         * `false`: (default) An array of objects including both the table public key and the base64 encoded program
-          account will
-          be
-          returned.
+          account will be returned.
 * **body**: serialized and encoded transaction.
 
 #### POST `/v0/alt/discover/accounts`
 
-If you know the set of accounts used in your transaction(s) this endpoint can be more useful than posting a
-transaction.
+If you know the set of accounts used in your transaction(s) this endpoint may be more useful or easier to use than
+posting a transaction.
 
 Note: do not include invoked program accounts or signers.
 
@@ -44,9 +42,7 @@ curl -d '["8UJgxaiQx5nTrdDgph5FiahMmzduuLTLf5WmsPegYA6W","2UZMvVTBQR9yWxrEdzEQzX
     * **accountsOnly**:
         * `true`: An array of base58 encoded lookup table public keys will be returned.
         * `false`: (default) An array of objects including both the table public key and the base64 encoded program
-          account will
-          be
-          returned.
+          account will be returned.
 * **body**: JSON array of base58 encoded accounts.
 
 ## Service Configuration
@@ -114,8 +110,8 @@ Reference the documentation below for anything that is not implicitly clear and 
 
 ### discovery
 
-The service loads all lookup tables stored on chain, and does so in 257 partitions. 256 based on the first byte of the
-table authority, and one for tables with no authority (frozen).
+The service loads all active lookup tables stored on chain, and does so in 257 partitions. 256 based on the first byte
+of the table authority, and one for tables with no authority (frozen).
 
 While fetching remote tables it filters out subjectively non-useful tables using the discovery parameters documented
 below.
@@ -180,11 +176,11 @@ RPC nodes.
 
 ## Run Table Service
 
-### Docker
+### [Docker](../Dockerfile)
 
 #### Build
 
-jlink is used to create an executable JVM which contains the minimal set of modules.
+Creates an Alpine based image which includes a minimal executable JVM.
 
 ```shell
 docker build -t lookup_table_service:latest .
@@ -202,8 +198,10 @@ docker run --rm -it \
   --mount source=sava-solana-table-cache,target=/sava/.sava \
   --entrypoint=ash \
     lookup_table_service:latest
+    
 # Any disk writes needed at runtime will be stored within /sava/.sava
 chown sava /sava/.sava && chgrp nogroup /sava/.sava
+
 exit
 ```
 
@@ -227,7 +225,7 @@ docker run --rm \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 ```
 
-### Script Runner
+### [Script Runner](../runService.sh)
 
 Compiles a minimal executable JVM and facilitates passing runtime arguments.
 
