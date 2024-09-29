@@ -27,16 +27,19 @@ final class LookupTableCacheMap implements LookupTableCache {
   private final ExecutorService executorService;
   private final LoadBalancer<SolanaRpcClient> rpcClients;
   private final ConcurrentHashMap<PublicKey, Entry> lookupTableCache;
+  private final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory;
   private final int defaultMaxAccounts;
   private final Function<AccountInfo<AddressLookupTable>, AddressLookupTable> handleResponse;
 
   LookupTableCacheMap(final ExecutorService executorService,
                       final int initialCapacity,
                       final LoadBalancer<SolanaRpcClient> rpcClients,
+                      final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory,
                       final int defaultMaxAccounts) {
     this.executorService = executorService;
     this.rpcClients = rpcClients;
     this.lookupTableCache = new ConcurrentHashMap<>(initialCapacity);
+    this.tableFactory = tableFactory;
     this.defaultMaxAccounts = defaultMaxAccounts;
     this.handleResponse = (accountInfo) -> {
       final var lookupTable = accountInfo.data();
@@ -81,7 +84,7 @@ final class LookupTableCacheMap implements LookupTableCache {
 
   private Call<AccountInfo<AddressLookupTable>> createFetchLookupTableCall(final PublicKey lookupTableKey) {
     return Call.createCall(
-        rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, AddressLookupTable.FACTORY),
+        rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, tableFactory),
         CallContext.DEFAULT_CALL_CONTEXT,
         1, Integer.MAX_VALUE, true,
         "rpcClient::getAccountInfo"
@@ -159,7 +162,7 @@ final class LookupTableCacheMap implements LookupTableCache {
           }
 
           final var lookupTableAccounts = Call.createCall(
-              rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, AddressLookupTable.FACTORY),
+              rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
               CallContext.DEFAULT_CALL_CONTEXT,
               1, Integer.MAX_VALUE, true,
               "rpcClient::getMultipleAccounts"
@@ -207,7 +210,7 @@ final class LookupTableCacheMap implements LookupTableCache {
   private void refreshTables(final List<PublicKey> fetchKeys) {
     if (!fetchKeys.isEmpty()) {
       final var lookupTableAccounts = Call.createCall(
-          rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, AddressLookupTable.FACTORY),
+          rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,
           "rpcClient::getMultipleAccounts"

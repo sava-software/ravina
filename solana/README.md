@@ -126,7 +126,7 @@ jlink is used to create an executable JVM which contains the minimal set of modu
 docker build -t lookup_table_service:latest .
 ```
 
-##### Create Address Lookup Table Cache Volume
+##### Create Address Lookup Table Disk Cache Volume
 
 Used to support faster restarts.
 
@@ -137,7 +137,7 @@ docker run --rm -it \
   --user root \
   --mount source=sava-solana-table-cache,target=/sava/.sava \
   --entrypoint=ash \
-    sava/lookup_table_service:latest
+    lookup_table_service:latest
     
 chown sava /sava/.sava && chgrp nogroup /sava/.sava
 ```
@@ -153,11 +153,11 @@ Pass any JVM options you prefer to the container as well as the `-m module/main_
 ```shell
 docker run --rm \
   --name table_service \
-  --memory 8g \
+  --memory 14g \
   --publish 4242:4242 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
-    sava/lookup_table_service:latest \
-      -server -XX:+UseZGC -Xms5G -Xmx8G \
+    lookup_table_service:latest \
+      -server -XX:+UseZGC -Xms8G -Xmx13G \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 ```

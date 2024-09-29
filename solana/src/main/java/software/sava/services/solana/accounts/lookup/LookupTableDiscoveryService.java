@@ -34,7 +34,7 @@ public interface LookupTableDiscoveryService extends Runnable {
                 ACTIVE_FILTER,
                 NO_AUTHORITY_FILTER
             ),
-            AddressLookupTable.FACTORY
+            CachedAddressLookupTable.FACTORY
         ),
         CallContext.DEFAULT_CALL_CONTEXT,
         1, Integer.MAX_VALUE, false,
@@ -61,7 +61,7 @@ public interface LookupTableDiscoveryService extends Runnable {
                   ACTIVE_FILTER,
                   partitionFilter
               ),
-              WITHOUT_REVERSE_LOOKUP_FACTORY
+              CachedAddressLookupTable.FACTORY
           ),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,

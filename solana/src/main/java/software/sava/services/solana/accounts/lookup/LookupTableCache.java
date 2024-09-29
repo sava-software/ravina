@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.function.BiFunction;
 
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_MULTIPLE_ACCOUNTS;
 
@@ -18,10 +19,18 @@ public interface LookupTableCache {
   static LookupTableCache createCache(final ExecutorService executorService,
                                       final int initialCapacity,
                                       final LoadBalancer<SolanaRpcClient> rpcClients) {
+    return createCache(executorService, initialCapacity, rpcClients, AddressLookupTable.FACTORY);
+  }
+
+  static LookupTableCache createCache(final ExecutorService executorService,
+                                      final int initialCapacity,
+                                      final LoadBalancer<SolanaRpcClient> rpcClients,
+                                      final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory) {
     return new LookupTableCacheMap(
         executorService,
         initialCapacity,
         rpcClients,
+        tableFactory,
         AddressLookupTable.LOOKUP_TABLE_MAX_ADDRESSES);
   }
 

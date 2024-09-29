@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
+import static java.lang.System.Logger.Level.INFO;
+
 final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
 
   private static final System.Logger logger = System.getLogger(RawTxHandler.class.getName());
@@ -21,7 +23,6 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
   }
 
   private void writeResponse(final HttpExchange exchange,
-                             final ByteEncoding encoding,
                              final AddressLookupTable[] lookupTables) {
     if (lookupTables.length == 0) {
       writeResponse(exchange, """
@@ -29,7 +30,7 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
     } else if (lookupTables.length == 1) {
       final var table = lookupTables[0];
       writeResponse(exchange, """
-          {"tables":{\"""" + table.address().toBase58() + "\":\"" + encoding.encodeToString(table.data()) + "\"}}");
+          {"tables":{\"""" + table.address().toBase58() + "\":\"" + table + "\"}}");
     } else {
       final var response = new StringBuilder(1_024 + (1_024 * lookupTables.length));
       response.append("""
@@ -37,7 +38,7 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
       for (int i = 0; ; ++i) {
         final var table = lookupTables[i];
         response.append('"').append(table.address().toBase58()).append("""
-            ":\"""").append(encoding.encodeToString(table.data())).append('"');
+            ":\"""").append(table).append('"');
         if (++i == lookupTables.length) {
           break;
         } else {
@@ -51,6 +52,7 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
 
   @Override
   public void handle(final HttpExchange exchange) {
+    final long startExchange = System.currentTimeMillis();
     if (!"POST".equals(exchange.getRequestMethod())) {
       writeResponse(400, exchange, "Must be a POST request not " + exchange.getRequestMethod());
       return;
@@ -70,8 +72,15 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
       if (skeleton.isLegacy()) {
         final var accounts = skeleton.parseNonSignerPublicKeys();
         final var programs = skeleton.parseProgramAccounts();
+        final long start = System.currentTimeMillis();
         final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
-        writeResponse(exchange, encoding, lookupTables);
+        final long end = System.currentTimeMillis();
+        writeResponse(exchange, lookupTables);
+        final long responseWritten = System.currentTimeMillis();
+        logger.log(INFO, String.format(
+            "[findOptimalSetOfTables=%dms] [httpExchange=%dms]",
+            end - start, responseWritten - startExchange
+        ));
       } else {
         final int txVersion = skeleton.version();
         if (txVersion == 0) {
@@ -111,8 +120,15 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
           }
 
           final var instructions = skeleton.parseInstructions(skeleton.parseAccounts(lookupTables));
+          final long start = System.currentTimeMillis();
           final var optimalTables = tableService.findOptimalSetOfTables(instructions);
-          writeResponse(exchange, encoding, optimalTables);
+          final long end = System.currentTimeMillis();
+          writeResponse(exchange, optimalTables);
+          final long responseWritten = System.currentTimeMillis();
+          logger.log(INFO, String.format(
+              "[findOptimalSetOfTables=%dms] [httpExchange=%dms]",
+              end - start, responseWritten - startExchange
+          ));
         } else {
           writeResponse(400, exchange, "Unsupported transaction version " + txVersion);
         }

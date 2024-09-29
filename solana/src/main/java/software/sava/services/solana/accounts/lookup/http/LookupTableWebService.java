@@ -1,6 +1,7 @@
 package software.sava.services.solana.accounts.lookup.http;
 
 import com.sun.net.httpserver.HttpServer;
+import software.sava.services.solana.accounts.lookup.CachedAddressLookupTable;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 import software.sava.services.solana.accounts.lookup.LookupTableServiceConfig;
@@ -32,7 +33,12 @@ public final class LookupTableWebService {
         httpServer.setExecutor(executorService);
 
         final var tableCacheConfig = serviceConfig.tableCacheConfig();
-        final var tableCache = LookupTableCache.createCache(executorService, tableCacheConfig.initialCapacity(), serviceConfig.rpcClients());
+        final var tableCache = LookupTableCache.createCache(
+            executorService,
+            tableCacheConfig.initialCapacity(),
+            serviceConfig.rpcClients(),
+            CachedAddressLookupTable.FACTORY
+        );
         httpServer.createContext("/v0/alt/tx/raw", new RawTxHandler(tableService, tableCache));
 
         tableService.initializedFuture().join();

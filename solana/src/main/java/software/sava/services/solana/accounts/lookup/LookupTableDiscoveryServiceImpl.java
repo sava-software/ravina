@@ -25,7 +25,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
-import java.util.function.BiFunction;
 import java.util.stream.IntStream;
 
 import static java.lang.System.Logger.Level.*;
@@ -39,8 +38,6 @@ import static software.sava.services.solana.accounts.lookup.LookupTableCallHandl
 final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryService {
 
   private static final System.Logger logger = System.getLogger(LookupTableDiscoveryServiceImpl.class.getName());
-
-  static final BiFunction<PublicKey, byte[], AddressLookupTable> WITHOUT_REVERSE_LOOKUP_FACTORY = AddressLookupTable::readWithoutReverseLookup;
 
   static final int NUM_PARTITIONS = 257;
   static final Filter ACTIVE_FILTER;
@@ -288,20 +285,12 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     private void cacheTables(final int partition, final AddressLookupTable[] tables) {
       if (altCacheDirectory != null) {
         final int byteLength = Arrays.stream(tables)
-            .mapToInt(AddressLookupTable::dataLength)
+            .mapToInt(AddressLookupTable::length)
             .sum();
-        final byte[] out = new byte[Integer.BYTES // numTables
-            + (tables.length * PublicKey.PUBLIC_KEY_LENGTH) // addresses for each table
-            + (tables.length * Integer.BYTES) // serialized lengths for each table
-            + byteLength // sum of table lengths
-            ];
+        final byte[] out = new byte[Integer.BYTES + byteLength];
         ByteUtil.putInt32LE(out, 0, tables.length);
         for (int i = 0, offset = Integer.BYTES; i < tables.length; ++i) {
-          final var table = tables[i];
-          offset += table.address().write(out, offset);
-          ByteUtil.putInt32LE(out, offset, table.dataLength());
-          offset += Integer.BYTES;
-          offset += table.write(out, offset);
+          offset += tables[i].write(out, offset);
         }
         try {
           Files.write(
@@ -332,7 +321,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
               .mapToInt(AddressLookupTable::numUniqueAccounts)
               .summaryStatistics();
           logger.log(INFO, String.format("""
-              [partition=%d] [numTables=%s] [averageNumAccounts=%f.1] [duration=%s]
+              [partition=%d] [numTables=%s] [averageNumAccounts=%.1f] [duration=%s]
               """, partition, tables.length, stats.getAverage(), duration));
 
           cacheTables(partition, tables);
@@ -367,15 +356,8 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
             int offset = Integer.BYTES;
             final var tables = new AddressLookupTable[numTables];
             for (int i = 0; offset < data.length; ++i) {
-              final var address = PublicKey.readPubKey(data, offset);
-              offset += PublicKey.PUBLIC_KEY_LENGTH;
-              final int length = ByteUtil.getInt32LE(data, offset);
-              offset += Integer.BYTES;
-              final var table = AddressLookupTable.read(
-                  address,
-                  Arrays.copyOfRange(data, offset, offset + length)
-              );
-              offset += table.dataLength();
+              final var table = CachedAddressLookupTable.readCached(data, offset);
+              offset += table.length();
               tables[i] = table;
             }
             partitions.set(partition, tables);
