@@ -149,5 +149,5 @@ public interface LookupTableDiscoveryService extends Runnable {
 
   CompletableFuture<Void> initialized();
 
-  void loadCache();
+  boolean loadCache();
 }

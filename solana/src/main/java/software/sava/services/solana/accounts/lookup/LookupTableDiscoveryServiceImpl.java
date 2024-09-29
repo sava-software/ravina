@@ -339,54 +339,60 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   @Override
-  public void loadCache() {
-    if (altCacheDirectory != null) {
-      try {
+  public boolean loadCache() {
+    if (altCacheDirectory == null) {
+      return false;
+    }
+    try {
+      if (Files.notExists(altCacheDirectory)) {
         Files.createDirectories(altCacheDirectory);
+        return false;
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+
+    final long start = System.currentTimeMillis();
+    final long numPartitionsLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
+      final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);
+      try {
+        if (Files.exists(cacheFile)) {
+          final byte[] data = Files.readAllBytes(cacheFile);
+          final int numTables = ByteUtil.getInt32LE(data, 0);
+          int offset = Integer.BYTES;
+          final var tables = new AddressLookupTable[numTables];
+          for (int i = 0; offset < data.length; ++i) {
+            final var table = CachedAddressLookupTable.readCached(data, offset);
+            offset += table.length();
+            tables[i] = table;
+          }
+          partitions.set(partition, tables);
+          return true;
+        } else {
+          return false;
+        }
       } catch (final IOException e) {
         throw new UncheckedIOException(e);
       }
-      final long start = System.currentTimeMillis();
-      final long numPartitionsLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
-        final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);
-        try {
-          if (Files.exists(cacheFile)) {
-            final byte[] data = Files.readAllBytes(cacheFile);
-            final int numTables = ByteUtil.getInt32LE(data, 0);
-            int offset = Integer.BYTES;
-            final var tables = new AddressLookupTable[numTables];
-            for (int i = 0; offset < data.length; ++i) {
-              final var table = CachedAddressLookupTable.readCached(data, offset);
-              offset += table.length();
-              tables[i] = table;
-            }
-            partitions.set(partition, tables);
-            return true;
-          } else {
-            return false;
-          }
-        } catch (final IOException e) {
-          throw new UncheckedIOException(e);
-        }
-      }).count();
+    }).count();
 
-      if ((numPartitionsLoaded / (double) NUM_PARTITIONS) > 0.8) {
-        final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
-        joinPartitions();
-        initialized.complete(null);
+    if ((numPartitionsLoaded / (double) NUM_PARTITIONS) > 0.8) {
+      final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
+      joinPartitions();
+      initialized.complete(null);
 
 //        IntStream.range(0, NUM_PARTITIONS)
 //            .map(i -> partitions.getOpaque(i).length)
 //            .sorted()
 //            .forEach(System.out::println);
 
-        final int numTables = IntStream.range(0, NUM_PARTITIONS)
-            .map(i -> partitions.getOpaque(i).length)
-            .sum();
-        logger.log(INFO, String.format("""
-            
-            Loaded %d tables from the Lookup Table Cache in %s.
-            """, numTables, duration));
+      final int numTables = IntStream.range(0, NUM_PARTITIONS)
+          .map(i -> partitions.getOpaque(i).length)
+          .sum();
+      logger.log(INFO, String.format("""
+          
+          Loaded %d tables from the Lookup Table Cache in %s.
+          """, numTables, duration));
 
 
 //        final var accountCounts = IntStream.range(0, NUM_PARTITIONS)
@@ -422,20 +428,18 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 //                    .collect(Collectors.toSet());
 //              }
 //            });
-      }
+      return true;
+    } else {
+      return false;
     }
   }
 
   public void run() {
-    if (allTables.length == 0) {
-      loadCache();
-    }
-    if (reloadDelay == null) {
+    if (loadCache() && reloadDelay == null) {
       return;
     }
     try {
       final var nextPartition = new AtomicInteger();
-      //noinspection InfiniteLoopStatement
       for (long start; ; ) {
         nextPartition.set(0);
         final var latch = new CountDownLatch(NUM_PARTITIONS);
@@ -464,6 +468,9 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
         System.out.println(tableStats);
         tableStats.reset();
+        if (reloadDelay == null) {
+          return;
+        }
         SECONDS.sleep(reloadDelay.toSeconds());
       }
     } catch (final InterruptedException e) {

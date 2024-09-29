@@ -30,7 +30,7 @@ curl -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 #### POST `/v0/alt/discover/accounts`
 
-If you know the set of accounts commonly used in your transactions this endpoint can be more useful than posting a
+If you know the set of accounts used in your transaction(s) this endpoint can be more useful than posting a
 transaction.
 
 Note: do not include invoked program accounts or signers.
@@ -132,7 +132,9 @@ Scoring a table represents how many indexable accounts from the query exist in t
     * **minUniqueAccountsPerTable**
     * **minTableEfficiency**: `numUniqueAccounts / numAccounts`
     * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
-    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
+    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables. Set to
+      `null`
+      to only use the local cache.
 * **query**: Per query related parameters.
     * **numPartitions**: The initial task of scoring tables will be divided into this many parallel windows.
     * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
@@ -235,5 +237,5 @@ Compiles a minimal executable JVM and facilitates passing runtime arguments.
   --configFile="./solana/configs/LookupTableService.json" \
   --moduleName="software.sava.solana_services" \
   --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
-  --jvmArgs="-server -XX:+UseZGC -Xms8G -Xmx13G"
+  --jvmArgs="-server -XX:+UseZGC -Xms7G -Xmx13G"
 ```
