@@ -1,8 +1,57 @@
 # Address Lookup Table Service
 
-## Configuration
+## Call
 
-### Example Configuration
+### Discover Tables
+
+Attempts to find one or more tables to help minimize the size of a transaction.
+
+#### POST `/v0/alt/discover/tx/raw`
+
+Post a serialized and encoded legacy or version zero transaction.
+
+```shell
+curl -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcJDPVl6eB0qtYSlYif4b0tHW4ZfMrzSctd89y3PLhgsgb5JSlSZ9949Yv51O5NL2l3MVmpE3aLBgO3xqjQetH9/VRfow6jvD88KWbai2w9/vjTq32lfKAjKlTkoCZP/8PCCVTbvp7JYMmKeik/4hM2lm/hgNFRrkuBeVYfiYVKU/bMt8aVjwPz6dRn5EI8Gsat6wewXzwVooLo4DMVwF9Wd5cdDKvImMwegHYSrqlRr4mPm/gqRPWD+8llAWp4/D4KbwB9xBeu8gamlEHq3LaZuMqqSvkDUq1wkM++qfgfpGsr1lQqaOSFYS9WELcT14N7mJY9eLJbJXlsZ9Z5/AUPNko+70sDyCpxWZ6gehbuS89tzjE1fYRgsqwb1MOphgydAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwgIAQAEBQIHBihFoV3KeH5MuQEBAAAA4fUFAAAAAADh9QUAAAAAAAAAAQAAAAAAAAAA' \
+  'http://localhost:4242/v0/alt/tx/raw?accountsOnly=true'; 
+```
+
+* **headers**:
+    * **X-BYTE-ENCODING**: Encoding of the posted transaction.
+        * `hex`
+        * `base64`: default
+* **query**:
+    * **accountsOnly**:
+        * `true`: An array of base58 encoded lookup table public keys will be returned.
+        * `false`: (default) An array of objects including both the table public key and the base64 encoded program
+          account will
+          be
+          returned.
+* **body**: serialized and encoded transaction.
+
+#### POST `/v0/alt/discover/accounts`
+
+If you know the set of accounts commonly used in your transactions this endpoint can be more useful than posting a
+transaction.
+
+Note: do not include invoked program accounts or signers.
+
+```shell
+curl -d '["8UJgxaiQx5nTrdDgph5FiahMmzduuLTLf5WmsPegYA6W","2UZMvVTBQR9yWxrEdzEQzXWE61bUjqQ5VpJAGqVb3B19","25Eax9W8SA3wpCQFhJEGyHhQ2NDHEshZEDzyMNtthR8D","7QAtMC3AaAc91W4XuwYXM1Mtffq9h9Z8dTxcJrKRHu1z"]' \
+  'http://localhost:4242/v0/alt/accounts?accountsOnly=true';
+```
+
+* **query**:
+    * **accountsOnly**:
+        * `true`: An array of base58 encoded lookup table public keys will be returned.
+        * `false`: (default) An array of objects including both the table public key and the base64 encoded program
+          account will
+          be
+          returned.
+* **body**: JSON array of base58 encoded accounts.
+
+## Service Configuration
+
+### Example
 
 Reference the documentation below for anything that is not implicitly clear and needs context.
 
@@ -127,7 +176,7 @@ RPC nodes.
     * **capacity**: Overrides `defaultCapacity`.
     * **backoff**: Overrides `defaultBackoff`.
 
-## Run Service
+## Run Table Service
 
 ### Docker
 
