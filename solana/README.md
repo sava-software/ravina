@@ -130,7 +130,7 @@ RPC nodes.
 
 ### Docker
 
-##### Build
+#### Build
 
 jlink is used to create an executable JVM which contains the minimal set of modules.
 
@@ -138,7 +138,7 @@ jlink is used to create an executable JVM which contains the minimal set of modu
 docker build -t lookup_table_service:latest .
 ```
 
-##### Create Lookup Table Cache Volume
+#### Create Lookup Table Cache Volume
 
 Used to support faster restarts.
 
@@ -155,7 +155,7 @@ chown sava /sava/.sava && chgrp nogroup /sava/.sava
 exit
 ```
 
-##### Run
+#### Run
 
 Mount your local service configuration file to `/sava/config.json`.
 
