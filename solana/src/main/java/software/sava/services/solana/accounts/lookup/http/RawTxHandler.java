@@ -23,29 +23,54 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
   }
 
   private void writeResponse(final HttpExchange exchange,
+                             final boolean accountsOnly,
                              final AddressLookupTable[] lookupTables) {
-    if (lookupTables.length == 0) {
-      writeResponse(exchange, """
-          {"tables":{}}""");
+
+    if (accountsOnly) {
+      if (lookupTables.length == 0) {
+        writeResponse(exchange, "[]");
+      } else if (lookupTables.length == 1) {
+        final var table = lookupTables[0];
+        writeResponse(exchange, """
+            [\"""" + table.address().toBase58() + "\"]");
+      } else {
+        final var response = new StringBuilder(64 * lookupTables.length);
+        response.append('[');
+        for (int i = 0; ; ++i) {
+          final var table = lookupTables[i];
+          response.append('"').append(table.address().toBase58()).append('"');
+          if (++i == lookupTables.length) {
+            break;
+          } else {
+            response.append(',');
+          }
+        }
+        response.append("]");
+        writeResponse(exchange, response.toString());
+      }
+    } else if (lookupTables.length == 0) {
+      writeResponse(exchange, "[]");
     } else if (lookupTables.length == 1) {
       final var table = lookupTables[0];
       writeResponse(exchange, """
-          {"tables":{\"""" + table.address().toBase58() + "\":\"" + table + "\"}}");
+          [{"a":\"""" + table.address().toBase58() + "\",\"d\":\"" + table + "\"}]");
     } else {
-      final var response = new StringBuilder(1_024 + (1_024 * lookupTables.length));
-      response.append("""
-          {"tables":{""");
+      final var response = new StringBuilder(1_024 * lookupTables.length);
+      response.append('[');
       for (int i = 0; ; ++i) {
         final var table = lookupTables[i];
-        response.append('"').append(table.address().toBase58()).append("""
-            ":\"""").append(table).append('"');
+        response.append("""
+                {"a":\"""")
+            .append(table.address().toBase58())
+            .append("\",\"d\":\"")
+            .append(table);
         if (++i == lookupTables.length) {
+          response.append("\"}]");
           break;
         } else {
-          response.append(',');
+          response.append("\"},");
         }
       }
-      response.append("}}");
       writeResponse(exchange, response.toString());
     }
   }
@@ -57,8 +82,8 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
       writeResponse(400, exchange, "Must be a POST request not " + exchange.getRequestMethod());
       return;
     }
-    final var bodyString = readBodyAsString(exchange);
-    if (bodyString == null) {
+    final var body = readBody(exchange);
+    if (body == null || body.length == 0) {
       return;
     }
     try {
@@ -66,8 +91,31 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
       if (encoding == null) {
         return;
       }
-      final byte[] txBytes = encoding.decode(bodyString);
 
+      boolean accountsOnly = false;
+      final var query = exchange.getRequestURI().getQuery();
+      if (query != null && !query.isBlank()) {
+        for (int from = 0, equals, and; ; from = and + 1) {
+          equals = query.indexOf('=', from);
+          if (equals < 0) {
+            break;
+          }
+          final var key = query.substring(from, equals);
+          and = query.indexOf('&', equals + 2);
+          final var value = and < 1
+              ? query.substring(equals + 1)
+              : query.substring(equals + 1, and);
+          switch (key) {
+            case "accountsOnly" -> accountsOnly = Boolean.parseBoolean(value);
+          }
+          if (and < 1) {
+            break;
+          }
+        }
+      }
+
+
+      final byte[] txBytes = encoding.decode(body);
       final var skeleton = TransactionSkeleton.deserializeSkeleton(txBytes);
       if (skeleton.isLegacy()) {
         final var accounts = skeleton.parseNonSignerPublicKeys();
@@ -75,7 +123,7 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
         final long start = System.currentTimeMillis();
         final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
         final long end = System.currentTimeMillis();
-        writeResponse(exchange, lookupTables);
+        writeResponse(exchange, accountsOnly, lookupTables);
         final long responseWritten = System.currentTimeMillis();
         logger.log(INFO, String.format(
             "[findOptimalSetOfTables=%dms] [httpExchange=%dms]",
@@ -123,7 +171,7 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
           final long start = System.currentTimeMillis();
           final var optimalTables = tableService.findOptimalSetOfTables(instructions);
           final long end = System.currentTimeMillis();
-          writeResponse(exchange, optimalTables);
+          writeResponse(exchange, accountsOnly, optimalTables);
           final long responseWritten = System.currentTimeMillis();
           logger.log(INFO, String.format(
               "[findOptimalSetOfTables=%dms] [httpExchange=%dms]",
@@ -133,7 +181,9 @@ final class RawTxHandler extends LookupTableDiscoveryServiceHandler {
           writeResponse(400, exchange, "Unsupported transaction version " + txVersion);
         }
       }
-    } catch (final RuntimeException ex) {
+    } catch (
+        final RuntimeException ex) {
+      final var bodyString = new String(body);
       logger.log(System.Logger.Level.ERROR, "Failed to process request " + bodyString, ex);
       writeResponse(400, exchange, bodyString);
     }

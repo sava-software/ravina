@@ -40,15 +40,19 @@ abstract class RootHttpHandler implements HttpHandler {
     }
   }
 
-  protected final String readBodyAsString(final HttpExchange exchange) {
+  protected final byte[] readBody(final HttpExchange exchange) {
     try {
-      final byte[] body = exchange.getRequestBody().readAllBytes();
-      return new String(body);
+      return exchange.getRequestBody().readAllBytes();
     } catch (final RuntimeException | IOException ex) {
       logger.log(System.Logger.Level.ERROR, "Failed to read request body.", ex);
       writeResponse(500, exchange, "Failed to read request body.");
       return null;
     }
+  }
+
+  protected final String readBodyAsString(final HttpExchange exchange) {
+    final byte[] body = readBody(exchange);
+    return body == null || body.length == 0 ? null : new String(body);
   }
 
   protected final ByteEncoding getEncoding(final HttpExchange exchange) {
