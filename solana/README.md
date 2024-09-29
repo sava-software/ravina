@@ -153,11 +153,24 @@ Pass any JVM options you prefer to the container as well as the `-m module/main_
 ```shell
 docker run --rm \
   --name table_service \
-  --memory 14g \
+  --memory 13g \
   --publish 4242:4242 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
     lookup_table_service:latest \
-      -server -XX:+UseZGC -Xms8G -Xmx13G \
+      -server -XX:+UseZGC -Xms7G -Xmx12G \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
+```
+
+### Script Runner
+
+Compiles a minimal executable JVM and facilitates passing runtime arguments.
+
+```shell
+./runService.sh \
+ --simpleProjectName="solana" \
+ --configFile="./solana/configs/LookupTableService.json" \
+ --moduleName="software.sava.solana_services" \
+ --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
+ --jvmArgs="-server -XX:+UseZGC -Xms8G -Xmx13G"
 ```

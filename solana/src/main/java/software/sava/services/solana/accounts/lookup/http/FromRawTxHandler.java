@@ -28,7 +28,6 @@ final class FromRawTxHandler extends OptimalTablesHandler {
       if (encoding == null) {
         return;
       }
-
       final boolean accountsOnly = accountsOnly(exchange);
 
       final byte[] txBytes = encoding.decode(body);

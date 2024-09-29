@@ -33,7 +33,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
   }
 
   public static LookupTableServiceConfig loadConfig(final HttpClient httpClient) {
-    final var moduleNameConfigProperty = LookupTableServiceConfig.class.getModule().getName() + ".LookupTableServiceConfig";
+    final var moduleNameConfigProperty = LookupTableServiceConfig.class.getModule().getName() + ".config";
     final var propertyValue = System.getProperty(moduleNameConfigProperty);
     final Path serviceConfigFile;
     if (propertyValue == null || propertyValue.isBlank()) {

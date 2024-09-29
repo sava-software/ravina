@@ -5,9 +5,7 @@ set -e
 readonly targetJavaVersion=23
 simpleProjectName="solana"
 moduleName="software.sava.solana_services"
-configProperty="$moduleName.LookupTableServiceConfig"
-package="software.sava.services.solana.accounts.lookup"
-mainClass="$package.http.LookupTableWebService"
+mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 
 jvmArgs="-server -XX:+DisableExplicitGC -XX:+UseZGC -Xms8G -Xmx13G"
 logLevel="INFO";
@@ -31,10 +29,8 @@ do
           esac
         ;;
 
-      cp | configProperty) configProperty="$val";;
       mc | mainClass) mainClass="$val";;
       mn | moduleName) moduleName="$val";;
-      p | package) package="$val";;
       spn | simpleProjectName) simpleProjectName="$val";;
 
       jvm | jvmArgs) jvmArgs="$val";;
@@ -65,7 +61,7 @@ fi
 javaExe="$(pwd)/$simpleProjectName/build/$simpleProjectName/bin/java"
 readonly javaExe
 
-jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$configProperty=$configFile -m $moduleName/$mainClass"
+jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$moduleName.config=$configFile -m $moduleName/$mainClass"
 IFS=' ' read -r -a jvmArgsArray <<< "$jvmArgs"
 
 set -x
