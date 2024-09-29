@@ -14,7 +14,7 @@ Reference the documentation below for anything that is not implicitly clear and 
       "minUniqueAccountsPerTable": 34,
       "minTableEfficiency": 0.8,
       "maxConcurrentRequests": 10,
-      "reloadDelay": null
+      "reloadDelay": "PT8h"
     },
     "query": {
       "numPartitions": 8,
@@ -26,14 +26,14 @@ Reference the documentation below for anything that is not implicitly clear and 
     "port": 4242
   },
   "tableCache": {
-    "initialCapacity": 32000,
+    "initialCapacity": 4096,
     "refreshStaleItemsDelay": "PT4h",
     "consideredStale": "PT8h"
   },
   "rpc": {
     "defaultCapacity": {
-      "minCapacity": -16,
-      "maxCapacity": 2,
+      "minCapacity": -32,
+      "maxCapacity": 4,
       "resetDuration": "PT1S"
     },
     "defaultBackoff": {
@@ -110,9 +110,21 @@ redundant table account.
 
 ### rpc
 
-An array of remote RPC node configurations.
+RPC nodes.
 
-**defaultCapacity**:
+* **defaultCapacity**:
+    * **resetDuration**: `java.time.Duration` encoded window in which maxCapacity is re-added.
+    * **maxCapacity**: Maximum requests that can be made within `resetDuration`
+    * **minCapacity**: Minimum negative capacity. Capacity is added in proportion to `maxCapacity` per
+      `resetDuration` to allow it to eventually recover.
+* **defaultBackoff**: Backoff strategy in response to errors.
+    * **type**: `fibonacci`, `exponential`, `linear`
+    * **initialRetryDelaySeconds**
+    * **maxRetryDelaySeconds**
+* **endpoints**: Array of RPC node configurations.
+    * **url**
+    * **capacity**: Overrides `defaultCapacity`.
+    * **backoff**: Overrides `defaultBackoff`.
 
 ## Run
 
@@ -126,7 +138,7 @@ jlink is used to create an executable JVM which contains the minimal set of modu
 docker build -t lookup_table_service:latest .
 ```
 
-##### Create Address Lookup Table Disk Cache Volume
+##### Create Lookup Table Cache Volume
 
 Used to support faster restarts.
 
@@ -138,8 +150,9 @@ docker run --rm -it \
   --mount source=sava-solana-table-cache,target=/sava/.sava \
   --entrypoint=ash \
     lookup_table_service:latest
-    
+# Any disk writes needed at runtime will be stored within /sava/.sava
 chown sava /sava/.sava && chgrp nogroup /sava/.sava
+exit
 ```
 
 ##### Run
@@ -168,9 +181,9 @@ Compiles a minimal executable JVM and facilitates passing runtime arguments.
 
 ```shell
 ./runService.sh \
- --simpleProjectName="solana" \
- --configFile="./solana/configs/LookupTableService.json" \
- --moduleName="software.sava.solana_services" \
- --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
- --jvmArgs="-server -XX:+UseZGC -Xms8G -Xmx13G"
+  --simpleProjectName="solana" \
+  --configFile="./solana/configs/LookupTableService.json" \
+  --moduleName="software.sava.solana_services" \
+  --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
+  --jvmArgs="-server -XX:+UseZGC -Xms8G -Xmx13G"
 ```
