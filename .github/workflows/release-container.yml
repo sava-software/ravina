@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: software.sava/service/solana
+  IMAGE_NAME: ${{ github.repository }}/solana
 
 jobs:
   docker:
