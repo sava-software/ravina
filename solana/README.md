@@ -183,7 +183,7 @@ RPC nodes.
 Creates an Alpine based image which includes a minimal executable JVM.
 
 ```shell
-docker build -t lookup_table_service:latest .
+docker build -t sava.software/services/solana:latest
 ```
 
 #### Create Lookup Table Cache Volume
@@ -217,10 +217,10 @@ Pass any JVM options you prefer to the container as well as the `-m module/main_
 docker run --rm \
   --name table_service \
   --memory 13g \
-  --publish 4242:4242 \
+  --publish 80:80 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
-    lookup_table_service:latest \
+    sava.software/services/solana:latest \
       -server -XX:+UseZGC -Xms7G -Xmx12G \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 ```
