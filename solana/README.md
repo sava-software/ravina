@@ -192,7 +192,7 @@ export GITHUB_TOKEN=<YOUR_GITHUB_TOKEN_SECRET>
 docker build \
     --secret type=env,id=GITHUB_ACTOR,env=GITHUB_ACTOR \
     --secret type=env,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
-    -t sava.software/services/solana:latest .
+    -t sava-software/services/solana:latest .
 ```
 
 #### Create Lookup Table Cache Volume
@@ -206,7 +206,7 @@ docker run --rm -it \
   --user root \
   --mount source=sava-solana-table-cache,target=/sava/.sava \
   --entrypoint=ash \
-    lookup_table_service:latest
+    sava-software/services/solana:latest
     
 # Any disk writes needed at runtime will be stored within /sava/.sava
 chown sava /sava/.sava && chgrp nogroup /sava/.sava
@@ -229,7 +229,7 @@ docker run --rm \
   --publish 80:80 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
-    sava.software/services/solana:latest \
+    sava-software/services/solana:latest \
       -server -XX:+UseZGC -Xms7G -Xmx12G \
       -m "software.sava.solana_services/software.sava.services.solana.accounts.lookup.http.LookupTableWebService"
 ```
