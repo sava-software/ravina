@@ -182,8 +182,17 @@ RPC nodes.
 
 Creates an Alpine based image which includes a minimal executable JVM.
 
+First, [create a classic GitHub user access](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic)
+token with read access to GitHub Packages.
+
 ```shell
-docker build -t sava.software/services/solana:latest
+export GITHUB_ACTOR=<YOUR_GITHUB_USERNAME>
+export GITHUB_TOKEN=<YOUR_GITHUB_TOKEN_SECRET>
+
+docker build \
+    --secret type=env,id=GITHUB_ACTOR,env=GITHUB_ACTOR \
+    --secret type=env,id=GITHUB_TOKEN,env=GITHUB_TOKEN \
+    -t sava.software/services/solana:latest .
 ```
 
 #### Create Lookup Table Cache Volume
