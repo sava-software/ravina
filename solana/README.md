@@ -1,6 +1,6 @@
 # Address Lookup Table Service
 
-## Call
+## REST API
 
 ### Discover Tables
 

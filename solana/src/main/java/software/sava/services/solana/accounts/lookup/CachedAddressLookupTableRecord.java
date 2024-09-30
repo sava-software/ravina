@@ -26,9 +26,6 @@ record CachedAddressLookupTableRecord(PublicKey address,
     o += Integer.BYTES;
     System.arraycopy(base64Bytes, 0, out, o, base64Bytes.length);
     o += base64Bytes.length;
-    if (o - offset != length()) {
-      throw new IllegalStateException(String.format("%d <> %d", o - offset, lastExtendedSlot()));
-    }
     return o - offset;
   }
 
@@ -110,11 +107,6 @@ record CachedAddressLookupTableRecord(PublicKey address,
 
   @Override
   public byte[] data() {
-    throw throwUnsupported();
-  }
-
-  @Override
-  public int offset() {
     throw throwUnsupported();
   }
 }
