@@ -182,8 +182,8 @@ RPC nodes.
 
 Creates an Alpine based image which includes a minimal executable JVM.
 
-First, [create a classic GitHub user access](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic)
-token with read access to GitHub Packages.
+First, [create a classic GitHub user access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic)
+with read access to GitHub Packages.
 
 ```shell
 export GITHUB_ACTOR=<YOUR_GITHUB_USERNAME>
