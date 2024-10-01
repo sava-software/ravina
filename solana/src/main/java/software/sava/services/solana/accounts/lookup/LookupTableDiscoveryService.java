@@ -19,6 +19,7 @@ import static software.sava.services.solana.accounts.lookup.LookupTableDiscovery
 
 public interface LookupTableDiscoveryService extends Runnable {
 
+
   static LookupTableDiscoveryService createService(final ExecutorService executorService,
                                                    final LookupTableServiceConfig serviceConfig,
                                                    final NativeProgramClient nativeProgramClient) {
@@ -27,6 +28,7 @@ public interface LookupTableDiscoveryService extends Runnable {
     final var altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
     final var partitions = new AtomicReferenceArray<AddressLookupTable[]>(NUM_PARTITIONS);
     final var rpcClients = serviceConfig.rpcClients();
+    final var callWeights = serviceConfig.callWeights();
     final var noAuthorityCall = Call.createCall(
         rpcClients, rpcClient -> rpcClient.getProgramAccounts(
             altProgram,
@@ -37,7 +39,7 @@ public interface LookupTableDiscoveryService extends Runnable {
             CachedAddressLookupTable.FACTORY
         ),
         CallContext.DEFAULT_CALL_CONTEXT,
-        1, Integer.MAX_VALUE, false,
+        callWeights.getProgramAccounts(), Integer.MAX_VALUE, false,
         "rpcClient::getProgramAccounts"
     );
     final var partitionedCallHandlers = new PartitionedLookupTableCallHandler[NUM_PARTITIONS];
@@ -64,7 +66,7 @@ public interface LookupTableDiscoveryService extends Runnable {
               CachedAddressLookupTable.FACTORY
           ),
           CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, false,
+          callWeights.getProgramAccounts(), Integer.MAX_VALUE, false,
           "rpcClient::getProgramAccounts"
       );
       partitionedCallHandlers[i] = new PartitionedLookupTableCallHandler(

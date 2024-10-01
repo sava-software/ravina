@@ -24,21 +24,21 @@ abstract class BackoffErrorHandler implements ErrorHandler {
   protected abstract int calculateDelaySeconds(final int errorCount);
 
   @Override
-  public long onError(final int errorCount,
-                      final String retryLogContext,
-                      final RuntimeException exception,
-                      final TimeUnit timeUnit) {
-    if (errorCount > maxRetries) {
-      log.log(WARNING, String.format(
-          "Failed %d times because [%s], giving up. Context: %s",
-          errorCount, exception.getMessage(), retryLogContext));
-      return -1;
-    } else {
+  public final long onError(final int errorCount,
+                            final String retryLogContext,
+                            final RuntimeException exception,
+                            final TimeUnit timeUnit) {
+    if (errorCount <= maxRetries) {
       final long retrySeconds = Math.min(calculateDelaySeconds(errorCount), maxRetryDelaySeconds);
       log.log(WARNING, String.format(
           "Failed %d times because [%s], retrying in %d seconds. Context: %s",
           errorCount, exception.getMessage(), retrySeconds, retryLogContext));
       return timeUnit.convert(retrySeconds, SECONDS);
+    } else {
+      log.log(WARNING, String.format(
+          "Failed %d times because [%s], giving up. Context: %s",
+          errorCount, exception.getMessage(), retryLogContext));
+      return -1;
     }
   }
 }

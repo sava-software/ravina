@@ -2,6 +2,8 @@ package software.sava.services.solana.accounts.lookup;
 
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.core.remote.load_balance.LoadBalancerConfig;
+import software.sava.services.solana.remote.call.CallWeights;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 
@@ -18,6 +20,7 @@ import static software.sava.services.solana.load_balance.LoadBalanceUtil.createR
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
+                                       CallWeights callWeights,
                                        Discovery discoveryConfig,
                                        Web webConfig,
                                        TableCache tableCacheConfig) {
@@ -53,6 +56,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
 
     private final HttpClient httpClient;
     private LoadBalancer<SolanaRpcClient> rpcClients;
+    private CallWeights callWeights;
     private Discovery discoveryConfig;
     private Web webConfig;
     private TableCache tableCacheConfig;
@@ -64,6 +68,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     private LookupTableServiceConfig create() {
       return new LookupTableServiceConfig(
           rpcClients,
+          callWeights,
           discoveryConfig,
           webConfig,
           tableCacheConfig
@@ -79,7 +84,11 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       } else if (fieldEquals("tableCache", buf, offset, len)) {
         tableCacheConfig = TableCache.parse(ji);
       } else if (fieldEquals("rpc", buf, offset, len)) {
+        final int mark = ji.mark();
         rpcClients = createRPCLoadBalancer(LoadBalancerConfig.parse(ji), httpClient);
+        if (ji.reset(mark).skipUntil("callWeights") != null) {
+          callWeights = CallWeights.parse(ji);
+        }
       } else {
         ji.skip();
       }

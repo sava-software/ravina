@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntBinaryOperator;
 
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+
 final class CapacityStateVal implements CapacityState {
 
   private static final IntBinaryOperator CLAIM_REQUEST = (numRemaining, weight) -> numRemaining - weight;
@@ -186,16 +188,16 @@ final class CapacityStateVal implements CapacityState {
           return 0;
         }
       }
-      final long nanosUntil = Math.round(capacityNeeded * weightPerNanosecond);
-      return timeUnit.convert(nanosUntil, TimeUnit.NANOSECONDS);
+      final long nanosUntil = Math.round(capacityNeeded * nanosPerWeight);
+      return timeUnit.convert(nanosUntil, NANOSECONDS);
     }
   }
 
   @Override
   public String toString() {
     return String.format(
-        "CapacityStateVal{capacity=%d, weightPerNanosecond=%.4f, nanosPerWeight=%d, updatedAtSystemNanoTime=%d}",
-        capacity.get(), weightPerNanosecond, nanosPerWeight, updatedAtSystemNanoTime.get()
+        "CapacityStateVal{capacity=%d, weightPerMicrosecond=%d, nanosPerWeight=%d, updatedAtSystemNanoTime=%d}",
+        capacity.get(), (long) (weightPerNanosecond * 1_000_000_000), nanosPerWeight, updatedAtSystemNanoTime.get()
     );
   }
 }

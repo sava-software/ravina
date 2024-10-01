@@ -226,7 +226,7 @@ Pass any JVM options you prefer to the container as well as the `-m module/main_
 docker run --rm \
   --name table_service \
   --memory 13g \
-  --publish 80:80 \
+  --publish 80:4242 \
   --mount type=bind,source="$(pwd)"/solana/configs/LookupTableService.json,target=/sava/config.json,readonly \
   --mount source=sava-solana-table-cache,target=/sava/.sava/solana/table_cache \
     sava-software/services/solana:latest \

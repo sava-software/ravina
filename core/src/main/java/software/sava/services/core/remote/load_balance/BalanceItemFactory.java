@@ -1,7 +1,6 @@
-package software.sava.services.solana.accounts.lookup;
+package software.sava.services.core.remote.load_balance;
 
 import software.sava.services.core.remote.call.ErrorHandler;
-import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
 

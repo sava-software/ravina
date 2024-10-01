@@ -3,7 +3,7 @@ package software.sava.services.solana.load_balance;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.solana.accounts.lookup.LoadBalancerConfig;
+import software.sava.services.core.remote.load_balance.LoadBalancerConfig;
 
 import java.net.http.HttpClient;
 

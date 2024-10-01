@@ -58,7 +58,7 @@ public interface ErrorHandler {
     previous = startPrevious;
     current = startCurrent;
     for (int i = 0; ; ) {
-      sequence[i] = current;
+      sequence[i] = previous;
       if (++i == steps) {
         sequence[i - 1] = maxRetryDelaySeconds;
         break;
@@ -70,6 +70,10 @@ public interface ErrorHandler {
     }
 
     return new FibonacciBackoffErrorHandler(sequence, maxRetries);
+  }
+
+  static ErrorHandler fibonacciBackoff(final int initialRetryDelaySeconds, final int maxRetryDelaySeconds) {
+    return fibonacciBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, Integer.MAX_VALUE);
   }
 
   long onError(final int errorCount,
