@@ -133,9 +133,10 @@ final class CallTests {
         samples[s++] = duration;
       }
     }
+    final long median = samples[samples.length >> 1];
+    assertEquals(0, median, Long.toString(median));
     final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
         .summaryStatistics();
     assertTrue(stats.getAverage() < 3, stats.toString());
-    assertEquals(0, samples[samples.length >> 1]);
   }
 }
