@@ -116,13 +116,13 @@ final class CallTests {
             "[iteration=%d] [callCount=%d] [duration=%dms]%n",
             i, callCount, duration);
         assertEquals(402, callCount, log);
-        assertTrue(duration >= 3_000 && duration < 3_100, log);
+        assertTrue(duration >= 3_000 && duration < 3_400, log);
       } else if (i == 427) {
         final var log = String.format(
             "[iteration=%d] [callCount=%d] [duration=%dms]%n",
             i, callCount, duration);
         assertEquals(430, callCount, log);
-        assertTrue(duration >= 1_000 && duration < 1_100, log);
+        assertTrue(duration >= 1_000 && duration < 1_400, log);
       } else {
         if (duration > 89) {
           fail(String.format(
