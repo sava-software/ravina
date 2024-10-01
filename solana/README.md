@@ -163,6 +163,8 @@ redundant table account.
 
 RPC nodes.
 
+* **callWeights**: Default call weight is 1, use this to help match rate limits for specific RPC methods.
+    * **getProgramAccounts**
 * **defaultCapacity**:
     * **resetDuration**: `java.time.Duration` encoded window in which maxCapacity is re-added.
     * **maxCapacity**: Maximum requests that can be made within `resetDuration`
