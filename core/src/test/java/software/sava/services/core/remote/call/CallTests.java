@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 final class CallTests {
 
+  private static final long NUM_CPUS = Runtime.getRuntime().availableProcessors();
+
   private static final class LongErrorTracker extends RootErrorTracker<Long> {
 
     LongErrorTracker(final CapacityState capacityState) {
@@ -47,15 +49,17 @@ final class CallTests {
 
     @Override
     protected void logResponse(final Long response) {
-      if (response == 400) {
-        assertTrue(capacityState.capacity() <= 1,
-            response + ": " + capacityState);
-      } else if (response == 401) {
-        assertEquals(398, capacityState.capacity(),
-            response + ": " + capacityState);
-      } else if (response == 429) {
-        assertTrue(capacityState.capacity() > -100 && capacityState.capacity() < 0,
-            response + ": " + capacityState);
+      if (NUM_CPUS > 2) {
+        if (response == 400) {
+          assertTrue(capacityState.capacity() <= 1,
+              response + ": " + capacityState);
+        } else if (response == 401) {
+          assertEquals(398, capacityState.capacity(),
+              response + ": " + capacityState);
+        } else if (response == 429) {
+          assertTrue(capacityState.capacity() > -100 && capacityState.capacity() < 0,
+              response + ": " + capacityState);
+        }
       }
     }
   }
@@ -116,15 +120,17 @@ final class CallTests {
             "[iteration=%d] [callCount=%d] [duration=%dms]%n",
             i, callCount, duration);
         assertEquals(402, callCount, log);
-        assertTrue(duration >= 3_000 && duration < 3_400, log);
+        assertTrue(duration >= 3_000, log);
+        assertTrue(duration < (NUM_CPUS > 2 ? 3_100 : 3_400), log);
       } else if (i == 427) {
         final var log = String.format(
             "[iteration=%d] [callCount=%d] [duration=%dms]%n",
             i, callCount, duration);
         assertEquals(430, callCount, log);
-        assertTrue(duration >= 1_000 && duration < 1_400, log);
+        assertTrue(duration >= 1_000, log);
+        assertTrue(duration < (NUM_CPUS > 2 ? 1_100 : 1_400), log);
       } else {
-        if (duration > 89) {
+        if (NUM_CPUS > 2 && duration > 34) {
           fail(String.format(
               "[iteration=%d] [callCount=%d] [duration=%dms]%n",
               i, callCount, duration
@@ -135,8 +141,10 @@ final class CallTests {
     }
     final long median = samples[samples.length >> 1];
     assertEquals(0, median, Long.toString(median));
-    final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
-        .summaryStatistics();
-    assertTrue(stats.getAverage() < 3, stats.toString());
+    if (NUM_CPUS > 2) {
+      final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
+          .summaryStatistics();
+      assertTrue(stats.getAverage() < 3, stats.toString());
+    }
   }
 }

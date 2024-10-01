@@ -109,6 +109,7 @@ subprojects {
   }
 
   test {
+    jvmArgs '-XX:+UseZGC'
     useJUnitPlatform()
     testLogging {
       events "passed", "skipped", "failed", "standardOut", "standardError"
