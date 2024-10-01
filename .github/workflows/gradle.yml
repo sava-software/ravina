@@ -42,6 +42,7 @@ jobs:
           java --version
           ./gradlew -PtargetJava=${{ vars.JAVA_VERSION }} check --stacktrace --no-daemon
         env:
+          VIRTUAL_SERVER: true
           GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SAVA_USER: ${{ secrets.GPR_USER }}

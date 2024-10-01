@@ -42,6 +42,7 @@ jobs:
           java --version
           ./gradlew --stacktrace -PtargetJava=${{ vars.JAVA_VERSION }} check :core:publish :solana:publish
         env:
+          VIRTUAL_SERVER: true
           GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_SAVA_USER: ${{ secrets.GPR_USER }}
