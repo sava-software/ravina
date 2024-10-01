@@ -166,8 +166,8 @@ RPC nodes.
 * **defaultCapacity**:
     * **resetDuration**: `java.time.Duration` encoded window in which maxCapacity is re-added.
     * **maxCapacity**: Maximum requests that can be made within `resetDuration`
-    * **minCapacity**: Minimum negative capacity. Capacity is added in proportion to `maxCapacity` per
-      `resetDuration` to allow it to eventually recover.
+    * **minCapacityDuration**: Maximum time, encoded as a `java.time.Duration`, before capacity should recover to a
+      positive value, given that no additional failures happen.
 * **defaultBackoff**: Backoff strategy in response to errors.
     * **type**: `fibonacci`, `exponential`, `linear`
     * **initialRetryDelaySeconds**

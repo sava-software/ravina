@@ -78,13 +78,18 @@ final class CallTests {
 
   public static class SkipOnVirtualServersCondition implements ExecutionCondition {
 
-    private static final String VIRTUAL_SERVER = System.getenv("VIRTUAL_SERVER");
+    private static final boolean VIRTUAL_SERVER;
+
+    static {
+      final var val = System.getenv("VIRTUAL_SERVER");
+      VIRTUAL_SERVER = val != null && Boolean.parseBoolean(val.strip());
+    }
 
     @Override
     public ConditionEvaluationResult evaluateExecutionCondition(final ExtensionContext context) {
-      return VIRTUAL_SERVER == null
-          ? ConditionEvaluationResult.enabled("Not a virtual server.")
-          : ConditionEvaluationResult.disabled(VIRTUAL_SERVER);
+      return VIRTUAL_SERVER
+          ? ConditionEvaluationResult.disabled("Virtual server.")
+          : ConditionEvaluationResult.enabled("Not a virtual server.");
     }
   }
 
