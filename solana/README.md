@@ -12,7 +12,7 @@ Post a serialized and encoded, legacy or v0, transaction.
 
 ```shell
 curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcJDPVl6eB0qtYSlYif4b0tHW4ZfMrzSctd89y3PLhgsgb5JSlSZ9949Yv51O5NL2l3MVmpE3aLBgO3xqjQetH9/VRfow6jvD88KWbai2w9/vjTq32lfKAjKlTkoCZP/8PCCVTbvp7JYMmKeik/4hM2lm/hgNFRrkuBeVYfiYVKU/bMt8aVjwPz6dRn5EI8Gsat6wewXzwVooLo4DMVwF9Wd5cdDKvImMwegHYSrqlRr4mPm/gqRPWD+8llAWp4/D4KbwB9xBeu8gamlEHq3LaZuMqqSvkDUq1wkM++qfgfpGsr1lQqaOSFYS9WELcT14N7mJY9eLJbJXlsZ9Z5/AUPNko+70sDyCpxWZ6gehbuS89tzjE1fYRgsqwb1MOphgydAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAwgIAQAEBQIHBihFoV3KeH5MuQEBAAAA4fUFAAAAAADh9QUAAAAAAAAAAQAAAAAAAAAA' \
-  'http://localhost:4242/v0/alt/tx/raw?accountsOnly=true'; 
+  'http://localhost:4242/v0/alt/discover/tx/raw?accountsOnly=true'; 
 ```
 
 * **headers**:
@@ -35,7 +35,7 @@ Note: do not include invoked program accounts or signers.
 
 ```shell
 curl -d '["8UJgxaiQx5nTrdDgph5FiahMmzduuLTLf5WmsPegYA6W","2UZMvVTBQR9yWxrEdzEQzXWE61bUjqQ5VpJAGqVb3B19","25Eax9W8SA3wpCQFhJEGyHhQ2NDHEshZEDzyMNtthR8D","7QAtMC3AaAc91W4XuwYXM1Mtffq9h9Z8dTxcJrKRHu1z"]' \
-  'http://localhost:4242/v0/alt/accounts?accountsOnly=true';
+  'http://localhost:4242/v0/alt/discover/accounts?accountsOnly=true';
 ```
 
 * **query**:
@@ -58,7 +58,7 @@ Reference the documentation below for anything that is not implicitly clear and 
     "remoteLoad": {
       "minUniqueAccountsPerTable": 34,
       "minTableEfficiency": 0.8,
-      "maxConcurrentRequests": 40,
+      "maxConcurrentRequests": 20,
       "reloadDelay": "PT8h"
     },
     "query": {
