@@ -26,7 +26,8 @@ public record CapacityConfig(int minCapacity,
     return ji.testObject(new Builder(), PARSER).createConfig();
   }
 
-  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName, final ErrorTrackerFactory<R> errorTrackerFactory) {
+  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,
+                                                          final ErrorTrackerFactory<R> errorTrackerFactory) {
     final var capacityState = new CapacityStateVal(this);
     return new CapacityMonitorRecord<>(
         serviceName,
@@ -47,6 +48,8 @@ public record CapacityConfig(int minCapacity,
   private static final ContextFieldBufferPredicate<Builder> PARSER = (builder, buf, offset, len, ji) -> {
     if (fieldEquals("minCapacity", buf, offset, len)) {
       builder.minCapacity = ji.readInt();
+    } else if (fieldEquals("minCapacityDuration", buf, offset, len)) {
+      builder.minCapacityDuration = Duration.parse(ji.readString());
     } else if (fieldEquals("maxCapacity", buf, offset, len)) {
       builder.maxCapacity = ji.readInt();
     } else if (fieldEquals("resetDuration", buf, offset, len)) {
@@ -70,6 +73,7 @@ public record CapacityConfig(int minCapacity,
   private static final class Builder {
 
     private int minCapacity;
+    private Duration minCapacityDuration;
     private int maxCapacity;
     private Duration resetDuration;
     private int maxGroupedErrorResponses;
@@ -82,6 +86,12 @@ public record CapacityConfig(int minCapacity,
     }
 
     CapacityConfig createConfig() {
+      if (minCapacityDuration != null) {
+        final long millis = resetDuration.toMillis();
+        final long capacityPerMillis = maxCapacity * millis;
+        final long minCapacityDurationMillis = minCapacityDuration.toMillis();
+        this.minCapacity = (int) -((capacityPerMillis * minCapacityDurationMillis) / 1_000_000);
+      }
       return new CapacityConfig(
           minCapacity,
           maxCapacity,

@@ -58,7 +58,7 @@ Reference the documentation below for anything that is not implicitly clear and 
     "remoteLoad": {
       "minUniqueAccountsPerTable": 34,
       "minTableEfficiency": 0.8,
-      "maxConcurrentRequests": 10,
+      "maxConcurrentRequests": 40,
       "reloadDelay": "PT8h"
     },
     "query": {
@@ -71,13 +71,16 @@ Reference the documentation below for anything that is not implicitly clear and 
     "port": 4242
   },
   "tableCache": {
-    "initialCapacity": 4096,
+    "initialCapacity": 256,
     "refreshStaleItemsDelay": "PT4h",
     "consideredStale": "PT8h"
   },
   "rpc": {
+    "callWeights": {
+      "getProgramAccounts": 2
+    },
     "defaultCapacity": {
-      "minCapacity": -32,
+      "minCapacityDuration": "PT8S",
       "maxCapacity": 4,
       "resetDuration": "PT1S"
     },
@@ -90,7 +93,7 @@ Reference the documentation below for anything that is not implicitly clear and 
       {
         "url": "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY",
         "capacity": {
-          "minCapacity": -50,
+          "minCapacityDuration": "PT5S",
           "maxCapacity": 50,
           "resetDuration": "PT1S"
         },
