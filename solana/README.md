@@ -249,5 +249,6 @@ Compiles a minimal executable JVM and facilitates passing runtime arguments.
   --configFile="./solana/configs/LookupTableService.json" \
   --moduleName="software.sava.solana_services" \
   --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
-  --jvmArgs="-server -XX:+UseZGC -Xms7G -Xmx13G"
+  --jvmArgs="-server -XX:+UseZGC -Xms7G -Xmx13G" \
+  --screen=0
 ```

@@ -11,6 +11,8 @@ jvmArgs="-server -XX:+DisableExplicitGC -XX:+UseZGC -Xms8G -Xmx13G"
 logLevel="INFO";
 configFile="";
 
+screen=0;
+
 for arg in "$@"
 do
   if [[ "$arg" =~ ^--.* ]]; then
@@ -38,6 +40,17 @@ do
 
       cf | configFile) configFile="$val";;
 
+      screen)
+        case "$val" in
+          1|*screen) screen=1 ;;
+          0) screen=0 ;;
+          *)
+            printf "'%sscreen=[0|1]' or '%sscreen' not '%s'.\n" "--" "--" "$arg";
+            exit 2;
+          ;;
+        esac
+        ;;
+
       *)
           printf "Unsupported flag '%s' [key=%s] [val=%s].\n" "$arg" "$key" "$val";
           exit 1;
@@ -64,5 +77,10 @@ readonly javaExe
 jvmArgs="$jvmArgs -D$moduleName.logLevel=$logLevel -D$moduleName.config=$configFile -m $moduleName/$mainClass"
 IFS=' ' read -r -a jvmArgsArray <<< "$jvmArgs"
 
-set -x
-"$javaExe" "${jvmArgsArray[@]}"
+if [[ "$screen" == 0 ]]; then
+  set -x
+  "$javaExe" "${jvmArgsArray[@]}"
+else
+  set -x
+  screen -S "$simpleProjectName" "$javaExe" "${jvmArgsArray[@]}"
+fi
