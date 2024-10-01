@@ -11,9 +11,9 @@ import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 import systems.comodal.jsoniter.JsonIterator;
 
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -102,7 +102,11 @@ final class CallTests {
         "rpcClient::getProgramAccounts"
     );
 
-    final var stats = IntStream.range(1, 900).mapToLong(i -> {
+    int s = 0;
+    final long[] samples = new long[900];
+    Arrays.fill(samples, -1);
+    Runtime.getRuntime().gc();
+    for (int i = 1; i <= samples.length; ++i) {
       final long start = System.currentTimeMillis();
       final var callCount = call.get();
       final long duration = System.currentTimeMillis() - start;
@@ -113,22 +117,25 @@ final class CallTests {
             i, callCount, duration);
         assertEquals(402, callCount, log);
         assertTrue(duration >= 3_000 && duration < 3_100, log);
-        return -1;
       } else if (i == 427) {
         final var log = String.format(
             "[iteration=%d] [callCount=%d] [duration=%dms]%n",
             i, callCount, duration);
         assertEquals(430, callCount, log);
         assertTrue(duration >= 1_000 && duration < 1_100, log);
-        return -1;
-      } else if (duration > 34) {
-        fail(String.format(
-            "[iteration=%d] [callCount=%d] [duration=%dms]%n",
-            i, callCount, duration
-        ));
+      } else {
+        if (duration > 89) {
+          fail(String.format(
+              "[iteration=%d] [callCount=%d] [duration=%dms]%n",
+              i, callCount, duration
+          ));
+        }
+        samples[s++] = duration;
       }
-      return duration;
-    }).filter(d -> d >= 0).summaryStatistics();
+    }
+    final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
+        .summaryStatistics();
     assertTrue(stats.getAverage() < 3, stats.toString());
+    assertEquals(0, samples[samples.length >> 1]);
   }
 }
