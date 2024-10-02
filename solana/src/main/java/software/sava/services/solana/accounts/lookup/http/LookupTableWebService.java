@@ -39,6 +39,7 @@ public final class LookupTableWebService {
             serviceConfig.rpcClients(),
             CachedAddressLookupTable.FACTORY
         );
+        httpServer.createContext("/v0/alt/discover/tx/sig", new FromTxSigHandler(tableService, tableCache));
         httpServer.createContext("/v0/alt/discover/tx/raw", new FromRawTxHandler(tableService, tableCache));
         httpServer.createContext("/v0/alt/discover/accounts", new FromAccountsHandler(tableService, tableCache));
 
