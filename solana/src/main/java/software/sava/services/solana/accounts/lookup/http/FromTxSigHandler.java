@@ -17,19 +17,18 @@ final class FromTxSigHandler extends FromRawTxHandler {
   protected void handlePost(final HttpExchange exchange,
                             final long startExchange,
                             final byte[] body) {
+    final var txSig = new String(body);
     try {
-      final var txSig = new String(body);
       final var txBytes = Call.createCall(
           rpcClients, rpcClient -> rpcClient.getTransaction(txSig),
           CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, true,
+          1, Integer.MAX_VALUE, false,
           "rpcClient::getTransaction"
       ).get().data();
       handle(exchange, startExchange, txBytes);
     } catch (final RuntimeException ex) {
-      final var bodyString = new String(body);
-      logger.log(System.Logger.Level.ERROR, "Failed to process request " + bodyString, ex);
-      writeResponse(400, exchange, bodyString);
+      logger.log(System.Logger.Level.ERROR, "Failed to process request " + txSig, ex);
+      writeResponse(400, exchange, txSig);
     }
   }
 }
