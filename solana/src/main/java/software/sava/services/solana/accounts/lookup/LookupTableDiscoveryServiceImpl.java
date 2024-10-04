@@ -73,8 +73,8 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private final ExecutorService executorService;
   private final CompletableFuture<Void> initialized;
   private final int maxConcurrentRequests;
-  private final TableStats tableStats;
-  private final AtomicReferenceArray<AddressLookupTable[]> partitions;
+  final TableStats tableStats;
+  final AtomicReferenceArray<AddressLookupTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
   private final Path altCacheDirectory;
   private final Duration reloadDelay;
@@ -82,7 +82,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private final int numPartitionsPerQuery;
   private final int topTablesPerPartition;
   private final int minScore;
-  private volatile AddressLookupTable[] allTables;
+  volatile AddressLookupTable[] allTables;
 
   LookupTableDiscoveryServiceImpl(final ExecutorService executorService,
                                   final int maxConcurrentRequests,
@@ -381,53 +381,10 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       joinPartitions();
       initialized.complete(null);
 
-//        IntStream.range(0, NUM_PARTITIONS)
-//            .map(i -> partitions.getOpaque(i).length)
-//            .sorted()
-//            .forEach(System.out::println);
-
-      final int numTables = IntStream.range(0, NUM_PARTITIONS)
-          .map(i -> partitions.getOpaque(i).length)
-          .sum();
       logger.log(INFO, String.format("""
           
           Loaded %d tables from the Lookup Table Cache in %s.
-          """, numTables, duration));
-
-
-//        final var accountCounts = IntStream.range(0, NUM_PARTITIONS)
-//            .mapToObj(i -> partitions.getOpaque(i))
-//            .flatMap(Arrays::stream)
-//            .map(IndexedTable::table)
-//            .filter(lookupTable -> lookupTable.numAccounts() > minAccountsPerTable)
-//            .flatMap(table -> IntStream.range(0, table.numAccounts()).mapToObj(table::account))
-//            .collect(Collectors.groupingByConcurrent(
-//                Function.identity(),
-//                Collector.of(
-//                    AtomicInteger::new,
-//                    (a, b) -> a.incrementAndGet(),
-//                    (a, b) -> {
-//                      a.addAndGet(b.get());
-//                      return a;
-//                    },
-//                    AtomicInteger::get
-//                )
-//            ));
-//        accountCounts.entrySet().stream()
-//            .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-//            .limit(1_024)
-//            .forEach(e -> System.out.println(e.getKey() + ": " + e.getValue()));
-
-//        IntStream.range(0, NUM_PARTITIONS)
-//            .mapToObj(i -> partitions.getOpaque(i))
-//            .forEach(partition -> {
-//              for (final var indexedTable : partition) {
-//                final var table = indexedTable.table();
-//                final var accounts = IntStream.range(0, table.numAccounts())
-//                    .mapToObj(table::account)
-//                    .collect(Collectors.toSet());
-//              }
-//            });
+          """, allTables.length, duration));
       return true;
     } else {
       return false;

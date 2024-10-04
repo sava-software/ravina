@@ -10,6 +10,6 @@ final class LinearBackoffErrorHandler extends BackoffErrorHandler {
 
   @Override
   protected int calculateDelaySeconds(final int errorCount) {
-    return errorCount * initialRetryDelaySeconds;
+    return Math.min(errorCount * initialRetryDelaySeconds, maxRetryDelaySeconds);
   }
 }

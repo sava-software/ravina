@@ -10,6 +10,7 @@ final class ExponentialBackoffErrorHandler extends BackoffErrorHandler {
 
   @Override
   protected int calculateDelaySeconds(final int errorCount) {
-    return (int) Math.pow(2, initialRetryDelaySeconds - 1);
+    final var exponentialDelay = (int) Math.pow(2, errorCount - 1);
+    return Math.max(initialRetryDelaySeconds, Math.min(maxRetryDelaySeconds, exponentialDelay));
   }
 }
