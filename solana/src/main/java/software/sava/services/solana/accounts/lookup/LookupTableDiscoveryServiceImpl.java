@@ -83,7 +83,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   // Query
   private final int numPartitionsPerQuery;
   private final int topTablesPerPartition;
-  private final int minScore;
+  private final int startingMinScore;
   volatile AddressLookupTable[] allTables;
 
   LookupTableDiscoveryServiceImpl(final ExecutorService executorService,
@@ -95,7 +95,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
                                   final Duration reloadDelay,
                                   final int numPartitionsPerQuery,
                                   final int topTablesPerPartition,
-                                  final int minScore) {
+                                  final int startingMinScore) {
     this.executorService = executorService;
     this.initialized = new CompletableFuture<>();
     this.remoteLoad = new CompletableFuture<>();
@@ -107,7 +107,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     this.reloadDelay = reloadDelay;
     this.numPartitionsPerQuery = numPartitionsPerQuery;
     this.topTablesPerPartition = topTablesPerPartition;
-    this.minScore = minScore;
+    this.startingMinScore = startingMinScore;
     this.allTables = new AddressLookupTable[0];
   }
 
@@ -151,7 +151,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
           ++score;
         }
       }
-      if (score > minScorePerTable) {
+      if (score >= minScorePerTable) {
         rankedTables[added] = new ScoredTable(score, table);
         if (score < minScore) {
           minScore = score;
@@ -203,27 +203,37 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
-  @Override
-  public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
+  private AddressLookupTable[] scoreTables(final PublicKey[] accountsArray) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
     final int windowSize = numTables / numPartitionsPerQuery;
+    for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
+      final int _minScore = minScore;
+      final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
+          .parallel()
+          .mapToObj(i -> rankTables(
+              allTables,
+              i, Math.min(i + windowSize, numTables),
+              accountsArray,
+              _minScore,
+              topTablesPerPartition
+          ))
+          .filter(Objects::nonNull)
+          .flatMap(Arrays::stream)
+          .sorted()
+          .map(ScoredTable::table)
+          .toArray(AddressLookupTable[]::new);
+      if (scoredTables.length > 0 || _minScore == 2) {
+        return scoredTables;
+      }
+    }
+  }
+
+  @Override
+  public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
     final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
 
-    final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
-        .parallel()
-        .mapToObj(i -> rankTables(
-            allTables,
-            i, Math.min(i + windowSize, numTables),
-            accountsArray,
-            minScore,
-            topTablesPerPartition
-        ))
-        .filter(Objects::nonNull)
-        .flatMap(Arrays::stream)
-        .sorted()
-        .map(ScoredTable::table)
-        .toArray(AddressLookupTable[]::new);
+    final var scoredTables = scoreTables(accountsArray);
 
     final int numAccounts = accountsArray.length;
     final int breakOut = numAccounts - 1;

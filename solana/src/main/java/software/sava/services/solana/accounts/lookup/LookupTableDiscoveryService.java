@@ -88,7 +88,7 @@ public interface LookupTableDiscoveryService extends Runnable {
         loadConfig.reloadDelay(),
         queryConfig.numPartitions(),
         queryConfig.topTablesPerPartition(),
-        queryConfig.minScore()
+        queryConfig.startingMinScore()
     );
   }
 

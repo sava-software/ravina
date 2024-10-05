@@ -199,11 +199,11 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
 
   public record Query(int numPartitions,
                       int topTablesPerPartition,
-                      int minScore) {
+                      int startingMinScore) {
 
     private static final int DEFAULT_TOP_TABLES_PER_PARTITION = 16;
     private static final int DEFAULT_PARTITIONS = 8;
-    private static final int DEFAULT_MIN_SCORE = 1;
+    private static final int DEFAULT_MIN_SCORE = 2;
 
     private static Query parse(final JsonIterator ji) {
       final var parser = new Builder();
@@ -215,13 +215,13 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
 
       private int numPartitions = DEFAULT_TOP_TABLES_PER_PARTITION;
       private int topTablesPerPartition = DEFAULT_PARTITIONS;
-      private int minScore = DEFAULT_MIN_SCORE;
+      private int startingMinScore = DEFAULT_MIN_SCORE;
 
       private Builder() {
       }
 
       private Query create() {
-        return new Query(numPartitions, topTablesPerPartition, minScore);
+        return new Query(numPartitions, topTablesPerPartition, Math.max(2, startingMinScore));
       }
 
       @Override
@@ -230,8 +230,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
           numPartitions = ji.readInt();
         } else if (fieldEquals("topTablesPerPartition", buf, offset, len)) {
           topTablesPerPartition = ji.readInt();
-        } else if (fieldEquals("minScore", buf, offset, len)) {
-          minScore = ji.readInt();
+        } else if (fieldEquals("startingMinScore", buf, offset, len)) {
+          startingMinScore = ji.readInt();
         } else {
           ji.skip();
         }
