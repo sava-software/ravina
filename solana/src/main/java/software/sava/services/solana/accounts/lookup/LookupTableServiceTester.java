@@ -12,7 +12,6 @@ import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.net.http.HttpClient;
 import java.util.Arrays;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.concurrent.Executors;
 
@@ -95,10 +94,7 @@ public final class LookupTableServiceTester {
         System.out.println(optimalTables.length + ": " + optimalTableKeys);
 
         final var tableAccountMetas = Arrays.stream(optimalTables)
-            .map(table -> {
-              final var tableData = Base64.getDecoder().decode(table.toString());
-              return AddressLookupTable.read(table.address(), tableData);
-            })
+            .map(AddressLookupTable::withReverseLookup)
             .map(LookupTableAccountMeta::createMeta)
             .toArray(LookupTableAccountMeta[]::new);
         final var newTx = Transaction.createTx(accounts[0], Arrays.asList(instructions), tableAccountMetas);

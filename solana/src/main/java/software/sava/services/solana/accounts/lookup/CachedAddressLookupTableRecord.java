@@ -41,7 +41,8 @@ record CachedAddressLookupTableRecord(PublicKey address,
 
   @Override
   public AddressLookupTable withReverseLookup() {
-    return this;
+    final var tableData = Base64.getDecoder().decode(toString());
+    return AddressLookupTable.read(address, tableData);
   }
 
   private static final Integer NOT_PRESENT = -1;

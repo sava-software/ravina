@@ -49,6 +49,8 @@ class FromRawTxHandler extends OptimalTablesHandler {
               }
               notCached.add(key);
               continue;
+            } else {
+              lookupTable = lookupTable.withReverseLookup();
             }
             lookupTables.put(lookupTable.address(), lookupTable);
           }
