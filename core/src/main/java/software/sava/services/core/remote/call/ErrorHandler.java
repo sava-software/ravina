@@ -78,6 +78,6 @@ public interface ErrorHandler {
 
   long onError(final int errorCount,
                final String retryLogContext,
-               final RuntimeException exception,
+               final Throwable exception,
                final TimeUnit timeUnit);
 }

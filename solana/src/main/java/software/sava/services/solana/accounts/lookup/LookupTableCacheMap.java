@@ -154,7 +154,7 @@ final class LookupTableCacheMap implements LookupTableCache {
           }
         } else {
           final var fetchKeys = new ArrayList<PublicKey>(numToFetch);
-          final int to = numTables - Integer.numberOfLeadingZeros(fetchBitset);
+          final int to = Integer.SIZE - Integer.numberOfLeadingZeros(fetchBitset);
           for (int i = Integer.numberOfTrailingZeros(fetchBitset), m = 1 << i; i < to; ++i, m <<= 1) {
             if ((fetchBitset & m) == m) {
               fetchKeys.add(lookupTableKeys.get(i));

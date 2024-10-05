@@ -25,7 +25,7 @@ class ComposedCall<T> implements Call<T> {
     for (int errorCount = 0; ; ) {
       try {
         return callFuture == null ? null : callFuture.join();
-      } catch (final RuntimeException e) {
+      } catch (final Throwable e) {
         final long sleep = errorHandler.onError(++errorCount, retryLogContext, e, MILLISECONDS);
         if (sleep < 0) {
           return null;

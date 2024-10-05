@@ -32,9 +32,25 @@ public interface TableStats extends Predicate<AddressLookupTable> {
         minEfficiencyRatio,
         new LongAdder(),
         new LongAdder(),
+        new LongAdder(),
+        new LongAdder(),
         HashMap.newHashMap(1 << 21)
     );
   }
+
+  static int median(final int[] array) {
+    return array[(array.length & 1) == 1 ? array.length / 2 : (array.length / 2) - 1];
+  }
+
+  static long median(final long[] array) {
+    return array[(array.length & 1) == 1 ? array.length / 2 : (array.length / 2) - 1];
+  }
+
+  static double median(final double[] array) {
+    return array[(array.length & 1) == 1 ? array.length / 2 : (array.length / 2) - 1];
+  }
+
+  TableStatsSummary summarize();
 
   void reset();
 

@@ -65,6 +65,12 @@ public interface Call<T> extends Supplier<T> {
 
   static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
                                    final Function<I, CompletableFuture<R>> call,
+                                   final String retryLogContext) {
+    return createCall(loadBalancer, call, false, retryLogContext);
+  }
+
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
                                    final CallContext callContext,
                                    final int runtimeWeight,
                                    final int maxTryClaim,
@@ -74,6 +80,19 @@ public interface Call<T> extends Supplier<T> {
         loadBalancer,
         call,
         callContext, runtimeWeight, maxTryClaim, true, measureCallTime,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
+                                   final CallContext callContext,
+                                   final int runtimeWeight,
+                                   final String retryLogContext) {
+    return new CourteousBalancedCall<>(
+        loadBalancer,
+        call,
+        callContext, runtimeWeight, Integer.MAX_VALUE, true, false,
         retryLogContext
     );
   }

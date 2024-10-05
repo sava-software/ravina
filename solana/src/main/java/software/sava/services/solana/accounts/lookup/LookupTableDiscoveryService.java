@@ -135,6 +135,8 @@ public interface LookupTableDiscoveryService extends Runnable {
 
   CompletableFuture<Void> initializedFuture();
 
+  CompletableFuture<Void> remoteLoadFuture();
+
   AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> accounts);
 
   AddressLookupTable[] findOptimalSetOfTables(final Transaction transaction);

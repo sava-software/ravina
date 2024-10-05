@@ -26,7 +26,7 @@ abstract class BackoffErrorHandler implements ErrorHandler {
   @Override
   public final long onError(final int errorCount,
                             final String retryLogContext,
-                            final RuntimeException exception,
+                            final Throwable exception,
                             final TimeUnit timeUnit) {
     if (errorCount <= maxRetries) {
       final long retrySeconds = Math.min(calculateDelaySeconds(errorCount), maxRetryDelaySeconds);

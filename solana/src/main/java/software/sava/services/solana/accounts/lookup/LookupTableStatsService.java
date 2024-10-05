@@ -17,12 +17,9 @@ import java.util.stream.IntStream;
 
 import static java.nio.file.StandardOpenOption.*;
 import static software.sava.services.solana.accounts.lookup.LookupTableDiscoveryServiceImpl.NUM_PARTITIONS;
+import static software.sava.services.solana.accounts.lookup.TableStats.median;
 
 public final class LookupTableStatsService {
-
-  private static int median(final int[] array) {
-    return array[(array.length & 1) == 1 ? (array.length / 2) + 1 : array.length / 2];
-  }
 
   public static void main(final String[] args) throws IOException, InterruptedException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -35,19 +32,28 @@ public final class LookupTableStatsService {
             serviceConfig,
             nativeProgramClient
         );
+
         executorService.execute(tableService);
-        tableService.initializedFuture().join();
-        // tableService.loadCache();
-        Thread.sleep(Integer.MAX_VALUE);
-        final var partitions = tableService.partitions;
-        int[] partitionLengths = IntStream.range(0, NUM_PARTITIONS)
-            .map(i -> partitions.get(i).length)
-            .toArray();
+
 
         final var statsDirectory = Path.of("stats");
         if (Files.notExists(statsDirectory)) {
           Files.createDirectories(statsDirectory);
         }
+        tableService.remoteLoadFuture().join();
+        Files.writeString(
+            statsDirectory.resolve("summary.csv"),
+            tableService.tableStatsSummary.toCSV(),
+            CREATE, WRITE, TRUNCATE_EXISTING
+        );
+        Thread.sleep(Integer.MAX_VALUE);
+
+        tableService.loadCache();
+
+        final var partitions = tableService.partitions;
+        int[] partitionLengths = IntStream.range(0, NUM_PARTITIONS)
+            .map(i -> partitions.get(i).length)
+            .toArray();
 
         final var partitionStats = Arrays.stream(partitionLengths).summaryStatistics();
         System.out.println(partitionStats);
@@ -63,7 +69,7 @@ public final class LookupTableStatsService {
         Arrays.sort(partitionLengths);
         final var sortedPartitionLengths = Arrays.stream(partitionLengths)
             .mapToObj(Integer::toString)
-            .collect(Collectors.joining("\n"));
+            .collect(Collectors.joining("\n", "numTables\n", ""));
         Files.writeString(
             statsDirectory.resolve("sorted_partition_lengths.csv"),
             sortedPartitionLengths,
@@ -91,9 +97,10 @@ public final class LookupTableStatsService {
                 )
             ));
 
-        final var topOccurringAccounts = accountCounts.entrySet().stream()
+        var topOccurringAccounts = accountCounts.entrySet().stream()
             .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
             .toList();
+        final int numUniqueAccounts = topOccurringAccounts.size();
         accountCounts.clear();
 
         int[] topOccurringAccountsCounts = topOccurringAccounts.stream().mapToInt(Map.Entry::getValue).toArray();
@@ -101,32 +108,54 @@ public final class LookupTableStatsService {
         final int medianOccurrences = median(topOccurringAccountsCounts);
         topOccurringAccountsCounts = null;
 
-        final var summaryCsv = String.format("""
-                numTables,numUniqueAccounts,averageAccountOccurrence,medianAccountOccurrence,maxAccountOccurrence
-                %d,%d,%.1f,%d,%d
-                """,
-            allTables.length, topOccurringAccounts.size(), occurrenceStats.getAverage(), medianOccurrences, occurrenceStats.getMax()
-        );
-        Files.writeString(
-            statsDirectory.resolve("summary.csv"),
-            summaryCsv,
-            CREATE, WRITE, TRUNCATE_EXISTING
-        );
-        System.out.println(summaryCsv);
-
 
         final var topOccurringAccountsCsv = topOccurringAccounts.stream()
             .limit(2000)
             .map(entry -> String.format("%s,%d", entry.getKey(), entry.getValue()))
             .collect(Collectors.joining("\n", "address,numTables\n", ""));
+        topOccurringAccounts = null;
         Files.writeString(
             statsDirectory.resolve("top_occurring_accounts.csv"),
             topOccurringAccountsCsv,
             CREATE, WRITE, TRUNCATE_EXISTING
         );
 
+        final var tableStats = Arrays.stream(allTables)
+            .map(SingleTableStats::createStats)
+            .toList();
 
-        // TODO: unique accounts per table
+        final var efficiencies = tableStats.stream()
+            .mapToDouble(SingleTableStats::accountEfficiency)
+            .toArray();
+        final var efficiencyStats = Arrays.stream(efficiencies).summaryStatistics();
+        final var numWithDuplicates = Arrays.stream(efficiencies).filter(e -> e < 1.0).count();
+
+        final var numAccounts = tableStats.stream()
+            .mapToLong(SingleTableStats::numAccounts)
+            .toArray();
+        final var numAccountsStats = Arrays.stream(numAccounts).summaryStatistics();
+
+        final var numUniqueAccountsPerTable = tableStats.stream()
+            .mapToLong(SingleTableStats::distinctAccounts)
+            .toArray();
+        final var numUniqueAccountStats = Arrays.stream(numUniqueAccountsPerTable).summaryStatistics();
+
+        final var summaryCsv = String.format("""
+                numTables,duplicateSets,numWithDuplicates,minEfficiency,avgEfficiency,medianEfficiency,averageAccountsPerTable,medianAccountsPerTable,summedNumAccountsPerTable,averageUniqueAccountsPerTable,medianUniqueAccountsPerTable,summedDistinctAccountsPerTable,numUniqueAccounts,averageAccountOccurrence,medianAccountOccurrence,maxAccountOccurrence
+                %d,0,%d,%.1f,%.3f,%.3f,%.1f,%d,%d,%.1f,%d,%d,%d,%.1f,%d,%d
+                """,
+            allTables.length, numWithDuplicates,
+            efficiencyStats.getMin(), efficiencyStats.getAverage(), median(efficiencies),
+            numAccountsStats.getAverage(), median(numAccounts), numAccountsStats.getSum(),
+            numUniqueAccountStats.getAverage(), median(numUniqueAccountsPerTable), numUniqueAccountStats.getSum(),
+            numUniqueAccounts, occurrenceStats.getAverage(), medianOccurrences, occurrenceStats.getMax()
+        );
+        Files.writeString(
+            statsDirectory.resolve("filtered_summary.csv"),
+            summaryCsv,
+            CREATE, WRITE, TRUNCATE_EXISTING
+        );
+        System.out.println(summaryCsv);
       }
     }
   }

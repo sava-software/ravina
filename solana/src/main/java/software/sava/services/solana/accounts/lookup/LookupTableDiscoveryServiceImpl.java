@@ -72,8 +72,10 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
   private final ExecutorService executorService;
   private final CompletableFuture<Void> initialized;
+  private final CompletableFuture<Void> remoteLoad;
   private final int maxConcurrentRequests;
-  final TableStats tableStats;
+  private final TableStats tableStats;
+  TableStatsSummary tableStatsSummary;
   final AtomicReferenceArray<AddressLookupTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
   private final Path altCacheDirectory;
@@ -96,6 +98,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
                                   final int minScore) {
     this.executorService = executorService;
     this.initialized = new CompletableFuture<>();
+    this.remoteLoad = new CompletableFuture<>();
     this.maxConcurrentRequests = maxConcurrentRequests;
     this.tableStats = tableStats;
     this.partitions = partitions;
@@ -119,6 +122,11 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   @Override
   public CompletableFuture<Void> initializedFuture() {
     return initialized;
+  }
+
+  @Override
+  public CompletableFuture<Void> remoteLoadFuture() {
+    return remoteLoad;
   }
 
   private static ScoredTable[] rankTables(final AddressLookupTable[] partition,
@@ -177,7 +185,12 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
           rankedTables[removeIndex] = rankedTables[r];
           for (; r >= 0; --r) {
             if (score > rankedTables[r].score()) {
-              rankedTables[r] = rankedTables[r - 1];
+              if (r == 0) {
+                rankedTables[0] = new ScoredTable(score, table);
+                break;
+              } else {
+                rankedTables[r] = rankedTables[r - 1];
+              }
             } else {
               rankedTables[r + 1] = new ScoredTable(score, table);
               break;
@@ -228,7 +241,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
          from = 0,
          to = numAccounts,
          numRemoved,
-         a; i < tables.length; ++i) {
+         a; i < scoredTables.length; ++i) {
       table = scoredTables[i];
       numRemoved = 0;
       for (a = from; a < to; ++a, maskIndex <<= 1) {
@@ -412,8 +425,10 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
 
         joinPartitions();
+        this.tableStatsSummary = tableStats.summarize();
 
-        initialized.obtrudeValue(null);
+        initialized.complete(null);
+        remoteLoad.complete(null);
 
         final int numTables = IntStream.range(0, NUM_PARTITIONS)
             .map(i -> partitions.getOpaque(i).length)
@@ -422,6 +437,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         logger.log(INFO, String.format("""
             %s to fetch all %d tables.""", duration, numTables
         ));
+
 
         System.out.println(tableStats);
         tableStats.reset();
@@ -434,6 +450,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       // return;
     } catch (final RuntimeException ex) {
       initialized.obtrudeException(ex);
+      remoteLoad.obtrudeException(ex);
       throw ex;
     }
   }
