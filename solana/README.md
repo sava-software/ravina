@@ -243,6 +243,22 @@ docker run --rm \
 
 Compiles a minimal executable JVM and facilitates passing runtime arguments.
 
+Add the following to your gradle.properties file:
+
+```shell
+gpr.user=YOUR_GITHUB_USERNAME
+gpr.token=YOUR_GITUHUB_ACCESS_TOKEN
+```
+
+Or, export the following environment variables:
+
+```shell
+export GITHUB_ACTOR=<YOUR_GITHUB_USERNAME>
+export GITHUB_TOKEN=<YOUR_GITUHUB_ACCESS_TOKEN>
+```
+
+Run the service:
+
 ```shell
 ./runService.sh \
   --simpleProjectName="solana" \
@@ -251,4 +267,76 @@ Compiles a minimal executable JVM and facilitates passing runtime arguments.
   --mainClass="software.sava.services.solana.accounts.lookup.http.LookupTableWebService" \
   --jvmArgs="-server -XX:+UseZGC -Xms7G -Xmx13G" \
   --screen=0
+```
+
+## Requirements
+
+- The latest generally available JDK. This project will continue to move to the latest and will not maintain
+  versions released against previous JDK's.
+
+## [Dependencies](programs/src/main/java/module-info.java)
+
+- [JSON Iterator](https://github.com/comodal/json-iterator?tab=readme-ov-file#json-iterator)
+- [sava-core](https://github.com/sava-software/sava)
+- [sava-rpc](https://github.com/sava-software/sava)
+- [solana-programs](https://github.com/sava-software/solana-programs)
+- [anchor-src-gen](https://github.com/sava-software/anchor-src-gen)
+- [anchor-programs](https://github.com/sava-software/anchor-programs)
+
+### Add Dependency
+
+Create
+a [GitHub user access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic)
+with read access to GitHub Packages.
+
+Then add the following to your Gradle build script.
+
+```groovy
+repositories {
+  maven {
+    url = "https://maven.pkg.github.com/sava-software/sava"
+    credentials {
+      username = GITHUB_USERNAME
+      password = GITHUB_PERSONAL_ACCESS_TOKEN
+    }
+  }
+  maven {
+    url = "https://maven.pkg.github.com/sava-software/solana-programs"
+    credentials {
+      username = GITHUB_USERNAME
+      password = GITHUB_PERSONAL_ACCESS_TOKEN
+    }
+  }
+  maven {
+    url = "https://maven.pkg.github.com/sava-software/anchor-src-gen"
+    credentials {
+      username = GITHUB_USERNAME
+      password = GITHUB_PERSONAL_ACCESS_TOKEN
+    }
+  }
+  maven {
+    url = "https://maven.pkg.github.com/sava-software/anchor-programs"
+    credentials {
+      username = GITHUB_USERNAME
+      password = GITHUB_PERSONAL_ACCESS_TOKEN
+    }
+  }
+  maven {
+    url = "https://maven.pkg.github.com/sava-software/services"
+    credentials {
+      username = GITHUB_USERNAME
+      password = GITHUB_PERSONAL_ACCESS_TOKEN
+    }
+  }
+}
+
+dependencies {
+  implementation "software.sava:sava-core:$VERSION"
+  implementation "software.sava:sava-rpc:$VERSION"
+  implementation "software.sava:solana-programs:$VERSION"
+  implementation "software.sava:anchor-src-gen:$VERSION"
+  implementation "software.sava:anchor-programs:$VERSION"
+  implementation "software.sava:core-services:$VERSION"
+  implementation "software.sava:solana-services:$VERSION"
+}
 ```
