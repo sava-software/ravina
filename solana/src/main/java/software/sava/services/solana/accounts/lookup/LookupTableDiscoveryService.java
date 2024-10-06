@@ -137,16 +137,16 @@ public interface LookupTableDiscoveryService extends Runnable {
 
   CompletableFuture<Void> remoteLoadFuture();
 
-  AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> accounts);
+  AddressLookupTable[] discoverTables(final Set<PublicKey> accounts);
 
-  AddressLookupTable[] findOptimalSetOfTables(final Transaction transaction);
+  AddressLookupTable[] discoverTables(final Transaction transaction);
 
-  default AddressLookupTable[] findOptimalSetOfTables(final Instruction[] instructions) {
-    return findOptimalSetOfTables(distinctAccounts(instructions));
+  default AddressLookupTable[] discoverTables(final Instruction[] instructions) {
+    return discoverTables(distinctAccounts(instructions));
   }
 
-  default AddressLookupTable[] findOptimalSetOfTables(final PublicKey[] accounts, final PublicKey[] programs) {
-    return findOptimalSetOfTables(distinctAccounts(accounts, programs));
+  default AddressLookupTable[] discoverTables(final PublicKey[] accounts, final PublicKey[] programs) {
+    return discoverTables(distinctAccounts(accounts, programs));
   }
 
   AddressLookupTable scanForTable(final PublicKey publicKey);

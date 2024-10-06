@@ -29,7 +29,7 @@ final class FromAccountsHandler extends OptimalTablesHandler {
     }
 
     final long start = System.currentTimeMillis();
-    final var lookupTables = tableService.findOptimalSetOfTables(distinctAccounts);
+    final var lookupTables = tableService.discoverTables(distinctAccounts);
     writeResponse(exchange, startExchange, accountsOnly, start, lookupTables);
   }
 }

@@ -12,7 +12,7 @@ import java.util.function.Predicate;
 
 public interface TableStats extends Predicate<AddressLookupTable> {
 
-  static TableStats createStats(int minAccountsPerTable, double minEfficiencyRatio) {
+  static TableStats createStats(final int minAccountsPerTable, final double minEfficiencyRatio) {
     final var accountSets = new ConcurrentSkipListSet<Set<PublicKey>>((a, b) -> {
       final int sizeCompare = Integer.compare(a.size(), b.size());
       if (sizeCompare == 0) {

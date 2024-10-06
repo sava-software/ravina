@@ -21,7 +21,7 @@ import static software.sava.services.solana.accounts.lookup.TableStats.median;
 
 public final class LookupTableStatsService {
 
-  public static void main(final String[] args) throws IOException, InterruptedException {
+  public static void main(final String[] args) throws IOException {
     try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
       try (final var httpClient = HttpClient.newBuilder().executor(executorService).build()) {
         final var serviceConfig = LookupTableServiceConfig.loadConfig(httpClient);
@@ -33,22 +33,24 @@ public final class LookupTableStatsService {
             nativeProgramClient
         );
 
-        executorService.execute(tableService);
-
-
         final var statsDirectory = Path.of("stats");
         if (Files.notExists(statsDirectory)) {
           Files.createDirectories(statsDirectory);
         }
-        tableService.remoteLoadFuture().join();
-        Files.writeString(
-            statsDirectory.resolve("summary.csv"),
-            tableService.tableStatsSummary.toCSV(),
-            CREATE, WRITE, TRUNCATE_EXISTING
-        );
-        Thread.sleep(Integer.MAX_VALUE);
 
+//        executorService.execute(tableService);
+//        tableService.remoteLoadFuture().join();
+//        Files.writeString(
+//            statsDirectory.resolve("summary.csv"),
+//            tableService.tableStatsSummary.toCSV(),
+//            CREATE, WRITE, TRUNCATE_EXISTING
+//        );
+//        Thread.sleep(Integer.MAX_VALUE);
+// [totalTables=520072] [duplicateSets=12031] [totalTables=835081] [emptyTables=314338] [inneficientTables=13880] [belowMinAccounts=250925] [minEfficiencyRatio=0.60]
         tableService.loadCache();
+
+//        numTables,duplicateSets,numWithDuplicates,minEfficiency,avgEfficiency,medianEfficiency,averageAccountsPerTable,medianAccountsPerTable,summedNumAccountsPerTable,averageUniqueAccountsPerTable,medianUniqueAccountsPerTable,summedDistinctAccountsPerTable,numUniqueAccounts,averageAccountOccurrence,medianAccountOccurrence,maxAccountOccurrence
+//        130769,0,88711,0.8,0.953,0.802,165.5,182,21642739,156.3,146,20440954,8858938,2.3,1,58770
 
         final var partitions = tableService.partitions;
         int[] partitionLengths = IntStream.range(0, NUM_PARTITIONS)
@@ -141,8 +143,8 @@ public final class LookupTableStatsService {
         final var numUniqueAccountStats = Arrays.stream(numUniqueAccountsPerTable).summaryStatistics();
 
         final var summaryCsv = String.format("""
-                numTables,duplicateSets,numWithDuplicates,minEfficiency,avgEfficiency,medianEfficiency,averageAccountsPerTable,medianAccountsPerTable,summedNumAccountsPerTable,averageUniqueAccountsPerTable,medianUniqueAccountsPerTable,summedDistinctAccountsPerTable,numUniqueAccounts,averageAccountOccurrence,medianAccountOccurrence,maxAccountOccurrence
-                %d,0,%d,%.1f,%.3f,%.3f,%.1f,%d,%d,%.1f,%d,%d,%d,%.1f,%d,%d
+                numTables,numWithDuplicates,minEfficiency,avgEfficiency,medianEfficiency,averageAccountsPerTable,medianAccountsPerTable,summedNumAccountsPerTable,averageUniqueAccountsPerTable,medianUniqueAccountsPerTable,summedDistinctAccountsPerTable,numUniqueAccounts,averageAccountOccurrence,medianAccountOccurrence,maxAccountOccurrence
+                %d,%d,%.1f,%.3f,%.3f,%.1f,%d,%d,%.1f,%d,%d,%d,%.1f,%d,%d
                 """,
             allTables.length, numWithDuplicates,
             efficiencyStats.getMin(), efficiencyStats.getAverage(), median(efficiencies),

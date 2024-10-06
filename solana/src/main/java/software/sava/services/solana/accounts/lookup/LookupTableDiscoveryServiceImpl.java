@@ -230,7 +230,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   @Override
-  public AddressLookupTable[] findOptimalSetOfTables(final Set<PublicKey> distinctAccounts) {
+  public AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts) {
     final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
 
     final var scoredTables = scoreTables(accountsArray);
@@ -296,8 +296,8 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   @Override
-  public AddressLookupTable[] findOptimalSetOfTables(final Transaction transaction) {
-    return findOptimalSetOfTables(LookupTableDiscoveryService.distinctAccounts(transaction));
+  public AddressLookupTable[] discoverTables(final Transaction transaction) {
+    return discoverTables(LookupTableDiscoveryService.distinctAccounts(transaction));
   }
 
   private record Worker(AtomicInteger nextPartition,

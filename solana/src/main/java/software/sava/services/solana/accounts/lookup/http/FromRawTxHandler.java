@@ -30,7 +30,7 @@ class FromRawTxHandler extends OptimalTablesHandler {
       final var accounts = skeleton.parseNonSignerPublicKeys();
       final var programs = skeleton.parseProgramAccounts();
       final long start = System.currentTimeMillis();
-      final var lookupTables = tableService.findOptimalSetOfTables(accounts, programs);
+      final var lookupTables = tableService.discoverTables(accounts, programs);
       writeResponse(exchange, startExchange, accountsOnly, start, lookupTables);
     } else {
       final int txVersion = skeleton.version();
@@ -73,7 +73,7 @@ class FromRawTxHandler extends OptimalTablesHandler {
 
         final var instructions = skeleton.parseInstructions(skeleton.parseAccounts(lookupTables));
         final long start = System.currentTimeMillis();
-        final var optimalTables = tableService.findOptimalSetOfTables(instructions);
+        final var optimalTables = tableService.discoverTables(instructions);
         writeResponse(exchange, startExchange, accountsOnly, start, optimalTables);
       } else {
         writeResponse(400, exchange, "Unsupported transaction version " + txVersion);

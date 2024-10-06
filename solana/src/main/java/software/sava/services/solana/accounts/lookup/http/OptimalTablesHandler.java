@@ -48,7 +48,7 @@ abstract class OptimalTablesHandler extends LookupTableDiscoveryServiceHandler {
     writeResponse(exchange, accountsOnly, lookupTables);
     final long responseWritten = System.currentTimeMillis();
     logger.log(INFO, String.format(
-        "[findOptimalSetOfTables=%dms] [httpExchange=%dms]",
+        "[discoverTables=%dms] [httpExchange=%dms]",
         end - start, responseWritten - startExchange
     ));
   }
