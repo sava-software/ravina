@@ -165,6 +165,30 @@ public interface LookupTableDiscoveryService extends Runnable {
     return discoverTables(distinctAccounts(accounts, programs));
   }
 
+  AddressLookupTable[] discoverTablesWithReScore(final Set<PublicKey> distinctAccounts);
+
+  default AddressLookupTable[] discoverTablesWithReScore(final Instruction[] instructions) {
+    return discoverTablesWithReScore(distinctAccounts(instructions));
+  }
+
+  default AddressLookupTable[] discoverTablesWithReScore(final PublicKey[] accounts, final PublicKey[] programs) {
+    return discoverTablesWithReScore(distinctAccounts(accounts, programs));
+  }
+
+  AddressLookupTable[] discoverTablesWithReScore(final Set<PublicKey> distinctAccounts,
+                                                 final AddressLookupTable[] include);
+
+  default AddressLookupTable[] discoverTablesWithReScore(final Instruction[] instructions,
+                                                         final AddressLookupTable[] include) {
+    return discoverTablesWithReScore(distinctAccounts(instructions), include);
+  }
+
+  default AddressLookupTable[] discoverTablesWithReScore(final PublicKey[] accounts,
+                                                         final PublicKey[] programs,
+                                                         final AddressLookupTable[] include) {
+    return discoverTablesWithReScore(distinctAccounts(accounts, programs), include);
+  }
+
   AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts, final AddressLookupTable[] include);
 
   default AddressLookupTable[] discoverTables(final Instruction[] instructions, final AddressLookupTable[] include) {

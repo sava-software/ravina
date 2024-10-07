@@ -163,6 +163,8 @@ class FromRawTxHandler extends DiscoverTablesHandler {
     }
   }
 
+  private static final AddressLookupTable[] NO_INCLUDES = new AddressLookupTable[0];
+
   protected void handle(final HttpExchange exchange,
                         final long startExchange,
                         final byte[] txBytes) {
@@ -207,14 +209,18 @@ class FromRawTxHandler extends DiscoverTablesHandler {
           }
         }
 
+        final AddressLookupTable[] includeInDiscovery;
         if (notCached != null) {
           if (notCached.size() == 1) {
             final var table = tableCache.getOrFetchTable(notCached.getFirst());
             lookupTables.put(table.address(), table);
+            includeInDiscovery = new AddressLookupTable[]{table};
           } else {
             final var tables = tableCache.getOrFetchTables(notCached);
-            for (final var tableMeta : tables) {
-              final var table = tableMeta.lookupTable();
+            includeInDiscovery = new AddressLookupTable[tables.length];
+            for (int i = 0; i < tables.length; ++i) {
+              final var table = tables[i].lookupTable();
+              includeInDiscovery[i] = table;
               lookupTables.put(table.address(), table);
             }
           }
@@ -226,12 +232,14 @@ class FromRawTxHandler extends DiscoverTablesHandler {
               }
             }
           }
+        } else {
+          includeInDiscovery = NO_INCLUDES;
         }
 
         final var accounts = skeleton.parseAccounts(lookupTables);
         final var instructions = skeleton.parseInstructions(accounts);
         final long start = System.currentTimeMillis();
-        final var discoveredTables = tableService.discoverTables(instructions);
+        final var discoveredTables = tableService.discoverTablesWithReScore(instructions, includeInDiscovery);
 
         if (queryParams.stats()) {
           final var nonSignerAccounts = Arrays.stream(accounts, skeleton.numSignatures(), accounts.length)
