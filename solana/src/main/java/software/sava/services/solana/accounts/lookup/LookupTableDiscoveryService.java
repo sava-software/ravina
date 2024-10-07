@@ -8,6 +8,9 @@ import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -77,6 +80,25 @@ public interface LookupTableDiscoveryService extends Runnable {
           partitions
       );
     }
+
+
+    final var altCacheDirectory = discoveryConfig.cacheDirectory();
+    if (discoveryConfig.clearCache()
+        && altCacheDirectory != null
+        && Files.exists(altCacheDirectory)) {
+      try (final var stream = Files.walk(altCacheDirectory)) {
+        stream.forEach(p -> {
+          try {
+            Files.delete(p);
+          } catch (final IOException e) {
+            throw new UncheckedIOException("Failed to delete generated source file.", e);
+          }
+        });
+      } catch (final IOException e) {
+        throw new UncheckedIOException("Failed to delete and re-create source directories.", e);
+      }
+    }
+
     final var queryConfig = discoveryConfig.queryConfig();
     return new LookupTableDiscoveryServiceImpl(
         executorService,
@@ -84,7 +106,7 @@ public interface LookupTableDiscoveryService extends Runnable {
         tableStats,
         partitions,
         partitionedCallHandlers,
-        discoveryConfig.cacheDirectory(),
+        altCacheDirectory,
         loadConfig.reloadDelay(),
         queryConfig.numPartitions(),
         queryConfig.topTablesPerPartition(),

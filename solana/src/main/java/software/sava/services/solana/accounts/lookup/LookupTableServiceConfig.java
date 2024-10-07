@@ -102,6 +102,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
   }
 
   public record Discovery(Path cacheDirectory,
+                          boolean clearCache,
                           RemoteLoad remoteLoadConfig,
                           Query queryConfig) {
 
@@ -114,6 +115,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     private static final class Builder implements FieldBufferPredicate {
 
       private Path cacheDirectory;
+      private boolean clearCache;
       private RemoteLoad remoteLoad;
       private Query query;
 
@@ -123,6 +125,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       private Discovery create() {
         return new Discovery(
             requireNonNull(cacheDirectory, "Must provide a cache directory."),
+            clearCache,
             remoteLoad == null ? new RemoteLoad.Builder().create() : remoteLoad,
             query == null ? new Query.Builder().create() : query
         );
@@ -132,6 +135,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
         if (fieldEquals("cacheDirectory", buf, offset, len)) {
           cacheDirectory = Paths.get(ji.readString()).toAbsolutePath();
+        } else if (fieldEquals("clearCache", buf, offset, len)) {
+          clearCache = ji.readBoolean();
         } else if (fieldEquals("remoteLoad", buf, offset, len)) {
           remoteLoad = RemoteLoad.parse(ji);
         } else if (fieldEquals("query", buf, offset, len)) {
