@@ -8,13 +8,17 @@ Attempts to find one or more tables to help minimize the size of a transaction.
 
 #### `/v0/alt/discover/*`
 
+Common parameters for discovery endpoints:
+
 * **query**:
     * **accountsOnly**:
         * `true`: An array of base58 encoded lookup table public keys will be returned.
         * `false`: (default) An array of objects including both the table public key and the base64 encoded program
           account will be returned.
-    * **stats**:
-        * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used.
+    * **reRank**:
+        * `true`: Re-ranks each table after each top table found, trades off performance for potentially finding a
+          better set of tables. If looking to improve an existing versioned transaction it is recommended to set this to
+          true.
         * `false`: (default)
 
 #### POST `/v0/alt/discover/tx/raw`
@@ -30,6 +34,10 @@ curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     * **X-BYTE-ENCODING**: Encoding of the posted transaction.
         * `hex`
         * `base64`: default
+* **query**:
+    * **stats**:
+        * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used.
+        * `false`: (default)
 * **body**: serialized and encoded transaction.
 
 #### POST `/v0/alt/discover/accounts`
