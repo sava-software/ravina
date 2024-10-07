@@ -25,9 +25,9 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
                                        Web webConfig,
                                        TableCache tableCacheConfig) {
 
-  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile, final HttpClient httpClient) {
+  public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile) {
     try (final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile))) {
-      final var parser = new Builder(httpClient);
+      final var parser = new Builder();
       ji.testObject(parser);
       return parser.create();
     } catch (final IOException e) {
@@ -35,7 +35,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
-  public static LookupTableServiceConfig loadConfig(final HttpClient httpClient) {
+  public static LookupTableServiceConfig loadConfig() {
     final var moduleNameConfigProperty = LookupTableServiceConfig.class.getModule().getName() + ".config";
     final var propertyValue = System.getProperty(moduleNameConfigProperty);
     final Path serviceConfigFile;
@@ -49,20 +49,18 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     } else {
       serviceConfigFile = Path.of(propertyValue);
     }
-    return loadConfig(serviceConfigFile.toAbsolutePath(), httpClient);
+    return loadConfig(serviceConfigFile.toAbsolutePath());
   }
 
   private static final class Builder implements FieldBufferPredicate {
 
-    private final HttpClient httpClient;
     private LoadBalancer<SolanaRpcClient> rpcClients;
     private CallWeights callWeights;
     private Discovery discoveryConfig;
     private Web webConfig;
     private TableCache tableCacheConfig;
 
-    private Builder(final HttpClient httpClient) {
-      this.httpClient = httpClient;
+    private Builder() {
     }
 
     private LookupTableServiceConfig create() {
@@ -85,6 +83,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
         tableCacheConfig = TableCache.parse(ji);
       } else if (fieldEquals("rpc", buf, offset, len)) {
         final int mark = ji.mark();
+        final var httpClient = HttpClient.newHttpClient();
         rpcClients = createRPCLoadBalancer(LoadBalancerConfig.parse(ji), httpClient);
         if (ji.reset(mark).skipUntil("callWeights") != null) {
           callWeights = CallWeights.parse(ji);

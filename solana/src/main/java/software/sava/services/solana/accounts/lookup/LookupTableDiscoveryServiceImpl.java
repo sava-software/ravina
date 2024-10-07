@@ -6,13 +6,11 @@ import software.sava.core.accounts.sysvar.Clock;
 import software.sava.core.encoding.ByteUtil;
 import software.sava.core.rpc.Filter;
 import software.sava.core.tx.Transaction;
-import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -22,14 +20,12 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.stream.IntStream;
 
 import static java.lang.System.Logger.Level.*;
 import static java.nio.file.StandardOpenOption.*;
-import static java.util.concurrent.TimeUnit.HOURS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static software.sava.core.accounts.lookup.AddressLookupTable.AUTHORITY_OPTION_OFFSET;
 import static software.sava.core.accounts.lookup.AddressLookupTable.DEACTIVATION_SLOT_OFFSET;
@@ -465,25 +461,6 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
       initialized.obtrudeException(ex);
       remoteLoad.obtrudeException(ex);
       throw ex;
-    }
-  }
-
-
-  public static void main(final String[] args) throws InterruptedException {
-    try (final var executorService = Executors.newVirtualThreadPerTaskExecutor()) {
-      try (final var httpClient = HttpClient.newHttpClient()) {
-        final var serviceConfig = LookupTableServiceConfig.loadConfig(httpClient);
-        final var nativeProgramClient = NativeProgramClient.createClient();
-
-        final var tableService = LookupTableDiscoveryService.createService(
-            executorService,
-            serviceConfig,
-            nativeProgramClient
-        );
-        executorService.execute(tableService);
-        tableService.initialized().join();
-        HOURS.sleep(24);
-      }
     }
   }
 }
