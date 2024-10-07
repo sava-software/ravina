@@ -8,11 +8,10 @@ import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -86,16 +85,10 @@ public interface LookupTableDiscoveryService extends Runnable {
     if (discoveryConfig.clearCache()
         && altCacheDirectory != null
         && Files.exists(altCacheDirectory)) {
-      try (final var stream = Files.walk(altCacheDirectory)) {
-        stream.forEach(p -> {
-          try {
-            Files.delete(p);
-          } catch (final IOException e) {
-            throw new UncheckedIOException("Failed to delete generated source file.", e);
-          }
-        });
-      } catch (final IOException e) {
-        throw new UncheckedIOException("Failed to delete and re-create source directories.", e);
+      for (final var file : Objects.requireNonNull(altCacheDirectory.toFile().listFiles())) {
+        if (!file.isDirectory()) {
+          file.delete();
+        }
       }
     }
 
