@@ -82,6 +82,11 @@ final class LookupTableCacheMap implements LookupTableCache {
     return cacheTable(lookupTable, System.currentTimeMillis());
   }
 
+  @Override
+  public AddressLookupTable putTable(final AddressLookupTable lookupTable) {
+    return cacheTable(lookupTable);
+  }
+
   private Call<AccountInfo<AddressLookupTable>> createFetchLookupTableCall(final PublicKey lookupTableKey) {
     return Call.createCall(
         rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, tableFactory),

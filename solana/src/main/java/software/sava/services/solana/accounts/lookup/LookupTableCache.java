@@ -38,6 +38,8 @@ public interface LookupTableCache {
 
   AddressLookupTable getTable(final PublicKey lookupTableKey);
 
+  AddressLookupTable putTable(final AddressLookupTable lookupTable);
+
   AddressLookupTable getOrFetchTable(final PublicKey lookupTableKey);
 
   LookupTableAccountMeta[] getOrFetchTables(final List<PublicKey> lookupTableKeys);

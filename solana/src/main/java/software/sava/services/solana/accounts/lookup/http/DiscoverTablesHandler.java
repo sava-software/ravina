@@ -16,9 +16,9 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
     super(tableService, tableCache);
   }
 
-  record QueryParams(boolean accountsOnly, boolean stats, boolean reRank) {
+  record QueryParams(boolean accountsOnly, boolean stats, boolean reRank, boolean includeProvidedTables) {
 
-    static final QueryParams DEFAULT = new QueryParams(false, false, false);
+    static final QueryParams DEFAULT = new QueryParams(false, false, false, false);
   }
 
   protected final QueryParams queryParams(final HttpExchange exchange) {
@@ -27,6 +27,7 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
       boolean accountsOnly = false;
       boolean stats = false;
       boolean reRank = false;
+      boolean includeProvidedTables = false;
       for (int from = 0, equals, and, keyLen; ; from = and + 1) {
         equals = query.indexOf('=', from);
         if (equals < 0) {
@@ -43,12 +44,14 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
           stats = Boolean.parseBoolean(value);
         } else if (query.regionMatches(true, from, "reRank", 0, keyLen)) {
           reRank = Boolean.parseBoolean(value);
+        } else if (query.regionMatches(true, from, "includeProvidedTables", 0, keyLen)) {
+          includeProvidedTables = Boolean.parseBoolean(value);
         }
         if (and < 1) {
           break;
         }
       }
-      return new QueryParams(accountsOnly, stats, reRank);
+      return new QueryParams(accountsOnly, stats, reRank, includeProvidedTables);
     } else {
       return DEFAULT;
     }

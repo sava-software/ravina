@@ -192,10 +192,10 @@ class FromRawTxHandler extends DiscoverTablesHandler {
         final int numTableAccounts = lookupTableAccounts.length;
         final var lookupTables = HashMap.<PublicKey, AddressLookupTable>newHashMap(numTableAccounts);
         List<PublicKey> notCached = null;
-        for (final var key : lookupTableAccounts) {
-          var lookupTable = tableCache.getTable(key);
-          if (lookupTable == null) {
-            lookupTable = tableService.scanForTable(key);
+        final boolean includeTables = queryParams.includeProvidedTables();
+        if (includeTables) {
+          for (final var key : lookupTableAccounts) {
+            var lookupTable = tableService.scanForTable(key);
             if (lookupTable == null) {
               if (notCached == null) {
                 notCached = new ArrayList<>(numTableAccounts);
@@ -203,11 +203,34 @@ class FromRawTxHandler extends DiscoverTablesHandler {
               notCached.add(key);
               continue;
             } else {
-              lookupTable = lookupTable.withReverseLookup();
+              final var cachedTable = tableCache.getTable(key);
+              if (cachedTable == null) {
+                lookupTable = lookupTable.withReverseLookup();
+                tableCache.putTable(lookupTable);
+              } else {
+                lookupTable = cachedTable;
+              }
             }
             lookupTables.put(lookupTable.address(), lookupTable);
-          } else {
-            lookupTables.put(lookupTable.address(), lookupTable);
+          }
+        } else {
+          for (final var key : lookupTableAccounts) {
+            var lookupTable = tableCache.getTable(key);
+            if (lookupTable == null) {
+              lookupTable = tableService.scanForTable(key);
+              if (lookupTable == null) {
+                if (notCached == null) {
+                  notCached = new ArrayList<>(numTableAccounts);
+                }
+                notCached.add(key);
+                continue;
+              } else {
+                lookupTable = lookupTable.withReverseLookup();
+              }
+              lookupTables.put(lookupTable.address(), lookupTable);
+            } else {
+              lookupTables.put(lookupTable.address(), lookupTable);
+            }
           }
         }
 
@@ -216,14 +239,24 @@ class FromRawTxHandler extends DiscoverTablesHandler {
           if (notCached.size() == 1) {
             final var table = tableCache.getOrFetchTable(notCached.getFirst());
             lookupTables.put(table.address(), table);
-            includeInDiscovery = new AddressLookupTable[]{table};
+            includeInDiscovery = includeTables
+                ? new AddressLookupTable[]{table}
+                : NO_INCLUDES;
           } else {
             final var tables = tableCache.getOrFetchTables(notCached);
-            includeInDiscovery = new AddressLookupTable[tables.length];
-            for (int i = 0; i < tables.length; ++i) {
-              final var table = tables[i].lookupTable();
-              includeInDiscovery[i] = table;
-              lookupTables.put(table.address(), table);
+            if (includeTables) {
+              includeInDiscovery = new AddressLookupTable[tables.length];
+              for (int i = 0; i < tables.length; ++i) {
+                final var table = tables[i].lookupTable();
+                includeInDiscovery[i] = table;
+                lookupTables.put(table.address(), table);
+              }
+            } else {
+              includeInDiscovery = NO_INCLUDES;
+              for (final var lookupTableAccountMeta : tables) {
+                final var table = lookupTableAccountMeta.lookupTable();
+                lookupTables.put(table.address(), table);
+              }
             }
           }
           if (lookupTables.size() != numTableAccounts) {
@@ -241,10 +274,9 @@ class FromRawTxHandler extends DiscoverTablesHandler {
         final var accounts = skeleton.parseAccounts(lookupTables);
         final var instructions = skeleton.parseInstructions(accounts);
         final long start = System.currentTimeMillis();
-        // TODO: Consider adding query param to include given tables or not.
         final var discoveredTables = queryParams.reRank()
             ? tableService.discoverTablesWithReRank(instructions, includeInDiscovery)
-            : tableService.discoverTables(instructions);
+            : tableService.discoverTables(instructions, includeInDiscovery);
 
         if (queryParams.stats()) {
           final var nonSignerAccounts = Arrays.stream(accounts, skeleton.numSignatures(), accounts.length)
