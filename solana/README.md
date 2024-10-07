@@ -39,6 +39,10 @@ curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
         * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used
           to help get an idea of the impact.
         * `false`: (default)
+    * **includeProvidedTables**: Only applicable if the query is a versioned transaction with lookup tables.
+        * `true`: Include the table(s) from the queried transaction regardless. Otherwise, they might not exist in the
+          local discovery cache.
+        * `false`: (default). Can be useful to find a fresh view of the world.
 * **body**: serialized and encoded transaction.
 
 #### POST `/v0/alt/discover/accounts`
