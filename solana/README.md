@@ -135,9 +135,7 @@ Scoring a table represents how many indexable accounts from the query exist in t
     * **minUniqueAccountsPerTable**
     * **minTableEfficiency**: `numUniqueAccounts / numAccounts`
     * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
-    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables. Set to
-      `null`
-      to only use the local cache.
+    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
 * **query**: Per query related parameters.
     * **numPartitions**: The initial task of scoring tables will be divided into this many parallel windows.
     * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
