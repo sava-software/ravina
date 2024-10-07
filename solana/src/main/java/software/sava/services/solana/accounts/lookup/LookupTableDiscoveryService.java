@@ -165,6 +165,18 @@ public interface LookupTableDiscoveryService extends Runnable {
     return discoverTables(distinctAccounts(accounts, programs));
   }
 
+  AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts, final AddressLookupTable[] include);
+
+  default AddressLookupTable[] discoverTables(final Instruction[] instructions, final AddressLookupTable[] include) {
+    return discoverTables(distinctAccounts(instructions), include);
+  }
+
+  default AddressLookupTable[] discoverTables(final PublicKey[] accounts,
+                                              final PublicKey[] programs,
+                                              final AddressLookupTable[] include) {
+    return discoverTables(distinctAccounts(accounts, programs), include);
+  }
+
   AddressLookupTable scanForTable(final PublicKey publicKey);
 
   CompletableFuture<Void> initialized();

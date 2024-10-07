@@ -206,11 +206,17 @@ class FromRawTxHandler extends DiscoverTablesHandler {
             lookupTables.put(lookupTable.address(), lookupTable);
           }
         }
+
         if (notCached != null) {
-          final var tables = tableCache.getOrFetchTables(notCached);
-          for (final var tableMeta : tables) {
-            final var table = tableMeta.lookupTable();
+          if (notCached.size() == 1) {
+            final var table = tableCache.getOrFetchTable(notCached.getFirst());
             lookupTables.put(table.address(), table);
+          } else {
+            final var tables = tableCache.getOrFetchTables(notCached);
+            for (final var tableMeta : tables) {
+              final var table = tableMeta.lookupTable();
+              lookupTables.put(table.address(), table);
+            }
           }
           if (lookupTables.size() != numTableAccounts) {
             for (final var key : lookupTableAccounts) {

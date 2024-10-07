@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static java.lang.System.Logger.Level.*;
 import static java.nio.file.StandardOpenOption.*;
@@ -127,7 +128,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   public CompletableFuture<Void> remoteLoadFuture() {
     return remoteLoad;
   }
-
+  
   private static ScoredTable[] rankTables(final AddressLookupTable[] partition,
                                           final int from, final int to,
                                           final PublicKey[] accounts,
@@ -202,7 +203,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
-  private AddressLookupTable[] scoreTables(final PublicKey[] accountsArray) {
+  private AddressLookupTable[] scoreAndJoinTables(final PublicKey[] accountsArray) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
     final int windowSize = numTables / numPartitionsPerQuery;
@@ -228,12 +229,8 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
-  @Override
-  public AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts) {
-    final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
-
-    final var scoredTables = scoreTables(accountsArray);
-
+  private AddressLookupTable[] discoverTables(final PublicKey[] accountsArray,
+                                              final AddressLookupTable[] scoredTables) {
     final int numAccounts = accountsArray.length;
     final int breakOut = numAccounts - 1;
     final var tables = new AddressLookupTable[Transaction.MAX_ACCOUNTS >> 1];
@@ -279,6 +276,64 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
 
     return t == 0 ? null : Arrays.copyOfRange(tables, 0, t);
+  }
+
+  @Override
+  public AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts) {
+    final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
+    final var scoredTables = scoreAndJoinTables(accountsArray);
+    return discoverTables(accountsArray, scoredTables);
+  }
+
+  private AddressLookupTable[] scoreAndJoinTables(final PublicKey[] accountsArray, final ScoredTable[] include) {
+    final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
+    final int numTables = allTables.length;
+    final int windowSize = numTables / numPartitionsPerQuery;
+    for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
+      final int _minScore = minScore;
+      final var scoredTablesStream = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
+          .parallel()
+          .mapToObj(i -> rankTables(
+              allTables,
+              i, Math.min(i + windowSize, numTables),
+              accountsArray,
+              _minScore,
+              topTablesPerPartition
+          ))
+          .filter(Objects::nonNull)
+          .flatMap(Arrays::stream);
+      final var scoredTables = Stream.concat(Arrays.stream(include), scoredTablesStream)
+          .sorted()
+          .map(ScoredTable::table)
+          .toArray(AddressLookupTable[]::new);
+      if (scoredTables.length > 0 || _minScore == 2) {
+        return scoredTables;
+      }
+    }
+  }
+
+  @Override
+  public AddressLookupTable[] discoverTables(final Set<PublicKey> distinctAccounts, final AddressLookupTable[] include) {
+    if (include == null || include.length == 0) {
+      return discoverTables(distinctAccounts);
+    }
+    final var accountsArray = distinctAccounts.toArray(PublicKey[]::new);
+    final var scoredTables = scoreAndJoinTables(accountsArray);
+
+    for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
+      final var scoredIncludedTables = rankTables(
+          include,
+          0, include.length,
+          accountsArray,
+          minScore,
+          include.length
+      );
+      if (scoredIncludedTables != null && scoredTables.length > 0) {
+        return discoverTables(accountsArray, scoreAndJoinTables(accountsArray, scoredIncludedTables));
+      } else if (minScore == 2) {
+        return discoverTables(accountsArray, scoreAndJoinTables(accountsArray));
+      }
+    }
   }
 
   @Override
