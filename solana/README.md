@@ -36,7 +36,8 @@ curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
         * `base64`: default
 * **query**:
     * **stats**:
-        * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used.
+        * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used
+          to help get an idea of the impact.
         * `false`: (default)
 * **body**: serialized and encoded transaction.
 
