@@ -183,6 +183,14 @@ RPC nodes.
 
 ### [Docker](../Dockerfile)
 
+#### Pull
+
+[Pull the image from the GitHub Container registry.](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#pulling-container-images)
+
+```shell
+docker pull ghcr.io/sava-software/services/solana:latest
+```
+
 #### Build
 
 Creates an Alpine based image which includes a minimal executable JVM.
@@ -226,6 +234,8 @@ Mount your local service configuration file to `/sava/config.json`.
 Make sure the port you expose matches the port in your configuration file.
 
 Pass any JVM options you prefer to the container as well as the `-m module/main_class` you want to run.
+
+Note: Prefix image name with ghcr.io/ if you pulled from GitHub.
 
 ```shell
 docker run --rm \

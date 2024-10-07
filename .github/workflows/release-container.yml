@@ -52,6 +52,8 @@ jobs:
           secret-envs: GITHUB_ACTOR=GITHUB_ACTOR,GITHUB_TOKEN=GITHUB_TOKEN
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
         env:
           GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
