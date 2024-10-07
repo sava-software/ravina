@@ -6,7 +6,7 @@ import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 
 import static java.lang.System.Logger.Level.INFO;
-import static software.sava.services.solana.accounts.lookup.http.DiscoverTablesHandler.QueryParams.NONE;
+import static software.sava.services.solana.accounts.lookup.http.DiscoverTablesHandler.QueryParams.DEFAULT;
 
 abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler {
 
@@ -16,9 +16,9 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
     super(tableService, tableCache);
   }
 
-  record QueryParams(boolean accountsOnly, boolean stats) {
+  record QueryParams(boolean accountsOnly, boolean stats, boolean reRank) {
 
-    static final QueryParams NONE = new QueryParams(false, false);
+    static final QueryParams DEFAULT = new QueryParams(false, false, false);
   }
 
   protected final QueryParams queryParams(final HttpExchange exchange) {
@@ -26,6 +26,7 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
     if (query != null && !query.isBlank()) {
       boolean accountsOnly = false;
       boolean stats = false;
+      boolean reRank = false;
       for (int from = 0, equals, and, keyLen; ; from = and + 1) {
         equals = query.indexOf('=', from);
         if (equals < 0) {
@@ -40,14 +41,16 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
           accountsOnly = Boolean.parseBoolean(value);
         } else if (query.regionMatches(true, from, "stats", 0, keyLen)) {
           stats = Boolean.parseBoolean(value);
+        } else if (query.regionMatches(true, from, "reRank", 0, keyLen)) {
+          reRank = Boolean.parseBoolean(value);
         }
         if (and < 1) {
           break;
         }
       }
-      return new QueryParams(accountsOnly, stats);
+      return new QueryParams(accountsOnly, stats, reRank);
     } else {
-      return NONE;
+      return DEFAULT;
     }
   }
 

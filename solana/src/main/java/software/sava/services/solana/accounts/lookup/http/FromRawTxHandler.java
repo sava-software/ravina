@@ -175,7 +175,9 @@ class FromRawTxHandler extends DiscoverTablesHandler {
       final var accounts = skeleton.parseNonSignerPublicKeys();
       final var programs = skeleton.parseProgramAccounts();
       final long start = System.currentTimeMillis();
-      final var discoveredTables = tableService.discoverTables(accounts, programs);
+      final var discoveredTables = queryParams.reRank()
+          ? tableService.discoverTablesWithReRank(accounts, programs)
+          : tableService.discoverTables(accounts, programs);
 
       if (queryParams.stats()) {
         final var txStats = produceStats(txBytes, skeleton, accounts, programs, skeleton.parseLegacyInstructions(), discoveredTables);
@@ -239,7 +241,10 @@ class FromRawTxHandler extends DiscoverTablesHandler {
         final var accounts = skeleton.parseAccounts(lookupTables);
         final var instructions = skeleton.parseInstructions(accounts);
         final long start = System.currentTimeMillis();
-        final var discoveredTables = tableService.discoverTablesWithReScore(instructions, includeInDiscovery);
+        // TODO: Consider adding query param to include given tables or not.
+        final var discoveredTables = queryParams.reRank()
+            ? tableService.discoverTablesWithReRank(instructions, includeInDiscovery)
+            : tableService.discoverTables(instructions);
 
         if (queryParams.stats()) {
           final var nonSignerAccounts = Arrays.stream(accounts, skeleton.numSignatures(), accounts.length)

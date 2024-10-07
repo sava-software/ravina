@@ -313,7 +313,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   @Override
-  public AddressLookupTable[] discoverTablesWithReScore(final Set<PublicKey> distinctAccounts) {
+  public AddressLookupTable[] discoverTablesWithReRank(final Set<PublicKey> distinctAccounts) {
     final var tables = new AddressLookupTable[Transaction.MAX_ACCOUNTS >> 1];
     int startingMinScore = this.startingMinScore;
     for (int t = 0; ; ++t) {
@@ -372,10 +372,10 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private static ScoredTable[] DONE_WITH_INCLUDES = new ScoredTable[0];
 
   @Override
-  public AddressLookupTable[] discoverTablesWithReScore(final Set<PublicKey> distinctAccounts,
-                                                        final AddressLookupTable[] include) {
+  public AddressLookupTable[] discoverTablesWithReRank(final Set<PublicKey> distinctAccounts,
+                                                       final AddressLookupTable[] include) {
     if (include == null || include.length == 0) {
-      return discoverTablesWithReScore(distinctAccounts);
+      return discoverTablesWithReRank(distinctAccounts);
     }
     final var tables = new AddressLookupTable[Transaction.MAX_ACCOUNTS >> 1];
     int startingMinScore = this.startingMinScore;

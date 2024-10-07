@@ -29,7 +29,9 @@ final class FromAccountsHandler extends DiscoverTablesHandler {
     }
 
     final long start = System.currentTimeMillis();
-    final var lookupTables = tableService.discoverTables(distinctAccounts);
+    final var lookupTables = queryParams.reRank()
+        ? tableService.discoverTablesWithReRank(distinctAccounts)
+        : tableService.discoverTables(distinctAccounts);
     writeResponse(exchange, startExchange, queryParams, start, lookupTables);
   }
 }
