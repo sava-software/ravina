@@ -10,7 +10,7 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.util.HashSet;
 
-final class FromAccountsHandler extends OptimalTablesHandler {
+final class FromAccountsHandler extends DiscoverTablesHandler {
 
   FromAccountsHandler(final LookupTableDiscoveryService tableService,
                       final LookupTableCache tableCache) {

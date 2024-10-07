@@ -6,13 +6,13 @@ import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 
 import static java.lang.System.Logger.Level.INFO;
-import static software.sava.services.solana.accounts.lookup.http.OptimalTablesHandler.QueryParams.NONE;
+import static software.sava.services.solana.accounts.lookup.http.DiscoverTablesHandler.QueryParams.NONE;
 
-abstract class OptimalTablesHandler extends LookupTableDiscoveryServiceHandler {
+abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler {
 
-  private static final System.Logger logger = System.getLogger(OptimalTablesHandler.class.getName());
+  private static final System.Logger logger = System.getLogger(DiscoverTablesHandler.class.getName());
 
-  OptimalTablesHandler(final LookupTableDiscoveryService tableService, final LookupTableCache tableCache) {
+  DiscoverTablesHandler(final LookupTableDiscoveryService tableService, final LookupTableCache tableCache) {
     super(tableService, tableCache);
   }
 

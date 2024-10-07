@@ -6,6 +6,17 @@
 
 Attempts to find one or more tables to help minimize the size of a transaction.
 
+#### `/v0/alt/discover/*`
+
+* **query**:
+    * **accountsOnly**:
+        * `true`: An array of base58 encoded lookup table public keys will be returned.
+        * `false`: (default) An array of objects including both the table public key and the base64 encoded program
+          account will be returned.
+    * **stats**:
+        * `true`: Include stats comparing the input tx and the resulting versioned tx, as well as stats per table used.
+        * `false`: (default)
+
 #### POST `/v0/alt/discover/tx/raw`
 
 Post a serialized and encoded, legacy or v0, transaction.
@@ -19,11 +30,6 @@ curl -H "X-BYTE-ENCODING: base64" -d 'AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
     * **X-BYTE-ENCODING**: Encoding of the posted transaction.
         * `hex`
         * `base64`: default
-* **query**:
-    * **accountsOnly**:
-        * `true`: An array of base58 encoded lookup table public keys will be returned.
-        * `false`: (default) An array of objects including both the table public key and the base64 encoded program
-          account will be returned.
 * **body**: serialized and encoded transaction.
 
 #### POST `/v0/alt/discover/accounts`
@@ -38,11 +44,6 @@ curl -d '["8UJgxaiQx5nTrdDgph5FiahMmzduuLTLf5WmsPegYA6W","2UZMvVTBQR9yWxrEdzEQzX
   'http://localhost:4242/v0/alt/discover/accounts?accountsOnly=true';
 ```
 
-* **query**:
-    * **accountsOnly**:
-        * `true`: An array of base58 encoded lookup table public keys will be returned.
-        * `false`: (default) An array of objects including both the table public key and the base64 encoded program
-          account will be returned.
 * **body**: JSON array of base58 encoded accounts.
 
 ## Service Configuration

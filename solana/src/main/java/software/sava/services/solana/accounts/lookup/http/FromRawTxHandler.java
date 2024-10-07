@@ -14,7 +14,7 @@ import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService
 import java.util.*;
 import java.util.stream.Collectors;
 
-class FromRawTxHandler extends OptimalTablesHandler {
+class FromRawTxHandler extends DiscoverTablesHandler {
 
   private static final System.Logger logger = System.getLogger(FromRawTxHandler.class.getName());
 
