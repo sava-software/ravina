@@ -67,13 +67,13 @@ class FromRawTxHandler extends OptimalTablesHandler {
                 "outTxLength": %d,
                 "delta": %d,
                 "tableStats": [
-                %s]
-              }
-              """,
+                %s
+                ]
+              }""",
           numEligible, netIndexed, inTxLength, outTxLength, delta,
           tableStats.stream()
               .map(TableStats::toJson)
-              .collect(Collectors.joining(",\n")).indent(2)
+              .collect(Collectors.joining(",\n")).indent(2).stripTrailing()
       );
     }
   }
