@@ -26,19 +26,19 @@ abstract class DiscoverTablesHandler extends LookupTableDiscoveryServiceHandler 
     if (query != null && !query.isBlank()) {
       boolean accountsOnly = false;
       boolean stats = false;
-      for (int from = 0, equals, and; ; from = and + 1) {
+      for (int from = 0, equals, and, keyLen; ; from = and + 1) {
         equals = query.indexOf('=', from);
         if (equals < 0) {
           break;
         }
-        final var key = query.substring(from, equals);
+        keyLen = equals - from;
         and = query.indexOf('&', equals + 2);
         final var value = and < 1
             ? query.substring(equals + 1)
             : query.substring(equals + 1, and);
-        if (key.equals("accountsOnly")) {
+        if (query.regionMatches(true, from, "accountsOnly", 0, keyLen)) {
           accountsOnly = Boolean.parseBoolean(value);
-        } else if (key.equals("stats")) {
+        } else if (query.regionMatches(true, from, "stats", 0, keyLen)) {
           stats = Boolean.parseBoolean(value);
         }
         if (and < 1) {
