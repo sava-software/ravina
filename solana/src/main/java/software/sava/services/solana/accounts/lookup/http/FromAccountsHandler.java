@@ -20,7 +20,7 @@ final class FromAccountsHandler extends OptimalTablesHandler {
   protected void handlePost(final HttpExchange exchange,
                             final long startExchange,
                             final byte[] body) {
-    final boolean accountsOnly = accountsOnly(exchange);
+    final var queryParams = queryParams(exchange);
 
     final var ji = JsonIterator.parse(body);
     final var distinctAccounts = HashSet.<PublicKey>newHashSet(Transaction.MAX_ACCOUNTS);
@@ -30,6 +30,6 @@ final class FromAccountsHandler extends OptimalTablesHandler {
 
     final long start = System.currentTimeMillis();
     final var lookupTables = tableService.discoverTables(distinctAccounts);
-    writeResponse(exchange, startExchange, accountsOnly, start, lookupTables);
+    writeResponse(exchange, startExchange, queryParams, start, lookupTables);
   }
 }

@@ -262,14 +262,14 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
           if (++numRemoved > 1) {
             mask ^= maskIndex;
           } else {
-            firstMaskIndex = maskIndex;
+            firstMaskIndex = maskIndex; // Track first removal index
           }
         }
       }
 
       if (numRemoved > 1) {
         tables[t++] = table;
-        mask ^= firstMaskIndex;
+        mask ^= firstMaskIndex;  // Clear first removal index
         maskIndex = Long.lowestOneBit(mask);
         from = Long.numberOfTrailingZeros(mask);
         to = Long.SIZE - Long.numberOfLeadingZeros(mask);
@@ -414,7 +414,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   public void run() {
-    if (loadCache() && cacheOnly) {
+    if (loadCache() || cacheOnly) {
       return;
     }
     try {

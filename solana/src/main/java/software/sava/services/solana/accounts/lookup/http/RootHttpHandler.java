@@ -31,6 +31,7 @@ abstract class RootHttpHandler implements HttpHandler {
                                      final HttpExchange httpExchange,
                                      final byte[] responseBytes) {
     try {
+      httpExchange.getResponseHeaders().add("Content-Type", "application/json");
       httpExchange.sendResponseHeaders(responseCode, responseBytes.length);
       try (final var os = httpExchange.getResponseBody()) {
         os.write(responseBytes);

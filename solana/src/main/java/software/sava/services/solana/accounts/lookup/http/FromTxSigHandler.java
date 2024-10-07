@@ -1,6 +1,8 @@
 package software.sava.services.solana.accounts.lookup.http;
 
 import com.sun.net.httpserver.HttpExchange;
+import software.sava.rpc.json.http.request.Commitment;
+import software.sava.rpc.json.http.request.RpcEncoding;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
@@ -20,7 +22,11 @@ final class FromTxSigHandler extends FromRawTxHandler {
     final var txSig = new String(body);
     try {
       final var txBytes = Call.createCall(
-          rpcClients, rpcClient -> rpcClient.getTransaction(txSig),
+          rpcClients, rpcClient -> rpcClient.getTransaction(
+              Commitment.CONFIRMED,
+              txSig,
+              0, RpcEncoding.base64.name()
+          ),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,
           "rpcClient::getTransaction"
