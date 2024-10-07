@@ -79,6 +79,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   final AtomicReferenceArray<AddressLookupTable[]> partitions;
   private final PartitionedLookupTableCallHandler[] partitionedCallHandlers;
   private final Path altCacheDirectory;
+  private final boolean cacheOnly;
   private final Duration reloadDelay;
   // Query
   private final int numPartitionsPerQuery;
@@ -92,11 +93,13 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
                                   final AtomicReferenceArray<AddressLookupTable[]> partitions,
                                   final PartitionedLookupTableCallHandler[] partitionedCallHandlers,
                                   final Path altCacheDirectory,
+                                  final boolean cacheOnly,
                                   final Duration reloadDelay,
                                   final int numPartitionsPerQuery,
                                   final int topTablesPerPartition,
                                   final int startingMinScore) {
     this.executorService = executorService;
+    this.cacheOnly = cacheOnly;
     this.initialized = new CompletableFuture<>();
     this.remoteLoad = new CompletableFuture<>();
     this.maxConcurrentRequests = maxConcurrentRequests;
@@ -415,7 +418,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   public void run() {
-    if (loadCache() && reloadDelay == null) {
+    if (loadCache() && cacheOnly) {
       return;
     }
     try {
@@ -449,7 +452,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
         ));
 
 
-        System.out.println(tableStats);
+        logger.log(INFO, tableStats);
         tableStats.reset();
         if (reloadDelay == null) {
           return;

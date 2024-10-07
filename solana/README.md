@@ -54,17 +54,19 @@ Reference the documentation below for anything that is not implicitly clear and 
 ```json
 {
   "discovery": {
+    "cacheOnly": false,
     "cacheDirectory": "/Users/user/src/services/solana/alt_cache",
+    "clearCache": false,
     "remoteLoad": {
       "minUniqueAccountsPerTable": 34,
       "minTableEfficiency": 0.8,
-      "maxConcurrentRequests": 20,
+      "maxConcurrentRequests": 16,
       "reloadDelay": "PT8h"
     },
     "query": {
       "numPartitions": 8,
       "topTablesPerPartition": 16,
-      "minScore": 1
+      "startingMinScore": 8
     }
   },
   "web": {
@@ -125,8 +127,10 @@ Per query there is a parallel score/map and reduce step.
 
 Scoring a table represents how many indexable accounts from the query exist in the table.
 
+* **cacheOnly**: Does not remotely load lookup tables from RPC nodes.
 * **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
   couple of seconds (local SSD).
+* **clearCache**: Only to be used when there are breaking cache data model changes.
 * **remoteLoad**: Parameters relevant to loading and filtering tables from remote RPC nodes.
     * **minUniqueAccountsPerTable**
     * **minTableEfficiency**: `numUniqueAccounts / numAccounts`
@@ -137,7 +141,8 @@ Scoring a table represents how many indexable accounts from the query exist in t
 * **query**: Per query related parameters.
     * **numPartitions**: The initial task of scoring tables will be divided into this many parallel windows.
     * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
-    * **minScore**: Minimum score at the map/score step for a table to be eligible for reduction.
+    * **startingMinScore**: Minimum score at the map/score step for a table to be eligible for reduction. If no tables
+      meet the requirement is are found, the minimum score is divided two down to a minimum of two before giving up.
 
 ### web
 

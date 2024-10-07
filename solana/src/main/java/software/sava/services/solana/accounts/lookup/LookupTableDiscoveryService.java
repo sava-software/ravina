@@ -100,6 +100,7 @@ public interface LookupTableDiscoveryService extends Runnable {
         partitions,
         partitionedCallHandlers,
         altCacheDirectory,
+        discoveryConfig.cacheOnly(),
         loadConfig.reloadDelay(),
         queryConfig.numPartitions(),
         queryConfig.topTablesPerPartition(),
