@@ -1,12 +1,12 @@
 package software.sava.services.solana.accounts.lookup.http;
 
 import com.sun.net.httpserver.HttpExchange;
-import software.sava.rpc.json.http.request.Commitment;
-import software.sava.rpc.json.http.request.RpcEncoding;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
+
+import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 
 final class FromTxSigHandler extends FromRawTxHandler {
 
@@ -22,15 +22,12 @@ final class FromTxSigHandler extends FromRawTxHandler {
     final var txSig = new String(body);
     try {
       final var txBytes = Call.createCall(
-          rpcClients, rpcClient -> rpcClient.getTransaction(
-              Commitment.CONFIRMED,
-              txSig,
-              0, RpcEncoding.base64.name()
-          ),
+          rpcClients, rpcClient -> rpcClient.getTransaction(CONFIRMED, txSig),
           CallContext.DEFAULT_CALL_CONTEXT,
           1, Integer.MAX_VALUE, false,
           "rpcClient::getTransaction"
       ).get().data();
+      // System.out.println(Base64.getEncoder().encodeToString(txBytes));
       handle(exchange, startExchange, txBytes);
     } catch (final RuntimeException ex) {
       logger.log(System.Logger.Level.ERROR, "Failed to process request " + txSig, ex);
