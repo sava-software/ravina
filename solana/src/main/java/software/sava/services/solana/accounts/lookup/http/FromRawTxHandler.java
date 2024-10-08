@@ -24,7 +24,8 @@ class FromRawTxHandler extends DiscoverTablesHandler {
   }
 
   record TxStats(int numEligible,
-                 int netIndexed,
+                 int inNetIndexed,
+                 int outNetIndexed,
                  int inTxLength,
                  int outTxLength,
                  int delta,
@@ -32,9 +33,10 @@ class FromRawTxHandler extends DiscoverTablesHandler {
 
     private static final List<TableStats> NONE_FOUND = List.of();
 
-    static TxStats noneFound(final int numEligible, final int inTxLength) {
+    static TxStats noneFound(final int numEligible, final int inNetIndexed, final int inTxLength) {
       return new TxStats(
           numEligible,
+          inNetIndexed,
           0,
           inTxLength,
           inTxLength,
@@ -44,12 +46,14 @@ class FromRawTxHandler extends DiscoverTablesHandler {
     }
 
     static TxStats createStats(final Set<PublicKey> eligible,
+                               final int inNetIndexed,
                                final Set<PublicKey> indexed,
                                final List<TableStats> tableStatsList,
                                final byte[] oldTxData,
                                final byte[] newTxData) {
       return new TxStats(
           eligible.size(),
+          inNetIndexed,
           indexed.size(),
           oldTxData.length,
           newTxData.length,
@@ -62,7 +66,8 @@ class FromRawTxHandler extends DiscoverTablesHandler {
       return String.format("""
               {
                 "numEligible": %d,
-                "netIndexed": %d,
+                "inNetIndexed": %d,
+                "outNetIndexed": %d,
                 "inTxLength": %d,
                 "outTxLength": %d,
                 "delta": %d,
@@ -70,7 +75,10 @@ class FromRawTxHandler extends DiscoverTablesHandler {
                 %s
                 ]
               }""",
-          numEligible, netIndexed, inTxLength, outTxLength, delta,
+          numEligible,
+          inNetIndexed, outNetIndexed,
+          inTxLength, outTxLength,
+          delta,
           tableStats.stream()
               .map(TableStats::toJson)
               .collect(Collectors.joining(",\n")).indent(2).stripTrailing()
@@ -134,7 +142,7 @@ class FromRawTxHandler extends DiscoverTablesHandler {
     }
 
     if (numTablesFound == 0) {
-      return TxStats.noneFound(eligible.size(), txBytes.length);
+      return TxStats.noneFound(eligible.size(), skeleton.numIndexedAccounts(), txBytes.length);
     } else {
       final var feePayer = skeleton.feePayer();
       final var instructionsList = Arrays.asList(instructions);
@@ -144,7 +152,7 @@ class FromRawTxHandler extends DiscoverTablesHandler {
         final var tableStats = tableStats(eligible, table);
         tableStatsList = List.of(tableStats);
         final var newTx = Transaction.createTx(feePayer, instructionsList, table);
-        return TxStats.createStats(eligible, indexed, tableStatsList, txBytes, newTx.serialized());
+        return TxStats.createStats(eligible, skeleton.numIndexedAccounts(), indexed, tableStatsList, txBytes, newTx.serialized());
       } else {
         final var tableStats = new TableStats[numTablesFound];
         for (int i = 0; i < numTablesFound; ++i) {
@@ -158,7 +166,7 @@ class FromRawTxHandler extends DiscoverTablesHandler {
             .map(LookupTableAccountMeta::createMeta)
             .toArray(LookupTableAccountMeta[]::new);
         final var newTx = Transaction.createTx(feePayer, instructionsList, tableAccountMetas);
-        return TxStats.createStats(eligible, indexed, tableStatsList, txBytes, newTx.serialized());
+        return TxStats.createStats(eligible, skeleton.numIndexedAccounts(), indexed, tableStatsList, txBytes, newTx.serialized());
       }
     }
   }
