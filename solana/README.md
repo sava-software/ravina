@@ -1,5 +1,8 @@
 # Address Lookup Table Service
 
+LOOK is a simple REST API that anyone can run to be able to POST a transaction or set of addresses and receive a set of
+table accounts that can be used to serialize a versioned transaction.
+
 ## REST API
 
 ### Discover Tables
@@ -127,7 +130,7 @@ Reference the documentation below for anything that is not implicitly clear and 
 }
 ```
 
-### discovery
+### `discovery`
 
 The service loads all active lookup tables stored on chain, and does so in 257 partitions. 256 based on the first byte
 of the table authority, and one for tables with no authority (frozen).
@@ -141,60 +144,60 @@ Per query there is a parallel score/map and reduce step.
 
 Scoring a table represents how many indexable accounts from the query exist in the table.
 
-* **cacheOnly**: Does not remotely load lookup tables from RPC nodes.
-* **cacheDirectory**: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
+* `cacheOnly`: Does not remotely load lookup tables from RPC nodes.
+* `cacheDirectory`: Binary files of lookup tables will be stored here. This allows the server to bootstrap within a
   couple of seconds (local SSD).
-* **clearCache**: Only to be used when there are breaking cache data model changes.
-* **remoteLoad**: Parameters relevant to loading and filtering tables from remote RPC nodes.
-    * **minUniqueAccountsPerTable**
-    * **minTableEfficiency**: `numUniqueAccounts / numAccounts`
-    * **maxConcurrentRequests**: Max number of partitions that can be fetched concurrently.
-    * **reloadDelay**: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
-* **query**: Per query related parameters.
-    * **numPartitions**: The initial task of scoring tables will be divided into this many parallel windows.
-    * **topTablesPerPartition**: The number of top scored tables for each window/partition to return.
-    * **startingMinScore**: Minimum score at the map/score step for a table to be eligible for reduction. If no tables
+* `clearCache`: Only to be used when there are breaking cache data model changes.
+* `remoteLoad`: Parameters relevant to loading and filtering tables from remote RPC nodes.
+    * `minUniqueAccountsPerTable`
+    * `minTableEfficiency`: `numUniqueAccounts / numAccounts`
+    * `maxConcurrentRequests`: Max number of partitions that can be fetched concurrently.
+    * `reloadDelay`: `java.time.Duration` encoded delay between defensive fetching of all on-chain tables.
+* `query`: Per query related parameters.
+    * `numPartitions`: The initial task of scoring tables will be divided into this many parallel windows.
+    * `topTablesPerPartition`: The number of top scored tables for each window/partition to return.
+    * `startingMinScore`: Minimum score at the map/score step for a table to be eligible for reduction. If no tables
       meet the requirement is are found, the minimum score is divided two down to a minimum of two before giving up.
 
-### web
+### `web`
 
 Web Server parameters.
 
-* **port**: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
+* `port`: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
   to will be logged.
 
-### tableCache
+### `tableCache`
 
 The table cache is used to support requests which send a versioned transaction. The intention would be to try to
 re-optimize an existing versioned transaction with multiple lookup tables or if you would like to recover rent from a
 redundant table account.
 
-* **initialCapacity**: If you do not intend to send versioned transactions to this service, set this to 0. Otherwise,
+* `initialCapacity`: If you do not intend to send versioned transactions to this service, set this to 0. Otherwise,
   try to
   estimate how many unique table accounts will be encountered via queries.
-* **refreshStaleItemsDelay**: `java.time.Duration` encoded delay between driving a refresh of the table cache.
-* **consideredStale**: `java.time.Duration` encoded duration to define tables which are stale versus their on-chain
+* `refreshStaleItemsDelay`: `java.time.Duration` encoded delay between driving a refresh of the table cache.
+* `consideredStale`: `java.time.Duration` encoded duration to define tables which are stale versus their on-chain
   state.
 
-### rpc
+### `rpc`
 
 RPC nodes.
 
-* **callWeights**: Default call weight is 1, use this to help match rate limits for specific RPC methods.
-    * **getProgramAccounts**
-* **defaultCapacity**:
-    * **resetDuration**: `java.time.Duration` encoded window in which maxCapacity is re-added.
-    * **maxCapacity**: Maximum requests that can be made within `resetDuration`
-    * **minCapacityDuration**: Maximum time, encoded as a `java.time.Duration`, before capacity should recover to a
+* `callWeights`: Default call weight is 1, use this to help match rate limits for specific RPC methods.
+    * `getProgramAccounts`
+* `defaultCapacity`:
+    * `resetDuration`: `java.time.Duration` encoded window in which maxCapacity is re-added.
+    * `maxCapacity`: Maximum requests that can be made within `resetDuration`
+    * `minCapacityDuration`: Maximum time, encoded as a `java.time.Duration`, before capacity should recover to a
       positive value, given that no additional failures happen.
-* **defaultBackoff**: Backoff strategy in response to errors.
-    * **type**: `fibonacci`, `exponential`, `linear`
-    * **initialRetryDelaySeconds**
-    * **maxRetryDelaySeconds**
-* **endpoints**: Array of RPC node configurations.
-    * **url**
-    * **capacity**: Overrides `defaultCapacity`.
-    * **backoff**: Overrides `defaultBackoff`.
+* `defaultBackoff`: Backoff strategy in response to errors.
+    * `type`: `fibonacci`, `exponential`, `linear`
+    * `initialRetryDelaySeconds`
+    * `maxRetryDelaySeconds`
+* `endpoints`: Array of RPC node configurations.
+    * `url`
+    * `capacity`: Overrides `defaultCapacity`.
+    * `backoff`: Overrides `defaultBackoff`.
 
 ## Run Table Service
 
