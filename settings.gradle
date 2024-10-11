@@ -2,6 +2,8 @@ rootProject.name = 'sava-services'
 
 include 'core'
 include 'solana'
+include 'spring/solana'
+project(':spring/solana').name = 'solana_spring'
 
 dependencyResolutionManagement {
   repositories {

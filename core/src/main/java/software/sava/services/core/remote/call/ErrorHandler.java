@@ -4,6 +4,14 @@ import java.util.concurrent.TimeUnit;
 
 public interface ErrorHandler {
 
+  static ErrorHandler singleBackoff(final int retryDelaySeconds, final int maxRetries) {
+    return new SingleBackoffErrorHandler(retryDelaySeconds, maxRetries);
+  }
+
+  static ErrorHandler singleBackoff(final int retryDelaySeconds) {
+    return singleBackoff(retryDelaySeconds, Integer.MAX_VALUE);
+  }
+
   static ErrorHandler linearBackoff(final int initialRetryDelaySeconds,
                                     final int maxRetryDelaySeconds,
                                     final int maxRetries) {

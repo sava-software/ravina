@@ -21,6 +21,15 @@ public record CapacityConfig(int minCapacity,
                              Duration serverErrorBackOffDuration,
                              Duration rateLimitedBackOffDuration) {
 
+  public static CapacityConfig createSimpleConfig(final Duration minCapacityDuration,
+                                                  final int maxCapacity,
+                                                  final Duration resetDuration) {
+    final var builder = new Builder();
+    builder.minCapacityDuration = minCapacityDuration;
+    builder.maxCapacity = maxCapacity;
+    builder.resetDuration = resetDuration;
+    return builder.createConfig();
+  }
 
   public static CapacityConfig parse(final JsonIterator ji) {
     return ji.testObject(new Builder(), PARSER).createConfig();
@@ -85,12 +94,18 @@ public record CapacityConfig(int minCapacity,
     private Builder() {
     }
 
+    private static int capacityFromDuration(final Duration resetDuration,
+                                            final int maxCapacity,
+                                            final Duration minCapacityDuration) {
+      final long millis = resetDuration.toMillis();
+      final long capacityPerMillis = maxCapacity * millis;
+      final long minCapacityDurationMillis = minCapacityDuration.toMillis();
+      return (int) -((capacityPerMillis * minCapacityDurationMillis) / 1_000_000);
+    }
+
     CapacityConfig createConfig() {
       if (minCapacityDuration != null) {
-        final long millis = resetDuration.toMillis();
-        final long capacityPerMillis = maxCapacity * millis;
-        final long minCapacityDurationMillis = minCapacityDuration.toMillis();
-        this.minCapacity = (int) -((capacityPerMillis * minCapacityDurationMillis) / 1_000_000);
+        this.minCapacity = capacityFromDuration(resetDuration, maxCapacity, minCapacityDuration);
       }
       return new CapacityConfig(
           minCapacity,
