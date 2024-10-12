@@ -1,6 +1,7 @@
 package software.sava.services.solana.accounts.lookup;
 
 import software.sava.rpc.json.http.client.SolanaRpcClient;
+import software.sava.services.core.config.NetConfig;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.remote.load_balance.LoadBalancerConfig;
 import software.sava.services.solana.remote.call.CallWeights;
@@ -22,7 +23,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
                                        CallWeights callWeights,
                                        Discovery discoveryConfig,
-                                       Web webConfig,
+                                       NetConfig netConfig,
                                        TableCache tableCacheConfig) {
 
   public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile) {
@@ -57,7 +58,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     private LoadBalancer<SolanaRpcClient> rpcClients;
     private CallWeights callWeights;
     private Discovery discoveryConfig;
-    private Web webConfig;
+    private NetConfig netConfig;
     private TableCache tableCacheConfig;
 
     private Builder() {
@@ -68,7 +69,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
           rpcClients,
           callWeights,
           discoveryConfig,
-          webConfig,
+          netConfig,
           tableCacheConfig
       );
     }
@@ -78,7 +79,7 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       if (fieldEquals("discovery", buf, offset, len)) {
         discoveryConfig = Discovery.parse(ji);
       } else if (fieldEquals("web", buf, offset, len)) {
-        webConfig = Web.parse(ji);
+        netConfig = NetConfig.parseConfig(ji);
       } else if (fieldEquals("tableCache", buf, offset, len)) {
         tableCacheConfig = TableCache.parse(ji);
       } else if (fieldEquals("rpc", buf, offset, len)) {
@@ -241,37 +242,6 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
           topTablesPerPartition = ji.readInt();
         } else if (fieldEquals("startingMinScore", buf, offset, len)) {
           startingMinScore = ji.readInt();
-        } else {
-          ji.skip();
-        }
-        return true;
-      }
-    }
-  }
-
-  public record Web(int port) {
-
-    private static Web parse(final JsonIterator ji) {
-      final var parser = new Builder();
-      ji.testObject(parser);
-      return parser.create();
-    }
-
-    private static final class Builder implements FieldBufferPredicate {
-
-      private int port;
-
-      private Builder() {
-      }
-
-      private Web create() {
-        return new Web(port);
-      }
-
-      @Override
-      public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-        if (fieldEquals("port", buf, offset, len)) {
-          port = ji.readInt();
         } else {
           ji.skip();
         }

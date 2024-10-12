@@ -128,6 +128,19 @@ public interface Call<T> extends Supplier<T> {
 
   static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
                                    final Function<I, CompletableFuture<R>> call,
+                                   final int runtimeWeight,
+                                   final boolean measureCallTime,
+                                   final String retryLogContext) {
+    return new GreedyBalancedCall<>(
+        loadBalancer,
+        call,
+        CallContext.DEFAULT_CALL_CONTEXT, runtimeWeight, measureCallTime,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createCall(final LoadBalancer<I> loadBalancer,
+                                   final Function<I, CompletableFuture<R>> call,
                                    final CallContext callContext,
                                    final boolean measureCallTime,
                                    final int maxTryClaim,

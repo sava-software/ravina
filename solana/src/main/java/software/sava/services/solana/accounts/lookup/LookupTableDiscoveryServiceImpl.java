@@ -112,7 +112,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   }
 
   private void joinPartitions() {
-    allTables = IntStream.range(0, NUM_PARTITIONS)
+    this.allTables = IntStream.range(0, NUM_PARTITIONS)
         .mapToObj(partitions::getOpaque)
         .flatMap(Arrays::stream)
         .sorted(BY_UNIQUE_ACCOUNTS_REVERSED)
@@ -369,7 +369,7 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
   }
 
-  private static ScoredTable[] DONE_WITH_INCLUDES = new ScoredTable[0];
+  private static final ScoredTable[] DONE_WITH_INCLUDES = new ScoredTable[0];
 
   @Override
   public AddressLookupTable[] discoverTablesWithReRank(final Set<PublicKey> distinctAccounts,
@@ -478,15 +478,22 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
 
   @Override
   public AddressLookupTable scanForTable(final PublicKey publicKey) {
-    return IntStream.range(0, NUM_PARTITIONS).parallel().mapToObj(partition -> {
-      final var tables = partitions.get(partition);
-      for (final var table : tables) {
-        if (table.address().equals(publicKey)) {
-          return table;
+    final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
+    if (allTables.length > 0) {
+      return Arrays.stream(allTables).parallel()
+          .filter(table -> table.containKey(publicKey))
+          .findFirst().orElse(null);
+    } else {
+      return IntStream.range(0, NUM_PARTITIONS).parallel().mapToObj(partition -> {
+        final var tables = partitions.get(partition);
+        for (final var table : tables) {
+          if (table.address().equals(publicKey)) {
+            return table;
+          }
         }
-      }
-      return null;
-    }).filter(Objects::nonNull).findFirst().orElse(null);
+        return null;
+      }).filter(Objects::nonNull).findFirst().orElse(null);
+    }
   }
 
   @Override
@@ -570,32 +577,34 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
     }
 
     final long start = System.currentTimeMillis();
-    final long numPartitionsLoaded = IntStream.range(0, NUM_PARTITIONS).parallel().filter(partition -> {
-      final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);
-      try {
-        if (Files.exists(cacheFile)) {
-          final byte[] data = Files.readAllBytes(cacheFile);
-          final int numTables = ByteUtil.getInt32LE(data, 0);
-          int offset = Integer.BYTES;
-          final var tables = new AddressLookupTable[numTables];
-          for (int i = 0; offset < data.length; ++i) {
-            final var table = CachedAddressLookupTable.readCached(data, offset);
-            offset += table.length();
-            tables[i] = table;
+    this.allTables = IntStream.range(0, NUM_PARTITIONS).parallel().mapToObj(partition -> {
+          final var cacheFile = resolvePartitionCacheFile(altCacheDirectory, partition);
+          try {
+            if (Files.exists(cacheFile)) {
+              final byte[] data = Files.readAllBytes(cacheFile);
+              final int numTables = ByteUtil.getInt32LE(data, 0);
+              int offset = Integer.BYTES;
+              final var tables = new AddressLookupTable[numTables];
+              for (int i = 0; offset < data.length; ++i) {
+                final var table = CachedAddressLookupTable.readCached(data, offset);
+                offset += table.length();
+                tables[i] = table;
+              }
+              partitions.set(partition, tables);
+              return tables;
+            } else {
+              return new AddressLookupTable[0];
+            }
+          } catch (final IOException e) {
+            throw new UncheckedIOException(e);
           }
-          partitions.set(partition, tables);
-          return true;
-        } else {
-          return false;
-        }
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
-      }
-    }).count();
+        })
+        .flatMap(Arrays::stream)
+        .sorted(BY_UNIQUE_ACCOUNTS_REVERSED)
+        .toArray(AddressLookupTable[]::new);
 
-    if ((numPartitionsLoaded / (double) NUM_PARTITIONS) > 0.8) {
+    if (this.allTables.length > 0) {
       final var duration = Duration.ofMillis(System.currentTimeMillis() - start);
-      joinPartitions();
       initialized.complete(null);
 
       logger.log(INFO, String.format("""

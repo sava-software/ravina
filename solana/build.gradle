@@ -24,9 +24,7 @@ tasks.register('runSolanaService', JavaExec) {
 afterEvaluate {
   jlink {
     imageName.set(project.name)
-    // MODULES="java.base java.logging java.security.sasl java.naming java.net.http java.transaction.xa java.xml java.sql jdk.httpserver org.bouncycastle.provider software.sava.core systems.comodal.json_iterator software.sava.rpc software.sava.anchor_src_gen software.sava.solana_programs software.sava.anchor_programs software.sava.core_services software.sava.merged.module software.sava.solana_services"
     options.addAll(List.of(
-        '--limit-modules=java.base,java.net.http,jdk.httpserver,org.bouncycastle.provider,software.sava.core,systems.comodal.json_iterator,software.sava.rpc,software.sava.anchor_src_gen,software.sava.solana_programs,software.sava.anchor_programs,software.sava.core_services,software.sava.merged.module,software.sava.solana_services',
         '--bind-services',
         '--no-man-pages',
         '--no-header-files',

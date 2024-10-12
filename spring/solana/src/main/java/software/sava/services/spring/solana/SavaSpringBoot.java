@@ -12,7 +12,6 @@ import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.stream.Collectors;
 
@@ -22,17 +21,20 @@ public class SavaSpringBoot {
 
   @Autowired
   private LoadBalancer<SolanaRpcClient> loadBalancer;
+  private final PublicKey tokenProgram = SolanaAccounts.MAIN_NET.tokenProgram();
 
-  @GetMapping(value = "/api/v0/accounts/tokens/owner/{owner}", produces = {"application/json"})
+  @GetMapping(value = "/api/v0/accounts/token/owner/{owner}", produces = {"application/json"})
   public String tokenAccounts(@PathVariable(name = "owner") String owner) {
+
     final var ownerPublicKey = PublicKey.fromBase58Encoded(owner);
+
     final var tokenAccounts = Call.createCall(
-        loadBalancer, rpcClient -> rpcClient
-            .getTokenAccountsForProgramByOwner(ownerPublicKey, SolanaAccounts.MAIN_NET.tokenProgram()),
-        CallContext.DEFAULT_CALL_CONTEXT,
-        1, Integer.MAX_VALUE, true,
+        loadBalancer,
+        rpcClient -> rpcClient.getTokenAccountsForProgramByOwner(ownerPublicKey, tokenProgram),
+        true,
         "rpcClient#getTokenAccountsForProgramByOwner"
     ).get();
+
     if (tokenAccounts.isEmpty()) {
       return "[]";
     } else {

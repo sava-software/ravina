@@ -3,6 +3,8 @@ module software.sava.core_services {
 
   requires java.net.http;
 
+  exports software.sava.services.core.config;
+
   exports software.sava.services.core.exceptions;
 
   exports software.sava.services.core.remote.call;
