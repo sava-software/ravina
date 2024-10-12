@@ -1,6 +1,5 @@
 module software.sava.solana_spring {
   requires java.net.http;
-  requires lombok;
   requires software.sava.solana_services;
   requires software.sava.core_services;
   requires software.sava.rpc;
@@ -8,4 +7,10 @@ module software.sava.solana_spring {
   requires spring.boot.starter;
   requires spring.boot.configuration.processor;
   requires spring.context;
+  requires spring.boot.autoconfigure;
+  requires spring.web;
+
+  exports software.sava.services.spring.solana;
+
+  opens software.sava.services.spring.solana;
 }

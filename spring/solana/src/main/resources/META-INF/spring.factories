@@ -1,6 +1,0 @@
-org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
-  software.sava.services.spring.solana.LoadBalancerFactory,\
-  software.sava.services.spring.solana.RemoteResourceProperties,\
-  software.sava.services.spring.solana.LoadBalancerProperties,\
-  software.sava.services.spring.solana.RpcClientFactory,\
-  software.sava.services.spring.solana.RpcClientProperties

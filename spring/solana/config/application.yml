@@ -1,0 +1,19 @@
+sava:
+  endpoints:
+    - endpoint: "https://api.mainnet-beta.solana.com"
+      capacity:
+        minCapacityDuration: 8
+        maxCapacity: 1
+        resetDuration: 1
+      backoff:
+        backoffStrategy: "exponential"
+        initialRetryDelaySeconds: 1
+        maxRetryDelaySeconds: 16
+  defaultCapacity:
+    minCapacityDuration: 8
+    maxCapacity: 1
+    resetDuration: 1
+  defaultBackoff:
+    backoffStrategy: "fibonacci"
+    initialRetryDelaySeconds: 1
+    maxRetryDelaySeconds: 13

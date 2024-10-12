@@ -1,26 +1,67 @@
 package software.sava.services.spring.solana;
 
-import lombok.Getter;
-import lombok.Setter;
-import org.springframework.boot.convert.DurationUnit;
-import software.sava.services.core.remote.call.BackoffStrategy;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.request_capacity.CapacityConfig;
+import software.sava.services.core.request_capacity.UriCapacityConfig;
 
-import java.time.Duration;
-import java.time.temporal.ChronoUnit;
+import java.net.URI;
 
-@Getter
-@Setter
+@ConfigurationProperties("sava")
 public class RemoteResourceProperties {
 
-  public String endpoint;
+  private String endpoint;
+  private CapacityConfigProperties capacity;
+  private BackOffProperties backoff;
 
-  @DurationUnit(ChronoUnit.SECONDS)
-  public Duration minCapacityDuration;
-  public int maxCapacity;
-  @DurationUnit(ChronoUnit.SECONDS)
-  public Duration resetDuration;
+  public CapacityConfig createCapacityConfig() {
+    return capacity == null ? null : capacity.createCapacityConfig();
+  }
 
-  public BackoffStrategy backoffStrategy;
-  public int initialRetryDelaySeconds;
-  public int maxRetryDelaySeconds;
+  public ErrorHandler createErrorHandler() {
+    return backoff == null ? null : backoff.createErrorHandler();
+  }
+
+  public UriCapacityConfig createURICapacityConfig() {
+    final var uri = URI.create(endpoint);
+    final var capacityConfig = createCapacityConfig();
+    final var errorHandler = createErrorHandler();
+    return new UriCapacityConfig(uri, capacityConfig, errorHandler);
+  }
+
+  public RemoteResourceProperties setEndpoint(final String endpoint) {
+    this.endpoint = endpoint;
+    return this;
+  }
+
+  public RemoteResourceProperties setCapacity(final CapacityConfigProperties capacity) {
+    this.capacity = capacity;
+    return this;
+  }
+
+  public RemoteResourceProperties setBackoff(final BackOffProperties backoff) {
+    this.backoff = backoff;
+    return this;
+  }
+
+  public String getEndpoint() {
+    return endpoint;
+  }
+
+  public CapacityConfigProperties getCapacity() {
+    return capacity;
+  }
+
+  public BackOffProperties getBackoff() {
+    return backoff;
+  }
+
+  @Override
+  public String toString() {
+    return "RemoteResourceProperties{" +
+        "endpoint='" + endpoint + '\'' +
+        ", capacity=" + capacity +
+        ", backoff=" + backoff +
+        '}';
+  }
 }

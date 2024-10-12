@@ -1,7 +1,5 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.BalancedErrorHandler;
-
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -19,7 +17,9 @@ public interface LoadBalancer<T> {
 
   @SuppressWarnings("unchecked")
   static <T> LoadBalancer<T> createBalancer(final List<BalancedItem<T>> items) {
-    return createBalancer(items.toArray(BalancedItem[]::new));
+    return items.size() == 1
+        ? createBalancer(items.getFirst())
+        : new ArrayLoadBalancer<>(items.toArray(BalancedItem[]::new));
   }
 
   static <T> LoadBalancer<T> createSortedBalancer(final BalancedItem<T>[] items) {
@@ -30,22 +30,24 @@ public interface LoadBalancer<T> {
 
   @SuppressWarnings("unchecked")
   static <T> LoadBalancer<T> createSortedBalancer(final List<BalancedItem<T>> items) {
-    return createSortedBalancer(items.toArray(BalancedItem[]::new));
+    return items.size() == 1
+        ? createBalancer(items.getFirst())
+        : new SortedLoadBalancer<>(items.toArray(BalancedItem[]::new));
   }
 
   int size();
 
-  BalancedItem<T> nextNoSkip();
+  void sort();
 
   T next();
 
-  void sort();
+  BalancedItem<T> withContext();
 
-  Stream<BalancedItem<T>> streamItems();
+  BalancedItem<T> nextNoSkip();
 
   BalancedItem<T> peek();
 
-  BalancedItem<T> withContext();
-
   List<BalancedItem<T>> items();
+
+  Stream<BalancedItem<T>> streamItems();
 }
