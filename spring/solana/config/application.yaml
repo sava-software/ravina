@@ -1,4 +1,4 @@
-sava:
+sava-rpc-balanced:
   endpoints:
     - endpoint: "https://api.mainnet-beta.solana.com"
       capacity:

@@ -12,7 +12,7 @@ import java.net.http.HttpClient;
 import java.util.List;
 
 @Configuration
-@ConfigurationProperties("sava")
+@ConfigurationProperties("sava-rpc-balanced")
 public class LoadBalancerFactory {
 
   private List<RemoteResourceProperties> endpoints;
