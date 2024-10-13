@@ -117,7 +117,7 @@ final class CallTests {
         monitor,
         errorHandler
     ));
-    final var call = Call.createCall(
+    final var call = Call.createCourteousCall(
         loadBalancer, count -> {
           final long _count = count.incrementAndGet();
           if (_count == 400 || _count == 401 || _count == 429) {

@@ -7,7 +7,6 @@ import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -88,10 +87,9 @@ final class LookupTableCacheMap implements LookupTableCache {
   }
 
   private Call<AccountInfo<AddressLookupTable>> createFetchLookupTableCall(final PublicKey lookupTableKey) {
-    return Call.createCall(
+    return Call.createCourteousCall(
         rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, tableFactory),
-        CallContext.DEFAULT_CALL_CONTEXT,
-        1, Integer.MAX_VALUE, true,
+        true,
         "rpcClient::getAccountInfo"
     );
   }
@@ -166,10 +164,9 @@ final class LookupTableCacheMap implements LookupTableCache {
             }
           }
 
-          final var lookupTableAccounts = Call.createCall(
+          final var lookupTableAccounts = Call.createCourteousCall(
               rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-              CallContext.DEFAULT_CALL_CONTEXT,
-              1, Integer.MAX_VALUE, true,
+              true,
               "rpcClient::getMultipleAccounts"
           ).get();
           final long fetchedAt = System.currentTimeMillis();
@@ -214,10 +211,9 @@ final class LookupTableCacheMap implements LookupTableCache {
 
   private void refreshTables(final List<PublicKey> fetchKeys) {
     if (!fetchKeys.isEmpty()) {
-      final var lookupTableAccounts = Call.createCall(
+      final var lookupTableAccounts = Call.createCourteousCall(
           rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-          CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, false,
+          false,
           "rpcClient::getMultipleAccounts"
       ).get();
       final long fetchedAt = System.currentTimeMillis();

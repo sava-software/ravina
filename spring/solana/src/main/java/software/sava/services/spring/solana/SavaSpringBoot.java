@@ -28,7 +28,7 @@ public class SavaSpringBoot {
 
     final var ownerPublicKey = PublicKey.fromBase58Encoded(owner);
 
-    final var tokenAccounts = Call.createCall(
+    final var tokenAccounts = Call.createCourteousCall(
         loadBalancer,
         rpcClient -> rpcClient.getTokenAccountsForProgramByOwner(ownerPublicKey, tokenProgram),
         true,

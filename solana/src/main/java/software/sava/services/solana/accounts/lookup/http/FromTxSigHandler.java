@@ -2,7 +2,6 @@ package software.sava.services.solana.accounts.lookup.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import software.sava.services.core.remote.call.Call;
-import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 
@@ -21,10 +20,9 @@ final class FromTxSigHandler extends FromRawTxHandler {
                             final byte[] body) {
     final var txSig = new String(body);
     try {
-      final var txBytes = Call.createCall(
+      final var txBytes = Call.createCourteousCall(
           rpcClients, rpcClient -> rpcClient.getTransaction(CONFIRMED, txSig),
-          CallContext.DEFAULT_CALL_CONTEXT,
-          1, Integer.MAX_VALUE, false,
+          false,
           "rpcClient::getTransaction"
       ).get().data();
       // System.out.println(Base64.getEncoder().encodeToString(txBytes));

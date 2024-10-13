@@ -31,7 +31,7 @@ public interface LookupTableDiscoveryService extends Runnable {
     final var partitions = new AtomicReferenceArray<AddressLookupTable[]>(NUM_PARTITIONS);
     final var rpcClients = serviceConfig.rpcClients();
     final var callWeights = serviceConfig.callWeights();
-    final var noAuthorityCall = Call.createCall(
+    final var noAuthorityCall = Call.createCourteousCall(
         rpcClients, rpcClient -> rpcClient.getProgramAccounts(
             altProgram,
             List.of(
@@ -58,7 +58,7 @@ public interface LookupTableDiscoveryService extends Runnable {
     );
     for (int i = 1; i < NUM_PARTITIONS; ++i) {
       final var partitionFilter = PARTITION_FILTERS[i];
-      final var call = Call.createCall(
+      final var call = Call.createCourteousCall(
           serviceConfig.rpcClients(), rpcClient -> rpcClient.getProgramAccounts(
               altProgram,
               List.of(
