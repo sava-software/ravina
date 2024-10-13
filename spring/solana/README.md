@@ -31,9 +31,14 @@ should not be an issue.
 ```yaml
 sava-rpc-balanced:
   endpoints:
-    - endpoint: "https://api.mainnet-beta.solana.com"
+    - endpoint: "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY"
       capacity:
         minCapacityDuration: 5
+        maxCapacity: 10
+        resetDuration: 1
+    - endpoint: "https://api.mainnet-beta.solana.com"
+      capacity:
+        minCapacityDuration: 8
         maxCapacity: 1
         resetDuration: 2
       backoff:
@@ -52,9 +57,27 @@ sava-rpc-balanced:
 
 ## [Example Web Server](src/main/java/software/sava/services/spring/solana/SavaSpringBoot.java)
 
+Demonstrates the usage of an auto-wired `LoadBalancer<SolanaRpcClient>`.
+
+### Requirements
+
+- The latest generally available JDK. 23 at the time of this writing.
+
+### [Dependencies](build.gradle)
+
+- [sava-core](https://github.com/sava-software/sava)
+- [sava-rpc](https://github.com/sava-software/sava)
+- sava-core-services
+- sava-solana-services
+- spring-boot-starter
+- spring-boot-configuration-processor
+- spring-boot-starter-web
+
 ### Setup
 
 In addition to the yaml configuration, a GitHub access token with read access to the package repository is needed.
+
+Add the following to your gradle.properties file:
 
 ```shell
 gpr.user=YOUR_GITHUB_USERNAME
@@ -80,16 +103,18 @@ export GITHUB_TOKEN=<YOUR_GITUHUB_ACCESS_TOKEN>
 
 Returns the owners token accounts addresses with their mints and scaled amounts.
 
+Example request/response:
+
 ```shell
-curl 'http://localhost:8080/api/v0/accounts/token/owner/<SOLANA_ADDRESS>';
+curl 'http://localhost:8080/api/v0/accounts/token/owner/2Em76UkVmchjPd4F56RU7WVsFUtaryzzZHsHja8PWxBd';
 ```
 
 ```json
 [
   {
-    "address": "",
-    "mint": "",
-    "amount": 0
+    "address": "E68SuxmGRXweExgtaqRP95tc4ABQd1z4e6xgXN9JjDPr",
+    "mint": "BDGMRp259C5YfrFkPY1dumogrBaRGBVx2fn5X2Yykoxv",
+    "amount": 100000000000000000
   }
 ]
 ```
