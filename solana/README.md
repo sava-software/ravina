@@ -273,14 +273,7 @@ docker run --rm \
 
 Compiles a minimal executable JVM and facilitates passing runtime arguments.
 
-Add the following to your gradle.properties file:
-
-```shell
-gpr.user=YOUR_GITHUB_USERNAME
-gpr.token=YOUR_GITUHUB_ACCESS_TOKEN
-```
-
-Or, export the following environment variables:
+Export the following environment variables:
 
 ```shell
 export GITHUB_ACTOR=<YOUR_GITHUB_USERNAME>
