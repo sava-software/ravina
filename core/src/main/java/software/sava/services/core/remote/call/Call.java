@@ -100,6 +100,12 @@ public interface Call<T> extends Supplier<T> {
 
   static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
                                             final Function<I, CompletableFuture<R>> call,
+                                            final String retryLogContext) {
+    return createCourteousCall(loadBalancer, call, false, retryLogContext);
+  }
+
+  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
+                                            final Function<I, CompletableFuture<R>> call,
                                             final CallContext callContext,
                                             final int runtimeWeight,
                                             final String retryLogContext) {

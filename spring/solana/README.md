@@ -77,7 +77,14 @@ Demonstrates the usage of an auto-wired `LoadBalancer<SolanaRpcClient>`.
 
 In addition to the yaml configuration, a GitHub access token with read access to the package repository is needed.
 
-Export the following environment variables:
+Add the following to your gradle.properties file:
+
+```shell
+gpr.user=YOUR_GITHUB_USERNAME
+gpr.token=YOUR_GITUHUB_ACCESS_TOKEN
+```
+
+Or, export the following environment variables:
 
 ```shell
 export GITHUB_ACTOR=<YOUR_GITHUB_USERNAME>
