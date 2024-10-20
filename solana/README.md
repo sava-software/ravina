@@ -70,6 +70,8 @@ Reference the documentation below for anything that is not implicitly clear and 
 
 ```json
 {
+  "localDev": true,
+  "workDir": "./",
   "discovery": {
     "cacheOnly": false,
     "cacheDirectory": "/Users/user/src/services/solana/alt_cache",
@@ -87,7 +89,10 @@ Reference the documentation below for anything that is not implicitly clear and 
     }
   },
   "web": {
-    "port": 4242
+    "http": {
+      "port": 4242
+    },
+    "allowedOrigins": []
   },
   "tableCache": {
     "initialCapacity": 256,
@@ -130,6 +135,10 @@ Reference the documentation below for anything that is not implicitly clear and 
 }
 ```
 
+### `workDir`
+
+Directory with write access to store service related caches.
+
 ### `discovery`
 
 The service loads all active lookup tables stored on chain, and does so in 257 partitions. 256 based on the first byte
@@ -163,8 +172,12 @@ Scoring a table represents how many indexable accounts from the query exist in t
 
 Web Server parameters.
 
-* `port`: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is listening
-  to will be logged.
+* `http`:  Clear text HTTP 1.1 and 2.0 server connection information.
+    * `port`: Port to bind to, defaults to 0, which will pick a randomly available port. The port the server is
+      listening to will be logged.
+* `https`:  TLS HTTP 1.1, 2.0 and Quic 3.0 server connection information.
+    * `port`
+* `allowedOrigins`: For cross-origin checks. Set `localDev` to true to bypass check.
 
 ### `tableCache`
 
