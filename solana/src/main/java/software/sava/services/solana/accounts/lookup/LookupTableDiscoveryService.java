@@ -25,7 +25,7 @@ public interface LookupTableDiscoveryService extends Runnable {
   static LookupTableDiscoveryService createService(final ExecutorService executorService,
                                                    final LookupTableServiceConfig serviceConfig,
                                                    final NativeProgramClient nativeProgramClient) {
-    final var discoveryConfig = serviceConfig.discoveryConfig();
+    final var discoveryConfig = serviceConfig.discoveryServiceConfig();
     final var loadConfig = discoveryConfig.remoteLoadConfig();
     final var altProgram = nativeProgramClient.accounts().addressLookupTableProgram();
     final var partitions = new AtomicReferenceArray<AddressLookupTable[]>(NUM_PARTITIONS);

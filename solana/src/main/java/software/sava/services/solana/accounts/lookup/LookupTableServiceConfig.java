@@ -15,16 +15,20 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.Set;
+import java.util.TreeSet;
 
 import static java.util.Objects.requireNonNull;
 import static software.sava.services.solana.load_balance.LoadBalanceUtil.createRPCLoadBalancer;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
-public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
+public record LookupTableServiceConfig(Path workDir,
+                                       boolean localDev,
+                                       LoadBalancer<SolanaRpcClient> rpcClients,
                                        CallWeights callWeights,
-                                       Discovery discoveryConfig,
-                                       NetConfig netConfig,
-                                       TableCache tableCacheConfig) {
+                                       DiscoveryServiceConfig discoveryServiceConfig,
+                                       WebServerConfig webServerConfig,
+                                       TableCacheConfig tableCacheConfig) {
 
   public static LookupTableServiceConfig loadConfig(final Path serviceConfigFile) {
     try (final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile))) {
@@ -57,31 +61,49 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
 
     private LoadBalancer<SolanaRpcClient> rpcClients;
     private CallWeights callWeights;
-    private Discovery discoveryConfig;
-    private NetConfig netConfig;
-    private TableCache tableCacheConfig;
+    private DiscoveryServiceConfig discoveryServiceConfig;
+    private WebServerConfig webServerConfig;
+    private TableCacheConfig tableCacheConfig;
+    private String workDir;
+    private boolean localDev;
 
     private Builder() {
     }
 
     private LookupTableServiceConfig create() {
+      final var workDir = (this.workDir == null
+          ? Path.of("./.rest")
+          : Path.of(this.workDir).resolve(".rest")).toAbsolutePath();
+      if (!Files.exists(workDir)) {
+        try {
+          Files.createDirectories(workDir);
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }
       return new LookupTableServiceConfig(
+          workDir,
+          localDev,
           rpcClients,
           callWeights,
-          discoveryConfig,
-          netConfig,
+          discoveryServiceConfig,
+          webServerConfig,
           tableCacheConfig
       );
     }
 
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("discovery", buf, offset, len)) {
-        discoveryConfig = Discovery.parse(ji);
+      if (fieldEquals("workDir", buf, offset, len)) {
+        workDir = ji.readString();
+      } else if (fieldEquals("localDev", buf, offset, len)) {
+        localDev = ji.readBoolean();
+      } else if (fieldEquals("discovery", buf, offset, len)) {
+        discoveryServiceConfig = DiscoveryServiceConfig.parse(ji);
       } else if (fieldEquals("web", buf, offset, len)) {
-        netConfig = NetConfig.parseConfig(ji);
+        webServerConfig = WebServerConfig.parse(ji);
       } else if (fieldEquals("tableCache", buf, offset, len)) {
-        tableCacheConfig = TableCache.parse(ji);
+        tableCacheConfig = TableCacheConfig.parse(ji);
       } else if (fieldEquals("rpc", buf, offset, len)) {
         final int mark = ji.mark();
         final var httpClient = HttpClient.newHttpClient();
@@ -96,18 +118,66 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
+  public record WebServerConfig(Set<String> allowedOrigins,
+                                NetConfig httpConfig,
+                                NetConfig httpsConfig) {
+
+    private static WebServerConfig parse(final JsonIterator ji) {
+      final var parser = new Builder();
+      ji.testObject(parser);
+      return parser.create();
+    }
+
+    private static final class Builder implements FieldBufferPredicate {
+
+      private Set<String> allowedOrigins;
+      private NetConfig httpConfig;
+      private NetConfig httpsConfig;
+
+      private Builder() {
+      }
+
+      private WebServerConfig create() {
+        final var allowedOrigins = this.allowedOrigins == null ? Set.<String>of() : this.allowedOrigins;
+        return new WebServerConfig(
+            allowedOrigins,
+            httpConfig,
+            httpsConfig
+        );
+      }
+
+      @Override
+      public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
+        if (fieldEquals("allowedOrigins", buf, offset, len)) {
+          final var allowedOrigins = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+          while (ji.readArray()) {
+            allowedOrigins.add(ji.readString());
+          }
+          this.allowedOrigins = allowedOrigins;
+        } else if (fieldEquals("http", buf, offset, len)) {
+          httpConfig = NetConfig.parseConfig(ji);
+        } else if (fieldEquals("https", buf, offset, len)) {
+          httpsConfig = NetConfig.parseConfig(ji);
+        } else {
+          ji.skip();
+        }
+        return true;
+      }
+    }
+  }
+
   private static Duration parseDuration(final JsonIterator ji) {
     final var duration = ji.readString();
     return duration == null || duration.isBlank() ? null : Duration.parse(duration);
   }
 
-  public record Discovery(boolean cacheOnly,
-                          Path cacheDirectory,
-                          boolean clearCache,
-                          RemoteLoad remoteLoadConfig,
-                          Query queryConfig) {
+  public record DiscoveryServiceConfig(boolean cacheOnly,
+                                       Path cacheDirectory,
+                                       boolean clearCache,
+                                       RemoteLoadConfig remoteLoadConfig,
+                                       QueryConfig queryConfig) {
 
-    private static Discovery parse(final JsonIterator ji) {
+    private static DiscoveryServiceConfig parse(final JsonIterator ji) {
       final var parser = new Builder();
       ji.testObject(parser);
       return parser.create();
@@ -118,19 +188,19 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       private boolean cacheOnly;
       private Path cacheDirectory;
       private boolean clearCache;
-      private RemoteLoad remoteLoad;
-      private Query query;
+      private RemoteLoadConfig remoteLoadConfig;
+      private QueryConfig queryConfig;
 
       private Builder() {
       }
 
-      private Discovery create() {
-        return new Discovery(
+      private DiscoveryServiceConfig create() {
+        return new DiscoveryServiceConfig(
             cacheOnly,
             requireNonNull(cacheDirectory, "Must provide a cache directory."),
             clearCache,
-            remoteLoad == null ? new RemoteLoad.Builder().create() : remoteLoad,
-            query == null ? new Query.Builder().create() : query
+            remoteLoadConfig == null ? new RemoteLoadConfig.Builder().create() : remoteLoadConfig,
+            queryConfig == null ? new QueryConfig.Builder().create() : queryConfig
         );
       }
 
@@ -143,9 +213,9 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
         } else if (fieldEquals("clearCache", buf, offset, len)) {
           clearCache = ji.readBoolean();
         } else if (fieldEquals("remoteLoad", buf, offset, len)) {
-          remoteLoad = RemoteLoad.parse(ji);
+          remoteLoadConfig = RemoteLoadConfig.parse(ji);
         } else if (fieldEquals("query", buf, offset, len)) {
-          query = Query.parse(ji);
+          queryConfig = QueryConfig.parse(ji);
         } else {
           ji.skip();
         }
@@ -154,17 +224,17 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
-  public record RemoteLoad(int minUniqueAccountsPerTable,
-                           double minTableEfficiency,
-                           int maxConcurrentRequests,
-                           Duration reloadDelay) {
+  public record RemoteLoadConfig(int minUniqueAccountsPerTable,
+                                 double minTableEfficiency,
+                                 int maxConcurrentRequests,
+                                 Duration reloadDelay) {
 
     private static final int DEFAULT_MIN_ACCOUNTS = 34;
     private static final double DEFAULT_MIN_EFFICIENCY = 0.8;
     private static final int DEFAULT_MAX_CONCURRENT_REQUESTS = 10;
     private static final Duration DEFAULT_RELOAD_DELAY = Duration.ofHours(8);
 
-    private static RemoteLoad parse(final JsonIterator ji) {
+    private static RemoteLoadConfig parse(final JsonIterator ji) {
       final var parser = new Builder();
       ji.testObject(parser);
       return parser.create();
@@ -180,8 +250,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       private Builder() {
       }
 
-      private RemoteLoad create() {
-        return new RemoteLoad(
+      private RemoteLoadConfig create() {
+        return new RemoteLoadConfig(
             minUniqueAccountsPerTable,
             minTableEfficiency,
             maxConcurrentRequests,
@@ -207,15 +277,15 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
-  public record Query(int numPartitions,
-                      int topTablesPerPartition,
-                      int startingMinScore) {
+  public record QueryConfig(int numPartitions,
+                            int topTablesPerPartition,
+                            int startingMinScore) {
 
     private static final int DEFAULT_TOP_TABLES_PER_PARTITION = 16;
     private static final int DEFAULT_PARTITIONS = 8;
     private static final int DEFAULT_MIN_SCORE = 2;
 
-    private static Query parse(final JsonIterator ji) {
+    private static QueryConfig parse(final JsonIterator ji) {
       final var parser = new Builder();
       ji.testObject(parser);
       return parser.create();
@@ -230,8 +300,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       private Builder() {
       }
 
-      private Query create() {
-        return new Query(numPartitions, topTablesPerPartition, Math.max(2, startingMinScore));
+      private QueryConfig create() {
+        return new QueryConfig(numPartitions, topTablesPerPartition, Math.max(2, startingMinScore));
       }
 
       @Override
@@ -250,14 +320,14 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
     }
   }
 
-  public record TableCache(int initialCapacity,
-                           Duration refreshStaleItemsDelay,
-                           Duration consideredStale) {
+  public record TableCacheConfig(int initialCapacity,
+                                 Duration refreshStaleItemsDelay,
+                                 Duration consideredStale) {
 
     private static final int DEFAULT_INITIAL_CAPACITY = 1_024;
     private static final Duration DEFAULT_CONSIDERED_STALE = Duration.ofHours(8);
 
-    private static TableCache parse(final JsonIterator ji) {
+    private static TableCacheConfig parse(final JsonIterator ji) {
       final var parser = new Builder();
       ji.testObject(parser);
       return parser.create();
@@ -272,8 +342,8 @@ public record LookupTableServiceConfig(LoadBalancer<SolanaRpcClient> rpcClients,
       private Builder() {
       }
 
-      private TableCache create() {
-        return new TableCache(
+      private TableCacheConfig create() {
+        return new TableCacheConfig(
             initialCapacity,
             refreshStaleItemsDelay == null
                 ? consideredStale.dividedBy(2)

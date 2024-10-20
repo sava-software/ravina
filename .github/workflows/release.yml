@@ -40,7 +40,7 @@ jobs:
         run: |
           printf "\norg.gradle.java.installations.paths=%s" "$JAVA_HOME" >> gradle.properties
           java --version
-          ./gradlew --stacktrace -PtargetJava=${{ vars.JAVA_VERSION }} check :core:publish :solana:publish
+          ./gradlew --stacktrace -PtargetJava=${{ vars.JAVA_VERSION }} check :core:publish :jetty:publish :solana:publish
         env:
           VIRTUAL_SERVER: true
           GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}

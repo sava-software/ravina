@@ -1,6 +1,9 @@
 package software.sava.services.solana.accounts.lookup.http;
 
-import com.sun.net.httpserver.HttpExchange;
+import org.eclipse.jetty.io.Content;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.Response;
+import org.eclipse.jetty.util.Callback;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.AccountMeta;
@@ -18,9 +21,15 @@ class FromRawTxHandler extends DiscoverTablesHandler {
 
   private static final System.Logger logger = System.getLogger(FromRawTxHandler.class.getName());
 
+  FromRawTxHandler(final InvocationType invocationType,
+                   final LookupTableDiscoveryService tableService,
+                   final LookupTableCache tableCache) {
+    super(invocationType, tableService, tableCache);
+  }
+
   FromRawTxHandler(final LookupTableDiscoveryService tableService,
                    final LookupTableCache tableCache) {
-    super(tableService, tableCache);
+    this(InvocationType.EITHER, tableService, tableCache);
   }
 
   record TxStats(int numEligible,
@@ -173,10 +182,12 @@ class FromRawTxHandler extends DiscoverTablesHandler {
 
   private static final AddressLookupTable[] NO_INCLUDES = new AddressLookupTable[0];
 
-  protected void handle(final HttpExchange exchange,
+  protected void handle(final Request request,
+                        final Response response,
+                        final Callback callback,
                         final long startExchange,
                         final byte[] txBytes) {
-    final var queryParams = queryParams(exchange);
+    final var queryParams = queryParams(request);
 
     final var skeleton = TransactionSkeleton.deserializeSkeleton(txBytes);
     if (skeleton.isLegacy()) {
@@ -189,9 +200,9 @@ class FromRawTxHandler extends DiscoverTablesHandler {
 
       if (queryParams.stats()) {
         final var txStats = produceStats(txBytes, skeleton, accounts, programs, skeleton.parseLegacyInstructions(), discoveredTables);
-        writeResponse(exchange, startExchange, queryParams, start, discoveredTables, txStats);
+        writeResponse(response, callback, startExchange, queryParams, start, discoveredTables, txStats);
       } else {
-        writeResponse(exchange, startExchange, queryParams, start, discoveredTables);
+        writeResponse(response, callback, startExchange, queryParams, start, discoveredTables);
       }
     } else {
       final int txVersion = skeleton.version();
@@ -270,7 +281,11 @@ class FromRawTxHandler extends DiscoverTablesHandler {
           if (lookupTables.size() != numTableAccounts) {
             for (final var key : lookupTableAccounts) {
               if (!lookupTables.containsKey(key)) {
-                writeResponse(400, exchange, "Failed to find address lookup table " + key);
+                response.setStatus(400);
+                Content.Sink.write(response, true, String.format("""
+                    {
+                      "msg": "Failed to find address lookup table %s."
+                    }""", key), callback);
                 return;
               }
             }
@@ -295,30 +310,44 @@ class FromRawTxHandler extends DiscoverTablesHandler {
               .map(AccountMeta::publicKey)
               .toArray(PublicKey[]::new);
           final var txStats = produceStats(txBytes, skeleton, nonSignerAccounts, programs, instructions, discoveredTables);
-          writeResponse(exchange, startExchange, queryParams, start, discoveredTables, txStats);
+          writeResponse(response, callback, startExchange, queryParams, start, discoveredTables, txStats);
         } else {
-          writeResponse(exchange, startExchange, queryParams, start, discoveredTables);
+          writeResponse(response, callback, startExchange, queryParams, start, discoveredTables);
         }
       } else {
-        writeResponse(400, exchange, "Unsupported transaction version " + txVersion);
+        response.setStatus(400);
+        Content.Sink.write(response, true, String.format("""
+            {
+              "msg": "Unsupported transaction version %d."
+            }""", txVersion), callback);
       }
     }
   }
 
-  protected void handlePost(final HttpExchange exchange,
-                            final long startExchange,
-                            final byte[] body) {
+  @Override
+  protected void setResponseHeaders(final Response response) {
+    super.setResponseHeaders(response);
+    final var responseHeaders = response.getHeaders();
+    responseHeaders.put(JSON_CONTENT);
+  }
+
+  @Override
+  public boolean handle(final Request request, final Response response, final Callback callback) {
+    final long startExchange = System.currentTimeMillis();
+    setResponseHeaders(response);
+    final var body = Content.Source.asByteArrayAsync(request, Transaction.MAX_SERIALIZED_LENGTH << 1).join();
     try {
-      final var encoding = getEncoding(exchange);
-      if (encoding == null) {
-        return;
+      final var encoding = getEncoding(request, response, callback);
+      if (encoding != null) {
+        final byte[] txBytes = encoding.decode(body);
+        handle(request, response, callback, startExchange, txBytes);
       }
-      final byte[] txBytes = encoding.decode(body);
-      handle(exchange, startExchange, txBytes);
     } catch (final RuntimeException ex) {
       final var bodyString = new String(body);
       logger.log(System.Logger.Level.ERROR, "Failed to process request " + bodyString, ex);
-      writeResponse(400, exchange, bodyString);
+      response.setStatus(500);
+      callback.failed(ex);
     }
+    return true;
   }
 }

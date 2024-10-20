@@ -2,6 +2,7 @@ apply plugin: 'org.beryx.jlink'
 
 dependencies {
   implementation project(":core")
+  implementation project(":jetty")
   implementation libs.bouncycastle
   implementation libs.json.iterator
   implementation libs.sava.core
@@ -10,6 +11,12 @@ dependencies {
   implementation libs.sava.solana.programs
   implementation libs.sava.anchor.src.gen
   implementation libs.sava.anchor.programs
+
+  implementation libs.jetty.server
+  implementation libs.jetty.http2.server
+  implementation libs.jetty.alpn.server
+  implementation libs.jetty.alpn.java.server
+  implementation libs.jetty.http3.server
 }
 
 tasks.register('runSolanaService', JavaExec) {

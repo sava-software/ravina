@@ -1,6 +1,9 @@
 package software.sava.services.solana.accounts.lookup.http;
 
-import com.sun.net.httpserver.HttpExchange;
+import org.eclipse.jetty.io.Content;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.Response;
+import org.eclipse.jetty.util.Callback;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.PublicKeyEncoding;
@@ -12,16 +15,20 @@ import java.util.HashSet;
 
 final class FromAccountsHandler extends DiscoverTablesHandler {
 
+  private static final int MAX_BODY_LENGTH = (Transaction.MAX_ACCOUNTS * PublicKey.PUBLIC_KEY_LENGTH) << 1;
+
   FromAccountsHandler(final LookupTableDiscoveryService tableService,
                       final LookupTableCache tableCache) {
-    super(tableService, tableCache);
+    super(InvocationType.NON_BLOCKING, tableService, tableCache);
   }
 
-  protected void handlePost(final HttpExchange exchange,
-                            final long startExchange,
-                            final byte[] body) {
-    final var queryParams = queryParams(exchange);
+  @Override
+  public boolean handle(final Request request, final Response response, final Callback callback) {
+    final long startExchange = System.currentTimeMillis();
+    super.setResponseHeaders(response);
+    final var queryParams = queryParams(request);
 
+    final var body = Content.Source.asByteArrayAsync(request, MAX_BODY_LENGTH).join();
     final var ji = JsonIterator.parse(body);
     final var distinctAccounts = HashSet.<PublicKey>newHashSet(Transaction.MAX_ACCOUNTS);
     while (ji.readArray()) {
@@ -32,6 +39,7 @@ final class FromAccountsHandler extends DiscoverTablesHandler {
     final var lookupTables = queryParams.reRank()
         ? tableService.discoverTablesWithReRank(distinctAccounts)
         : tableService.discoverTables(distinctAccounts);
-    writeResponse(exchange, startExchange, queryParams, start, lookupTables);
+    writeResponse(response, callback, startExchange, queryParams, start, lookupTables);
+    return true;
   }
 }
