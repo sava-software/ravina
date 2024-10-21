@@ -15,7 +15,7 @@ import java.util.Set;
 import static java.lang.System.Logger.Level.ERROR;
 import static software.sava.services.jetty.handlers.BaseJettyHandler.JSON_CONTENT;
 
-public final class RootJettyHandler extends Handler.Sequence {
+public class RootJettyHandler extends Handler.Sequence {
 
   private static final System.Logger logger = System.getLogger(RootJettyHandler.class.getName());
 
@@ -31,20 +31,29 @@ public final class RootJettyHandler extends Handler.Sequence {
     this.allowedOrigins = allowedOrigins;
   }
 
+  public BaseJettyHandler findHandler(final Request request) {
+    return null;
+  }
+
   @Override
   public boolean handle(final Request request, final Response response, final Callback callback) {
     final var responseHeaders = response.getHeaders();
     try {
       final var path = request.getHttpURI().getCanonicalPath();
-      final var handler = handlerMap.get(path);
+      var handler = handlerMap.get(path);
       if (handler == null) {
-        response.setStatus(404);
-        responseHeaders.put(JSON_CONTENT);
-        Content.Sink.write(response, true, """
-            {
-              "msg": "No handler for path."
-            }""", callback);
-        return true;
+        handler = findHandler(request);
+        if (handler == null) {
+          response.setStatus(404);
+          responseHeaders.put(JSON_CONTENT);
+          Content.Sink.write(response, true, """
+              {
+                "msg": "No handler for path."
+              }""", callback);
+          return true;
+        } else {
+          return handler.handle(request, response, callback);
+        }
       } else {
         final var requestHeaders = request.getHeaders();
         final var origin = requestHeaders.get(HttpHeader.ORIGIN);
@@ -69,6 +78,7 @@ public final class RootJettyHandler extends Handler.Sequence {
             return true;
           } else {
             responseHeaders.put(HttpHeader.ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+            // if pre-flight check.
             if (HttpMethod.OPTIONS.is(request.getMethod()) && requestHeaders.contains(HttpHeader.ACCESS_CONTROL_REQUEST_METHOD)) {
               responseHeaders.put(HttpHeader.ACCESS_CONTROL_ALLOW_HEADERS, requestHeaders.get(HttpHeader.ACCESS_CONTROL_REQUEST_HEADERS));
               return handler.handle(responseHeaders, callback);

@@ -15,6 +15,15 @@ public abstract class BaseJettyHandler extends Handler.Abstract {
   protected static final HttpField ALLOW_GET = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "GET");
   protected static final HttpField ALLOW_POST = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "POST");
 
+  protected static String parseParam(final String query, final String param) {
+    final int index = query.indexOf(param);
+    final int from = index + param.length();
+    final int to = query.indexOf('&', from + 1);
+    return to < 0
+        ? query.substring(from)
+        : query.substring(from, to);
+  }
+
   protected final HttpField allowMethod;
 
   protected BaseJettyHandler(final InvocationType invocationType, final HttpField allowMethod) {
