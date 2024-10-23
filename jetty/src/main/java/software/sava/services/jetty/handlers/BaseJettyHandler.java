@@ -28,13 +28,15 @@ public abstract class BaseJettyHandler extends Handler.Abstract {
   protected static String parseParam(final String query,
                                      final String param,
                                      final String defaultValue) {
+    if (query == null) {
+      return defaultValue;
+    }
     final int index = query.indexOf(param);
     return index < 0 ? defaultValue : parseParam(query, index, param);
   }
 
   protected static String parseParam(final String query, final String param) {
-    final int index = query.indexOf(param);
-    return index < 0 ? null : parseParam(query, index, param);
+    return parseParam(query, param, null);
   }
 
   protected final HttpField allowMethod;
