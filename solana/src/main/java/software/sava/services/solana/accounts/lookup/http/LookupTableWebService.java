@@ -5,7 +5,7 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.VirtualThreadPool;
 import software.sava.core.accounts.lookup.AddressLookupTable;
-import software.sava.services.jetty.handlers.BaseJettyHandler;
+import software.sava.services.jetty.handlers.JettyHandler;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 import software.sava.services.solana.accounts.lookup.LookupTableServiceConfig;
@@ -14,7 +14,6 @@ import software.sava.solana.programs.clients.NativeProgramClient;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.ServerSocketChannel;
 import java.util.HashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static java.lang.System.Logger.Level.ERROR;
@@ -25,11 +24,9 @@ public final class LookupTableWebService {
 
   private static final System.Logger logger = System.getLogger(LookupTableWebService.class.getName());
 
-  private static JettyServerBuilder serverBuilder(final ExecutorService executor,
-                                                  final LookupTableServiceConfig serviceConfig) {
-    final int maxThreads = 128;
-    final var threadPool = new QueuedThreadPool(maxThreads);
-    final var virtualExecutor = new VirtualThreadPool(maxThreads);
+  private static JettyServerBuilder serverBuilder(final LookupTableServiceConfig serviceConfig) {
+    final var threadPool = new QueuedThreadPool(32);
+    final var virtualExecutor = new VirtualThreadPool(128);
     threadPool.setVirtualThreadsExecutor(virtualExecutor);
     final var server = new Server(threadPool);
 
@@ -37,10 +34,9 @@ public final class LookupTableWebService {
     httpConfig.setSendServerVersion(false);
     httpConfig.setSendXPoweredBy(false);
 
-    final var handlers = HashMap.<String, BaseJettyHandler>newHashMap(64);
+    final var handlers = HashMap.<String, JettyHandler>newHashMap(64);
 
     return new JettyServerBuilder(
-        executor,
         serviceConfig,
         server,
         httpConfig,
@@ -48,11 +44,10 @@ public final class LookupTableWebService {
     );
   }
 
-  private static Server buildServer(final ExecutorService executor,
-                                    final LookupTableServiceConfig serviceConfig,
+  private static Server buildServer(final LookupTableServiceConfig serviceConfig,
                                     final LookupTableDiscoveryService tableService,
                                     final LookupTableCache tableCache) {
-    final var builder = serverBuilder(executor, serviceConfig);
+    final var builder = serverBuilder(serviceConfig);
 
     builder.initHttp();
     builder.initHttps();
@@ -82,7 +77,7 @@ public final class LookupTableWebService {
           AddressLookupTable.FACTORY
       );
 
-      final var server = buildServer(executor, serviceConfig, tableService, tableCache);
+      final var server = buildServer(serviceConfig, tableService, tableCache);
       tableService.initializedFuture().join();
       server.start();
 

@@ -8,7 +8,7 @@ import org.eclipse.jetty.quic.server.QuicServerConnector;
 import org.eclipse.jetty.quic.server.ServerQuicConfiguration;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
-import software.sava.services.jetty.handlers.BaseJettyHandler;
+import software.sava.services.jetty.handlers.JettyHandler;
 import software.sava.services.jetty.handlers.RootJettyHandler;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
@@ -18,13 +18,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 
 public final class JettyServerBuilder {
 
-  private static void addHandler(final Map<String, BaseJettyHandler> handlers,
+  private static void addHandler(final Map<String, JettyHandler> handlers,
                                  final String path,
-                                 final BaseJettyHandler handler) {
+                                 final JettyHandler handler) {
     handlers.put(path, handler);
     final int to = path.length() - 1;
     if (path.charAt(to) == '/') {
@@ -34,20 +33,17 @@ public final class JettyServerBuilder {
     }
   }
 
-  private final ExecutorService executor;
   private final LookupTableServiceConfig serviceConfig;
   private final LookupTableServiceConfig.WebServerConfig webServerConfig;
 
   private final Server server;
   private final HttpConfiguration jettyHttpConfig;
-  private final Map<String, BaseJettyHandler> handlers;
+  private final Map<String, JettyHandler> handlers;
 
-  public JettyServerBuilder(final ExecutorService executor,
-                            final LookupTableServiceConfig serviceConfig,
+  public JettyServerBuilder(final LookupTableServiceConfig serviceConfig,
                             final Server server,
                             final HttpConfiguration jettyHttpConfig,
-                            final Map<String, BaseJettyHandler> handlers) {
-    this.executor = executor;
+                            final Map<String, JettyHandler> handlers) {
     this.serviceConfig = serviceConfig;
     this.webServerConfig = serviceConfig.webServerConfig();
     this.server = server;

@@ -19,11 +19,11 @@ public class RootJettyHandler extends Handler.Sequence {
 
   private static final System.Logger logger = System.getLogger(RootJettyHandler.class.getName());
 
-  private final Map<String, ? extends BaseJettyHandler> handlerMap;
+  private final Map<String, ? extends JettyHandler> handlerMap;
   private final boolean localDev;
   private final Set<String> allowedOrigins;
 
-  public RootJettyHandler(final Map<String, ? extends BaseJettyHandler> handlerMap,
+  public RootJettyHandler(final Map<String, ? extends JettyHandler> handlerMap,
                           final Set<String> allowedOrigins,
                           final boolean localDev) {
     this.handlerMap = handlerMap;
@@ -31,7 +31,7 @@ public class RootJettyHandler extends Handler.Sequence {
     this.allowedOrigins = allowedOrigins;
   }
 
-  public BaseJettyHandler findHandler(final Request request) {
+  public JettyHandler findHandler(final Request request) {
     return null;
   }
 
@@ -81,7 +81,7 @@ public class RootJettyHandler extends Handler.Sequence {
             // if pre-flight check.
             if (HttpMethod.OPTIONS.is(request.getMethod()) && requestHeaders.contains(HttpHeader.ACCESS_CONTROL_REQUEST_METHOD)) {
               responseHeaders.put(HttpHeader.ACCESS_CONTROL_ALLOW_HEADERS, requestHeaders.get(HttpHeader.ACCESS_CONTROL_REQUEST_HEADERS));
-              return handler.handle(responseHeaders, callback);
+              return handler.handlePreFlight(responseHeaders, callback);
             }
           }
         }

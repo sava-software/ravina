@@ -8,7 +8,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 
-public abstract class BaseJettyHandler extends Handler.Abstract {
+public abstract class BaseJettyHandler extends Handler.Abstract implements JettyHandler {
 
   protected static final HttpField JSON_CONTENT = new HttpField(HttpHeader.CONTENT_TYPE, "application/json");
 
@@ -57,7 +57,8 @@ public abstract class BaseJettyHandler extends Handler.Abstract {
     return false;
   }
 
-  public boolean handle(final HttpFields.Mutable responseHeaders, final Callback callback) {
+  @Override
+  public boolean handlePreFlight(final HttpFields.Mutable responseHeaders, final Callback callback) {
     responseHeaders.put(allowMethod);
     callback.succeeded();
     return true;
