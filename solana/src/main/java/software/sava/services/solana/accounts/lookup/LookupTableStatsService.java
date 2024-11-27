@@ -1,5 +1,7 @@
 package software.sava.services.solana.accounts.lookup;
 
+import software.sava.core.accounts.PublicKey;
+import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.io.IOException;
@@ -81,9 +83,13 @@ public final class LookupTableStatsService {
       partitionLengths = null;
 
       final var allTables = tableService.allTables;
-      final var accountCounts = Arrays.stream(allTables)
-          .parallel()
-          .flatMap(table -> table.uniqueAccounts().stream())
+      final var accountCounts = Arrays.stream(allTables).parallel()
+          .map(AddressLookupTable::uniqueAccounts)
+          .<PublicKey>mapMulti((accounts, downstream) -> {
+            for (final var account : accounts) {
+              downstream.accept(account);
+            }
+          })
           .collect(Collectors.groupingByConcurrent(
               Function.identity(),
               Collector.of(

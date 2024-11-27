@@ -114,7 +114,11 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private void joinPartitions() {
     this.allTables = IntStream.range(0, NUM_PARTITIONS)
         .mapToObj(partitions::getOpaque)
-        .flatMap(Arrays::stream)
+        .<AddressLookupTable>mapMulti((tables, downstream) -> {
+          for (final var table : tables) {
+            downstream.accept(table);
+          }
+        })
         .sorted(BY_UNIQUE_ACCOUNTS_REVERSED)
         .toArray(AddressLookupTable[]::new);
   }
@@ -206,20 +210,26 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private AddressLookupTable[] scoreAndJoinTables(final PublicKey[] accountsArray) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
-    final int windowSize = numTables / numPartitionsPerQuery;
+    final int windowSize = Math.ceilDiv(numTables, numPartitionsPerQuery);
     for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
       final int _minScore = minScore;
-      final var scoredTables = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
-          .parallel()
-          .mapToObj(i -> rankTables(
-              allTables,
-              i, Math.min(i + windowSize, numTables),
-              accountsArray,
-              _minScore,
-              topTablesPerPartition
-          ))
-          .filter(Objects::nonNull)
-          .flatMap(Arrays::stream)
+      final var scoredTables = IntStream.range(0, numPartitionsPerQuery).parallel().mapToObj(i -> {
+            final int from = i * windowSize;
+            return rankTables(
+                allTables,
+                from, Math.min(i + windowSize, numTables),
+                accountsArray,
+                _minScore,
+                topTablesPerPartition
+            );
+          })
+          .<ScoredTable>mapMulti((_scoredTables, downstream) -> {
+            if (_scoredTables != null) {
+              for (final var scoredTable : _scoredTables) {
+                downstream.accept(scoredTable);
+              }
+            }
+          })
           .sorted()
           .map(ScoredTable::table)
           .toArray(AddressLookupTable[]::new);
@@ -288,20 +298,26 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private AddressLookupTable topTable(final PublicKey[] accountsArray, final int startingMinScore) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
-    final int windowSize = numTables / numPartitionsPerQuery;
+    final int windowSize = Math.ceilDiv(numTables, numPartitionsPerQuery);
     for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
       final int _minScore = minScore;
-      final var topTable = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
-          .parallel()
-          .mapToObj(i -> rankTables(
-              allTables,
-              i, Math.min(i + windowSize, numTables),
-              accountsArray,
-              _minScore,
-              topTablesPerPartition
-          ))
-          .filter(Objects::nonNull)
-          .flatMap(Arrays::stream)
+      final var topTable = IntStream.range(0, numPartitionsPerQuery).parallel().mapToObj(i -> {
+            final int from = i * windowSize;
+            return rankTables(
+                allTables,
+                from, Math.min(from + windowSize, numTables),
+                accountsArray,
+                _minScore,
+                topTablesPerPartition
+            );
+          })
+          .<ScoredTable>mapMulti((_scoredTables, downstream) -> {
+            if (_scoredTables != null) {
+              for (final var scoredTable : _scoredTables) {
+                downstream.accept(scoredTable);
+              }
+            }
+          })
           .min(ScoredTable::compareTo)
           .orElse(null);
       if (topTable != null) {
@@ -344,20 +360,26 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
                                       final int startingMinScore) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
-    final int windowSize = numTables / numPartitionsPerQuery;
+    final int windowSize = Math.ceilDiv(numTables, numPartitionsPerQuery);
     for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
       final int _minScore = minScore;
-      final var scoredTablesStream = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
-          .parallel()
-          .mapToObj(i -> rankTables(
-              allTables,
-              i, Math.min(i + windowSize, numTables),
-              accountsArray,
-              _minScore,
-              topTablesPerPartition
-          ))
-          .filter(Objects::nonNull)
-          .flatMap(Arrays::stream);
+      final var scoredTablesStream = IntStream.range(0, numPartitionsPerQuery).parallel().mapToObj(i -> {
+            final int from = i * windowSize;
+            return rankTables(
+                allTables,
+                from, Math.min(from + windowSize, numTables),
+                accountsArray,
+                _minScore,
+                topTablesPerPartition
+            );
+          })
+          .<ScoredTable>mapMulti((_scoredTables, downstream) -> {
+            if (_scoredTables != null) {
+              for (final var scoredTable : _scoredTables) {
+                downstream.accept(scoredTable);
+              }
+            }
+          });
       final var topTable = Stream.concat(Arrays.stream(include), scoredTablesStream)
           .min(ScoredTable::compareTo)
           .orElse(null);
@@ -429,20 +451,26 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
   private AddressLookupTable[] scoreAndJoinTables(final PublicKey[] accountsArray, final ScoredTable[] include) {
     final var allTables = (AddressLookupTable[]) ALL_TABLES.getOpaque(this);
     final int numTables = allTables.length;
-    final int windowSize = numTables / numPartitionsPerQuery;
+    final int windowSize = Math.ceilDiv(numTables, numPartitionsPerQuery);
     for (int minScore = startingMinScore; ; minScore = Math.max(2, minScore >> 1)) {
       final int _minScore = minScore;
-      final var scoredTablesStream = IntStream.iterate(0, i -> i < numTables, i -> i + windowSize)
-          .parallel()
-          .mapToObj(i -> rankTables(
-              allTables,
-              i, Math.min(i + windowSize, numTables),
-              accountsArray,
-              _minScore,
-              topTablesPerPartition
-          ))
-          .filter(Objects::nonNull)
-          .flatMap(Arrays::stream);
+      final var scoredTablesStream = IntStream.range(0, numPartitionsPerQuery).parallel().mapToObj(i -> {
+            final int from = i * windowSize;
+            return rankTables(
+                allTables,
+                from, Math.min(from + windowSize, numTables),
+                accountsArray,
+                _minScore,
+                topTablesPerPartition
+            );
+          })
+          .<ScoredTable>mapMulti((_scoredTables, downstream) -> {
+            if (_scoredTables != null) {
+              for (final var scoredTable : _scoredTables) {
+                downstream.accept(scoredTable);
+              }
+            }
+          });
       final var scoredTables = Stream.concat(Arrays.stream(include), scoredTablesStream)
           .sorted()
           .map(ScoredTable::table)
@@ -599,7 +627,11 @@ final class LookupTableDiscoveryServiceImpl implements LookupTableDiscoveryServi
             throw new UncheckedIOException(e);
           }
         })
-        .flatMap(Arrays::stream)
+        .<AddressLookupTable>mapMulti((tables, downstream) -> {
+          for (final var table : tables) {
+            downstream.accept(table);
+          }
+        })
         .sorted(BY_UNIQUE_ACCOUNTS_REVERSED)
         .toArray(AddressLookupTable[]::new);
 
