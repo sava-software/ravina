@@ -1,16 +1,19 @@
 package software.sava.services.core.remote.call;
 
+import java.util.concurrent.TimeUnit;
+
 final class ExponentialBackoffErrorHandler extends BackoffErrorHandler {
 
-  ExponentialBackoffErrorHandler(final int initialRetryDelaySeconds,
-                                 final int maxRetryDelaySeconds,
-                                 final int maxRetries) {
-    super(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
+  ExponentialBackoffErrorHandler(final TimeUnit timeUnit,
+                                 final long initialRetryDelay,
+                                 final long maxRetryDelay,
+                                 final long maxRetries) {
+    super(timeUnit, initialRetryDelay, maxRetryDelay, maxRetries);
   }
 
   @Override
-  protected int calculateDelaySeconds(final int errorCount) {
+  protected long calculateDelay(final long errorCount) {
     final var exponentialDelay = (int) Math.pow(2, errorCount - 1);
-    return Math.max(initialRetryDelaySeconds, Math.min(maxRetryDelaySeconds, exponentialDelay));
+    return Math.max(initialRetryDelay, Math.min(maxRetryDelay, exponentialDelay));
   }
 }

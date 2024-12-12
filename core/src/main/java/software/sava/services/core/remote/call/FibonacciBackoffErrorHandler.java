@@ -1,16 +1,20 @@
 package software.sava.services.core.remote.call;
 
+import java.util.concurrent.TimeUnit;
+
 final class FibonacciBackoffErrorHandler extends BackoffErrorHandler {
 
-  private final int[] sequence;
+  private final long[] sequence;
 
-  FibonacciBackoffErrorHandler(final int[] sequence, final int maxRetries) {
-    super(sequence[0], sequence[sequence.length - 1], maxRetries);
+  FibonacciBackoffErrorHandler(final TimeUnit timeUnit,
+                               final long[] sequence,
+                               final long maxRetries) {
+    super(timeUnit, sequence[0], sequence[sequence.length - 1], maxRetries);
     this.sequence = sequence;
   }
 
   @Override
-  protected int calculateDelaySeconds(final int errorCount) {
-    return sequence[Math.min(errorCount - 1, sequence.length - 1)];
+  protected long calculateDelay(final long errorCount) {
+    return sequence[(int) Math.min(errorCount - 1, sequence.length - 1)];
   }
 }

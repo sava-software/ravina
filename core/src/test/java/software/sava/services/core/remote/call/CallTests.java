@@ -19,6 +19,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -169,5 +170,29 @@ final class CallTests {
     final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
         .summaryStatistics();
     assertTrue(stats.getAverage() < 3, stats.toString());
+  }
+
+  @Test
+  void testCourteousMillis() {
+    var errorHandler = ErrorHandler.fibonacciBackoff(TimeUnit.SECONDS, 1, 13);
+    assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
+    assertEquals(1000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
+    assertEquals(2000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
+    assertEquals(3000, errorHandler.delay(4, TimeUnit.MILLISECONDS));
+    assertEquals(5000, errorHandler.delay(5, TimeUnit.MILLISECONDS));
+    assertEquals(8000, errorHandler.delay(6, TimeUnit.MILLISECONDS));
+    assertEquals(13000, errorHandler.delay(7, TimeUnit.MILLISECONDS));
+    assertEquals(13000, errorHandler.delay(8, TimeUnit.MILLISECONDS));
+    assertEquals(13000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
+
+    errorHandler = ErrorHandler.exponentialBackoff(TimeUnit.SECONDS, 1, 32);
+    assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
+    assertEquals(2000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
+    assertEquals(4000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
+    assertEquals(8000, errorHandler.delay(4, TimeUnit.MILLISECONDS));
+    assertEquals(16000, errorHandler.delay(5, TimeUnit.MILLISECONDS));
+    assertEquals(32000, errorHandler.delay(6, TimeUnit.MILLISECONDS));
+    assertEquals(32000, errorHandler.delay(7, TimeUnit.MILLISECONDS));
+    assertEquals(32000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
   }
 }

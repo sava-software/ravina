@@ -1,15 +1,18 @@
 package software.sava.services.core.remote.call;
 
+import java.util.concurrent.TimeUnit;
+
 final class LinearBackoffErrorHandler extends BackoffErrorHandler {
 
-  LinearBackoffErrorHandler(final int initialRetryDelaySeconds,
-                            final int maxRetryDelaySeconds,
-                            final int maxRetries) {
-    super(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
+  LinearBackoffErrorHandler(final TimeUnit timeUnit,
+                            final long initialRetryDelay,
+                            final long maxRetryDelay,
+                            final long maxRetries) {
+    super(timeUnit, initialRetryDelay, maxRetryDelay, maxRetries);
   }
 
   @Override
-  protected int calculateDelaySeconds(final int errorCount) {
-    return Math.min(errorCount * initialRetryDelaySeconds, maxRetryDelaySeconds);
+  protected long calculateDelay(final long errorCount) {
+    return Math.min(errorCount * initialRetryDelay, maxRetryDelay);
   }
 }

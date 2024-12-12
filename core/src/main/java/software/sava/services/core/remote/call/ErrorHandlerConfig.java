@@ -15,7 +15,7 @@ public record ErrorHandlerConfig(BackoffStrategy strategy,
       case exponential -> ErrorHandler.exponentialBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
       case fibonacci -> ErrorHandler.fibonacciBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
       case linear -> ErrorHandler.linearBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
-      case single -> new SingleBackoffErrorHandler(initialRetryDelaySeconds, maxRetries);
+      case single -> ErrorHandler.singleBackoff(initialRetryDelaySeconds, maxRetries);
     };
   }
 
