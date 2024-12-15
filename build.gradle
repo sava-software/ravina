@@ -5,7 +5,7 @@ buildscript {
   }
   dependencies {
     // https://plugins.gradle.org/plugin/org.beryx.jlink
-    classpath "org.beryx:badass-jlink-plugin:3.0.1"
+    classpath "org.beryx:badass-jlink-plugin:3.1.1"
   }
 }
 
