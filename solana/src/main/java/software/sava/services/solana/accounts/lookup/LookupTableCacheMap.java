@@ -89,7 +89,6 @@ final class LookupTableCacheMap implements LookupTableCache {
   private Call<AccountInfo<AddressLookupTable>> createFetchLookupTableCall(final PublicKey lookupTableKey) {
     return Call.createCourteousCall(
         rpcClients, rpcClient -> rpcClient.getAccountInfo(lookupTableKey, tableFactory),
-        true,
         "rpcClient::getAccountInfo"
     );
   }
@@ -166,7 +165,6 @@ final class LookupTableCacheMap implements LookupTableCache {
 
           final var lookupTableAccounts = Call.createCourteousCall(
               rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-              true,
               "rpcClient::getMultipleAccounts"
           ).get();
           final long fetchedAt = System.currentTimeMillis();
@@ -213,7 +211,6 @@ final class LookupTableCacheMap implements LookupTableCache {
     if (!fetchKeys.isEmpty()) {
       final var lookupTableAccounts = Call.createCourteousCall(
           rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-          false,
           "rpcClient::getMultipleAccounts"
       ).get();
       final long fetchedAt = System.currentTimeMillis();

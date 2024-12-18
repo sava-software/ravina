@@ -27,6 +27,10 @@ public interface CapacityState {
                      final int runtimeCallWeight,
                      final TimeUnit timeUnit);
 
+  default long durationUntil(final CallContext callContext, final TimeUnit timeUnit) {
+    return durationUntil(callContext, callContext.callWeight(), timeUnit);
+  }
+
   void claimRequest(final int callWeight);
 
   void claimRequest(final CallContext callContext, final int runtimeCallWeight);

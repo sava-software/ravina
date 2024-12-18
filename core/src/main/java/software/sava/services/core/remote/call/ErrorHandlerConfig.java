@@ -7,15 +7,14 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record ErrorHandlerConfig(BackoffStrategy strategy,
                                  int initialRetryDelaySeconds,
-                                 int maxRetryDelaySeconds,
-                                 int maxRetries) {
+                                 int maxRetryDelaySeconds) {
 
-  public ErrorHandler createHandler() {
+  public Backoff createHandler() {
     return switch (strategy) {
-      case exponential -> ErrorHandler.exponentialBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
-      case fibonacci -> ErrorHandler.fibonacciBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
-      case linear -> ErrorHandler.linearBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds, maxRetries);
-      case single -> ErrorHandler.singleBackoff(initialRetryDelaySeconds, maxRetries);
+      case exponential -> Backoff.exponentialBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case fibonacci -> Backoff.fibonacciBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case linear -> Backoff.linearBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case single -> Backoff.singleBackoff(initialRetryDelaySeconds);
     };
   }
 
@@ -30,7 +29,6 @@ public record ErrorHandlerConfig(BackoffStrategy strategy,
     private BackoffStrategy strategy = BackoffStrategy.exponential;
     private int initialRetryDelaySeconds = 1;
     private int maxRetryDelaySeconds = 34;
-    private int maxRetries = Integer.MAX_VALUE;
 
     private Builder() {
     }
@@ -39,8 +37,7 @@ public record ErrorHandlerConfig(BackoffStrategy strategy,
       return new ErrorHandlerConfig(
           strategy,
           initialRetryDelaySeconds,
-          maxRetryDelaySeconds,
-          maxRetries
+          maxRetryDelaySeconds
       );
     }
 
@@ -52,8 +49,6 @@ public record ErrorHandlerConfig(BackoffStrategy strategy,
         initialRetryDelaySeconds = ji.readInt();
       } else if (fieldEquals("maxRetryDelaySeconds", buf, offset, len)) {
         maxRetryDelaySeconds = ji.readInt();
-      } else if (fieldEquals("maxRetries", buf, offset, len)) {
-        maxRetries = ji.readInt();
       } else {
         ji.skip();
       }

@@ -6,8 +6,8 @@ import java.util.concurrent.TimeUnit;
 
 final class FailNoneBalancedItemErrorHandler<T> extends RootBalancedErrorHandler<T> {
 
-  FailNoneBalancedItemErrorHandler(final ErrorHandler errorHandler) {
-    super(errorHandler);
+  FailNoneBalancedItemErrorHandler(final Backoff backoff) {
+    super(backoff);
   }
 
   @Override
@@ -16,6 +16,6 @@ final class FailNoneBalancedItemErrorHandler<T> extends RootBalancedErrorHandler
                       final String retryLogContext,
                       final RuntimeException exception,
                       final TimeUnit timeUnit) {
-    return errorHandler.onError(errorCount, retryLogContext, exception, timeUnit);
+    return backoff.onError(errorCount, retryLogContext, exception, timeUnit);
   }
 }

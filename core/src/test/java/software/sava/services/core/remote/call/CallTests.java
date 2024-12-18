@@ -110,7 +110,7 @@ final class CallTests {
           "maxCapacity": 400,
           "resetDuration": "PT1S"
         }"""));
-    final var errorHandler = ErrorHandler.fibonacciBackoff(1, 21);
+    final var errorHandler = Backoff.fibonacciBackoff(1, 21);
     final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE);
 
     final var loadBalancer = LoadBalancer.createBalancer(BalancedItem.createItem(
@@ -128,8 +128,7 @@ final class CallTests {
             return CompletableFuture.completedFuture(_count);
           }
         },
-        CallContext.DEFAULT_CALL_CONTEXT,
-        2, Integer.MAX_VALUE, false,
+        CallContext.createContext(2, 0, false),
         "rpcClient::getProgramAccounts"
     );
 
@@ -174,7 +173,7 @@ final class CallTests {
 
   @Test
   void testCourteousMillis() {
-    var errorHandler = ErrorHandler.fibonacciBackoff(TimeUnit.SECONDS, 1, 13);
+    var errorHandler = Backoff.fibonacciBackoff(TimeUnit.SECONDS, 1, 13);
     assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
     assertEquals(1000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
     assertEquals(2000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
@@ -185,7 +184,7 @@ final class CallTests {
     assertEquals(13000, errorHandler.delay(8, TimeUnit.MILLISECONDS));
     assertEquals(13000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
 
-    errorHandler = ErrorHandler.exponentialBackoff(TimeUnit.SECONDS, 1, 32);
+    errorHandler = Backoff.exponentialBackoff(TimeUnit.SECONDS, 1, 32);
     assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
     assertEquals(2000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
     assertEquals(4000, errorHandler.delay(3, TimeUnit.MILLISECONDS));

@@ -1,6 +1,6 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ErrorHandlerConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
@@ -15,7 +15,7 @@ import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
-                                 ErrorHandler defaultErrorHandler,
+                                 Backoff defaultBackoff,
                                  List<UriCapacityConfig> resourceConfigs) {
 
   public <T> ArrayList<BalancedItem<T>> createItems(final BalanceItemFactory<T> createItem) {
@@ -27,7 +27,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
           serviceName,
           defaultCapacityConfig
       );
-      final var errorHandler = requireNonNullElse(resourceConfig.errorHandler(), defaultErrorHandler);
+      final var errorHandler = requireNonNullElse(resourceConfig.backoff(), defaultBackoff);
       final var item = createItem.createItem(resourceConfig, monitor, errorHandler);
       items.add(item);
     }
@@ -52,7 +52,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
   private static final class Builder implements FieldBufferPredicate {
 
     private CapacityConfig defaultCapacityConfig;
-    private ErrorHandler defaultErrorHandler;
+    private Backoff defaultBackoff;
     private List<UriCapacityConfig> resourceConfigs;
 
     private Builder() {
@@ -61,7 +61,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
     private LoadBalancerConfig create() {
       return new LoadBalancerConfig(
           defaultCapacityConfig,
-          defaultErrorHandler,
+          defaultBackoff,
           resourceConfigs
       );
     }
@@ -71,7 +71,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       if (fieldEquals("defaultCapacity", buf, offset, len)) {
         defaultCapacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("defaultBackoff", buf, offset, len)) {
-        defaultErrorHandler = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        defaultBackoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
       } else if (fieldEquals("endpoints", buf, offset, len)) {
         final var rpcConfigs = new ArrayList<UriCapacityConfig>();
         while (ji.readArray()) {

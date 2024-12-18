@@ -2,13 +2,12 @@ package software.sava.services.core.remote.call;
 
 import java.util.concurrent.TimeUnit;
 
-final class ExponentialBackoffErrorHandler extends BackoffErrorHandler {
+final class ExponentialBackoffErrorHandler extends RootBackoff {
 
   ExponentialBackoffErrorHandler(final TimeUnit timeUnit,
                                  final long initialRetryDelay,
-                                 final long maxRetryDelay,
-                                 final long maxRetries) {
-    super(timeUnit, initialRetryDelay, maxRetryDelay, maxRetries);
+                                 final long maxRetryDelay) {
+    super(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
   @Override

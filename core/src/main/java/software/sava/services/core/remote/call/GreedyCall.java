@@ -9,24 +9,19 @@ import java.util.function.Supplier;
 class GreedyCall<T> extends ComposedCall<T> {
 
   protected final CapacityState capacityState;
-  protected final CallContext callContext;
-  protected final int callWeight;
 
   GreedyCall(final Supplier<CompletableFuture<T>> call,
              final CapacityState capacityState,
              final CallContext callContext,
-             final int callWeight,
-             final ErrorHandler errorHandler,
+             final Backoff backoff,
              final String retryLogContext) {
-    super(call, errorHandler, retryLogContext);
+    super(call, backoff, callContext, retryLogContext);
     this.capacityState = capacityState;
-    this.callContext = callContext;
-    this.callWeight = callWeight;
   }
 
   @Override
   public CompletableFuture<T> call() {
-    capacityState.claimRequest(callContext, callWeight);
+    capacityState.claimRequest(callContext);
     return call.get();
   }
 }

@@ -6,12 +6,12 @@ import java.util.concurrent.TimeUnit;
 
 public interface BalancedErrorHandler<T> {
 
-  static <T> BalancedErrorHandler<T> createFailAllHandler(final ErrorHandler errorHandler) {
-    return new FailAllBalancedItemErrorHandler<>(errorHandler);
+  static <T> BalancedErrorHandler<T> createFailAllHandler(final Backoff backoff) {
+    return new FailAllBalancedItemErrorHandler<>(backoff);
   }
 
-  static <T> BalancedErrorHandler<T> createFailNoneHandler(final ErrorHandler errorHandler) {
-    return new FailNoneBalancedItemErrorHandler<>(errorHandler);
+  static <T> BalancedErrorHandler<T> createFailNoneHandler(final Backoff backoff) {
+    return new FailNoneBalancedItemErrorHandler<>(backoff);
   }
 
   long onError(final BalancedItem<T> item,

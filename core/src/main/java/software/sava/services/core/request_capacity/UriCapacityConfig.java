@@ -1,6 +1,6 @@
 package software.sava.services.core.request_capacity;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ErrorHandlerConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
@@ -15,7 +15,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record UriCapacityConfig(URI endpoint,
                                 CapacityConfig capacityConfig,
-                                ErrorHandler errorHandler) {
+                                Backoff backoff) {
 
 
   public static void main(final String[] args) throws InterruptedException {
@@ -64,13 +64,13 @@ public record UriCapacityConfig(URI endpoint,
 
     private URI endpoint;
     private CapacityConfig capacityConfig;
-    private ErrorHandler errorHandler;
+    private Backoff backoff;
 
     private Builder() {
     }
 
     private UriCapacityConfig create() {
-      return new UriCapacityConfig(endpoint, capacityConfig, errorHandler);
+      return new UriCapacityConfig(endpoint, capacityConfig, backoff);
     }
 
     @Override
@@ -83,7 +83,7 @@ public record UriCapacityConfig(URI endpoint,
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        errorHandler = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        backoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }

@@ -8,24 +8,17 @@ import java.util.function.Function;
 
 class GreedyBalancedCall<I, R> extends UncheckedBalancedCall<I, R> {
 
-  protected final CallContext callContext;
-  protected final int callWeight;
-
   GreedyBalancedCall(final LoadBalancer<I> loadBalancer,
                      final Function<I, CompletableFuture<R>> call,
                      final CallContext callContext,
-                     final int callWeight,
-                     final boolean measureCallTime,
                      final String retryLogContext) {
-    super(loadBalancer, call, measureCallTime, retryLogContext);
-    this.callContext = callContext;
-    this.callWeight = callWeight;
+    super(loadBalancer, call, callContext, retryLogContext);
   }
 
   @Override
   public CompletableFuture<R> call() {
     this.next = loadBalancer.withContext();
-    this.next.capacityState().claimRequest(callContext, callWeight);
+    this.next.capacityState().claimRequest(callContext);
     return call.apply(this.next.item());
   }
 }

@@ -1,7 +1,7 @@
 package software.sava.services.solana.remote.call;
 
 import software.sava.rpc.json.http.response.JsonRpcException;
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.RootBalancedErrorHandler;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 
@@ -13,8 +13,8 @@ final class BalancedJsonRpcClientErrorHandler<T> extends RootBalancedErrorHandle
 
   private static final System.Logger log = System.getLogger(BalancedJsonRpcClientErrorHandler.class.getName());
 
-  BalancedJsonRpcClientErrorHandler(final ErrorHandler errorHandler) {
-    super(errorHandler);
+  BalancedJsonRpcClientErrorHandler(final Backoff backoff) {
+    super(backoff);
   }
 
   @Override
@@ -36,7 +36,7 @@ final class BalancedJsonRpcClientErrorHandler<T> extends RootBalancedErrorHandle
     log.log(ERROR, String.format(
         "Failed %d times, retrying in %d seconds. Context: %s",
         errorCount, retrySeconds, retryLogContext), exception);
-    final long delegatedDelay = errorHandler.onError(errorCount, retryLogContext, exception, timeUnit);
+    final long delegatedDelay = backoff.onError(errorCount, retryLogContext, exception, timeUnit);
     return delegatedDelay < 0 ? delegatedDelay : Math.max(delegatedDelay, retrySeconds);
   }
 }

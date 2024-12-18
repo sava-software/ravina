@@ -1,6 +1,6 @@
 package software.sava.services.solana.config;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ErrorHandlerConfig;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
@@ -21,7 +21,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record HeliusConfig(URI endpoint,
                            CapacityConfig capacityConfig,
-                           ErrorHandler errorHandler) {
+                           Backoff backoff) {
 
   public static HeliusConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.STRING) {
@@ -40,13 +40,13 @@ public record HeliusConfig(URI endpoint,
 
   public LoadBalancer<HeliusClient> createHeliusClient(final HttpClient httpClient,
                                                        final CapacityConfig defaultCapacityConfig,
-                                                       final ErrorHandler defaultErrorHandler) {
+                                                       final Backoff defaultBackoff) {
     final var capacityMonitor = createMonitor("helius", defaultCapacityConfig);
     final var client = HeliusClient.createHttpClient(endpoint(), httpClient, capacityMonitor.errorTracker());
     final var balancedItem = BalancedItem.createItem(
         client,
         capacityMonitor,
-        Objects.requireNonNullElse(errorHandler, defaultErrorHandler)
+        Objects.requireNonNullElse(backoff, defaultBackoff)
     );
     return LoadBalancer.createBalancer(balancedItem);
   }
@@ -55,13 +55,13 @@ public record HeliusConfig(URI endpoint,
 
     private URI endpoint;
     private CapacityConfig capacityConfig;
-    private ErrorHandler errorHandler;
+    private Backoff backoff;
 
     private Parser() {
     }
 
     private HeliusConfig create() {
-      return new HeliusConfig(endpoint, capacityConfig, errorHandler);
+      return new HeliusConfig(endpoint, capacityConfig, backoff);
     }
 
     @Override
@@ -71,7 +71,7 @@ public record HeliusConfig(URI endpoint,
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        errorHandler = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        backoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }

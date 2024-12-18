@@ -40,8 +40,7 @@ public interface LookupTableDiscoveryService extends Runnable {
             ),
             CachedAddressLookupTable.FACTORY
         ),
-        CallContext.DEFAULT_CALL_CONTEXT,
-        callWeights.getProgramAccounts(), Integer.MAX_VALUE, false,
+        CallContext.createContext(callWeights.getProgramAccounts(), 0, false),
         "rpcClient::getProgramAccounts"
     );
     final var partitionedCallHandlers = new PartitionedLookupTableCallHandler[NUM_PARTITIONS];
@@ -67,8 +66,7 @@ public interface LookupTableDiscoveryService extends Runnable {
               ),
               CachedAddressLookupTable.FACTORY
           ),
-          CallContext.DEFAULT_CALL_CONTEXT,
-          callWeights.getProgramAccounts(), Integer.MAX_VALUE, false,
+          CallContext.createContext(callWeights.getProgramAccounts(), 0, false),
           "rpcClient::getProgramAccounts"
       );
       partitionedCallHandlers[i] = new PartitionedLookupTableCallHandler(

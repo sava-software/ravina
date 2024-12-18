@@ -10,31 +10,23 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 final class CourteousCall<R> extends GreedyCall<R> {
 
-  private final int maxTryClaim;
-  private final boolean forceCall;
-
   CourteousCall(final Supplier<CompletableFuture<R>> call,
                 final CapacityState capacityState,
                 final CallContext callContext,
-                final int callWeight,
-                final int maxTryClaim,
-                final boolean forceCall,
-                final ErrorHandler errorHandler,
+                final Backoff backoff,
                 final String retryLogContext) {
-    super(call, capacityState, callContext, callWeight, errorHandler, retryLogContext);
-    this.maxTryClaim = maxTryClaim;
-    this.forceCall = forceCall;
+    super(call, capacityState, callContext, backoff, retryLogContext);
   }
 
   @Override
   public CompletableFuture<R> call() {
-    for (int i = 0; i < maxTryClaim; ++i) {
-      if (capacityState.tryClaimRequest(callContext, callWeight)) {
+    for (int i = 0; i < callContext.maxTryClaim(); ++i) {
+      if (capacityState.tryClaimRequest(callContext)) {
         return call.get();
       } else {
-        final long delayMillis = capacityState.durationUntil(callContext, callWeight, MILLISECONDS);
+        final long delayMillis = capacityState.durationUntil(callContext, MILLISECONDS);
         if (delayMillis <= 0) {
-          capacityState.claimRequest(callContext, callWeight);
+          capacityState.claimRequest(callContext);
           return call.get();
         } else {
           try {
@@ -45,8 +37,8 @@ final class CourteousCall<R> extends GreedyCall<R> {
         }
       }
     }
-    if (forceCall) {
-      capacityState.claimRequest(callContext, callWeight);
+    if (callContext.forceCall()) {
+      capacityState.claimRequest(callContext);
       return call.get();
     } else {
       return null;

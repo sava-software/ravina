@@ -2,12 +2,10 @@ package software.sava.services.core.remote.call;
 
 import java.util.concurrent.TimeUnit;
 
-final class SingleBackoffErrorHandler extends BackoffErrorHandler {
+final class SingleBackoffErrorHandler extends RootBackoff {
 
-  SingleBackoffErrorHandler(final TimeUnit timeUnit,
-                            final long retryDelaySeconds,
-                            final long maxRetries) {
-    super(timeUnit, retryDelaySeconds, retryDelaySeconds, maxRetries);
+  SingleBackoffErrorHandler(final TimeUnit timeUnit, final long retryDelaySeconds) {
+    super(timeUnit, retryDelaySeconds, retryDelaySeconds);
   }
 
   @Override

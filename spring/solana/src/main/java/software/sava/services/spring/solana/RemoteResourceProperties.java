@@ -1,7 +1,7 @@
 package software.sava.services.spring.solana;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
 
@@ -18,7 +18,7 @@ public class RemoteResourceProperties {
     return capacity == null ? null : capacity.createCapacityConfig();
   }
 
-  public ErrorHandler createErrorHandler() {
+  public Backoff createErrorHandler() {
     return backoff == null ? null : backoff.createErrorHandler();
   }
 

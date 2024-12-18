@@ -1,6 +1,6 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityMonitor;
 
 import java.util.Arrays;
@@ -20,7 +20,7 @@ final class ItemContext<T> implements BalancedItem<T> {
 
   private final T item;
   private final CapacityMonitor capacityMonitor;
-  private final ErrorHandler errorHandler;
+  private final Backoff backoff;
   private final AtomicLong failureCount;
   private final AtomicLongArray samples;
   private final AtomicInteger sampleIndex;
@@ -30,10 +30,10 @@ final class ItemContext<T> implements BalancedItem<T> {
 
   ItemContext(final T item,
               final CapacityMonitor capacityMonitor,
-              final ErrorHandler errorHandler) {
+              final Backoff backoff) {
     this.item = item;
     this.capacityMonitor = capacityMonitor;
-    this.errorHandler = errorHandler;
+    this.backoff = backoff;
     this.failureCount = new AtomicLong();
     this.samples = new AtomicLongArray(NUM_SAMPLES);
     this.sampleIndex = new AtomicInteger(-1);
@@ -42,6 +42,11 @@ final class ItemContext<T> implements BalancedItem<T> {
     }
     this.sampleMedian = new AtomicLong(Long.MAX_VALUE);
     this.localSampleArray = new long[NUM_SAMPLES];
+  }
+
+  @Override
+  public Backoff errorHandler() {
+    return backoff;
   }
 
   @Override
@@ -111,11 +116,11 @@ final class ItemContext<T> implements BalancedItem<T> {
   }
 
   @Override
-  public long onError(final int errorCount,
+  public long onError(final long errorCount,
                       final String retryLogContext,
                       final RuntimeException exception,
                       final TimeUnit timeUnit) {
     failed();
-    return errorHandler.onError(errorCount, retryLogContext, exception, timeUnit);
+    return backoff.onError(errorCount, retryLogContext, exception, timeUnit);
   }
 }

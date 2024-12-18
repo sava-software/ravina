@@ -12,134 +12,82 @@ import java.util.function.Supplier;
 public interface Call<T> extends Supplier<T> {
 
   static <T> Call<T> createComposedCall(final Supplier<CompletableFuture<T>> call,
-                                        final ErrorHandler errorHandler,
+                                        final Backoff backoff,
+                                        final CallContext callContext,
                                         final String retryLogContext) {
-    return new ComposedCall<>(call, errorHandler, retryLogContext);
+    return new ComposedCall<>(call, backoff, callContext, retryLogContext);
+  }
+
+  static <T> Call<T> createComposedCall(final Supplier<CompletableFuture<T>> call,
+                                        final Backoff backoff,
+                                        final String retryLogContext) {
+    return new ComposedCall<>(call, backoff, CallContext.DEFAULT_CALL_CONTEXT, retryLogContext);
   }
 
   static <T> Call<T> createGreedyCall(final Supplier<CompletableFuture<T>> call,
                                       final CapacityState capacityState,
                                       final CallContext callContext,
-                                      final int callWeight,
-                                      final ErrorHandler errorHandler,
+                                      final Backoff backoff,
                                       final String retryLogContext) {
-    return new GreedyCall<>(call, capacityState, callContext, callWeight, errorHandler, retryLogContext);
+    return new GreedyCall<>(call, capacityState, callContext, backoff, retryLogContext);
   }
 
   static <I, R> Call<R> createCourteousCall(final Supplier<CompletableFuture<R>> call,
                                             final CapacityState capacityState,
                                             final CallContext callContext,
-                                            final int runtimeWeight,
-                                            final int maxTryClaim,
-                                            final ErrorHandler errorHandler,
+                                            final Backoff backoff,
                                             final String retryLogContext) {
     return new CourteousCall<>(
         call,
         capacityState,
-        callContext, runtimeWeight, maxTryClaim, true,
-        errorHandler, retryLogContext
+        callContext,
+        backoff,
+        retryLogContext
     );
   }
 
   static <I, R> Call<R> createCourteousCall(final Supplier<CompletableFuture<R>> call,
                                             final CapacityState capacityState,
-                                            final ErrorHandler errorHandler,
+                                            final Backoff backoff,
                                             final String retryLogContext) {
     return createCourteousCall(
         call,
         capacityState,
-        CallContext.DEFAULT_CALL_CONTEXT, 1, Integer.MAX_VALUE,
-        errorHandler, retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createCourteousCallOrGiveUp(final Supplier<CompletableFuture<R>> call,
-                                                    final CapacityState capacityState,
-                                                    final CallContext callContext,
-                                                    final int runtimeWeight,
-                                                    final int maxTryClaim,
-                                                    final ErrorHandler errorHandler,
-                                                    final String retryLogContext) {
-    return new CourteousCall<>(
-        call,
-        capacityState,
-        callContext, runtimeWeight, maxTryClaim, false,
-        errorHandler, retryLogContext
+        CallContext.DEFAULT_CALL_CONTEXT,
+        backoff,
+        retryLogContext
     );
   }
 
   static <I, R> Call<R> createUncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
                                                     final Function<I, CompletableFuture<R>> call,
-                                                    final boolean measureCallTime,
                                                     final String retryLogContext) {
-    return new UncheckedBalancedCall<>(loadBalancer, call, measureCallTime, retryLogContext);
-  }
-
-  static <I, R> Call<R> createUncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
-                                                    final Function<I, CompletableFuture<R>> call,
-                                                    final String retryLogContext) {
-    return createUncheckedBalancedCall(loadBalancer, call, false, retryLogContext);
-  }
-
-  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
-                                            final Function<I, CompletableFuture<R>> call,
-                                            final CallContext callContext,
-                                            final int runtimeWeight,
-                                            final int maxTryClaim,
-                                            final boolean measureCallTime,
-                                            final String retryLogContext) {
-    return new CourteousBalancedCall<>(
-        loadBalancer,
+    return new UncheckedBalancedCall<>(loadBalancer,
         call,
-        callContext, runtimeWeight, maxTryClaim, true, measureCallTime,
+        CallContext.DEFAULT_CALL_CONTEXT,
         retryLogContext
     );
   }
 
   static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
                                             final Function<I, CompletableFuture<R>> call,
-                                            final boolean measureCallTime,
+                                            final CallContext callContext,
+                                            final String retryLogContext) {
+    return new CourteousBalancedCall<>(
+        loadBalancer,
+        call,
+        callContext,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
+                                            final Function<I, CompletableFuture<R>> call,
                                             final String retryLogContext) {
     return createCourteousCall(
         loadBalancer,
         call,
-        CallContext.DEFAULT_CALL_CONTEXT, 1,
-        Integer.MAX_VALUE,
-        measureCallTime,
-        retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
-                                            final Function<I, CompletableFuture<R>> call,
-                                            final String retryLogContext) {
-    return createCourteousCall(loadBalancer, call, false, retryLogContext);
-  }
-
-  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
-                                            final Function<I, CompletableFuture<R>> call,
-                                            final CallContext callContext,
-                                            final int runtimeWeight,
-                                            final String retryLogContext) {
-    return new CourteousBalancedCall<>(
-        loadBalancer,
-        call,
-        callContext, runtimeWeight, Integer.MAX_VALUE, true, false,
-        retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createCourteousCallOrGiveUp(final LoadBalancer<I> loadBalancer,
-                                                    final Function<I, CompletableFuture<R>> call,
-                                                    final CallContext callContext,
-                                                    final int runtimeWeight,
-                                                    final int maxTryClaim,
-                                                    final boolean measureCallTime,
-                                                    final String retryLogContext) {
-    return new CourteousBalancedCall<>(
-        loadBalancer,
-        call,
-        callContext, runtimeWeight, maxTryClaim, false, measureCallTime,
+        CallContext.DEFAULT_CALL_CONTEXT,
         retryLogContext
     );
   }
@@ -147,67 +95,22 @@ public interface Call<T> extends Supplier<T> {
   static <I, R> Call<R> createGreedyCall(final LoadBalancer<I> loadBalancer,
                                          final Function<I, CompletableFuture<R>> call,
                                          final CallContext callContext,
-                                         final int runtimeWeight,
-                                         final boolean measureCallTime,
                                          final String retryLogContext) {
     return new GreedyBalancedCall<>(
         loadBalancer,
         call,
-        callContext, runtimeWeight, measureCallTime,
+        callContext,
         retryLogContext
     );
   }
 
   static <I, R> Call<R> createGreedyCall(final LoadBalancer<I> loadBalancer,
                                          final Function<I, CompletableFuture<R>> call,
-                                         final int runtimeWeight,
-                                         final boolean measureCallTime,
                                          final String retryLogContext) {
     return new GreedyBalancedCall<>(
         loadBalancer,
         call,
-        CallContext.DEFAULT_CALL_CONTEXT, runtimeWeight, measureCallTime,
-        retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
-                                            final Function<I, CompletableFuture<R>> call,
-                                            final CallContext callContext,
-                                            final boolean measureCallTime,
-                                            final int maxTryClaim,
-                                            final String retryLogContext) {
-    return new CourteousBalancedCall<>(
-        loadBalancer,
-        call,
-        callContext, callContext.callWeight(), maxTryClaim, true, measureCallTime,
-        retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createCourteousCallOrGiveUp(final LoadBalancer<I> loadBalancer,
-                                                    final Function<I, CompletableFuture<R>> call,
-                                                    final CallContext callContext,
-                                                    final boolean measureCallTime,
-                                                    final int maxTryClaim,
-                                                    final String retryLogContext) {
-    return new CourteousBalancedCall<>(
-        loadBalancer,
-        call,
-        callContext, callContext.callWeight(), maxTryClaim, false, measureCallTime,
-        retryLogContext
-    );
-  }
-
-  static <I, R> Call<R> createGreedyCall(final LoadBalancer<I> loadBalancer,
-                                         final Function<I, CompletableFuture<R>> call,
-                                         final CallContext callContext,
-                                         final boolean measureCallTime,
-                                         final String retryLogContext) {
-    return new GreedyBalancedCall<>(
-        loadBalancer,
-        call,
-        callContext, callContext.callWeight(), measureCallTime,
+        CallContext.DEFAULT_CALL_CONTEXT,
         retryLogContext
     );
   }

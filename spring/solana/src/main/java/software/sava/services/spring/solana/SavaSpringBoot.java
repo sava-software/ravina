@@ -12,6 +12,7 @@ import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.stream.Collectors;
 
@@ -31,7 +32,7 @@ public class SavaSpringBoot {
     final var tokenAccounts = Call.createCourteousCall(
         loadBalancer,
         rpcClient -> rpcClient.getTokenAccountsForProgramByOwner(ownerPublicKey, tokenProgram),
-        true,
+        CallContext.DEFAULT_CALL_CONTEXT,
         "rpcClient#getTokenAccountsForProgramByOwner"
     ).get();
 

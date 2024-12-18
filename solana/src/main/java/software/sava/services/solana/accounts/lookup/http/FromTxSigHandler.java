@@ -5,6 +5,7 @@ import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 import software.sava.services.core.remote.call.Call;
+import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.accounts.lookup.LookupTableCache;
 import software.sava.services.solana.accounts.lookup.LookupTableDiscoveryService;
 
@@ -30,7 +31,7 @@ final class FromTxSigHandler extends FromRawTxHandler {
       try {
         final var txBytes = Call.createCourteousCall(
             rpcClients, rpcClient -> rpcClient.getTransaction(CONFIRMED, txSig),
-            false,
+            CallContext.DEFAULT_CALL_CONTEXT,
             "rpcClient::getTransaction"
         ).get().data();
         // System.out.println(Base64.getEncoder().encodeToString(txBytes));

@@ -1,6 +1,6 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
 
@@ -10,5 +10,5 @@ public interface BalanceItemFactory<T> {
 
   BalancedItem<T> createItem(final UriCapacityConfig uriCapacityConfig,
                              final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
-                             final ErrorHandler errorHandler);
+                             final Backoff backoff);
 }

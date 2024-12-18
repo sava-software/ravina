@@ -1,6 +1,6 @@
 package software.sava.services.core.remote.load_balance;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityMonitor;
 import software.sava.services.core.request_capacity.CapacityState;
 
@@ -10,9 +10,11 @@ public interface BalancedItem<T> {
 
   static <T> BalancedItem<T> createItem(final T item,
                                         final CapacityMonitor capacityMonitor,
-                                        final ErrorHandler errorHandler) {
-    return new ItemContext<>(item, capacityMonitor, errorHandler);
+                                        final Backoff backoff) {
+    return new ItemContext<>(item, capacityMonitor, backoff);
   }
+
+  Backoff errorHandler();
 
   void sample(final long sample);
 
@@ -42,7 +44,7 @@ public interface BalancedItem<T> {
     return capacityMonitor().capacityState();
   }
 
-  long onError(final int errorCount,
+  long onError(final long errorCount,
                final String retryLogContext,
                final RuntimeException exception,
                final TimeUnit timeUnit);

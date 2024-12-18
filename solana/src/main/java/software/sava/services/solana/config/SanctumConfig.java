@@ -1,6 +1,6 @@
 package software.sava.services.solana.config;
 
-import software.sava.services.core.remote.call.ErrorHandler;
+import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ErrorHandlerConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -17,7 +17,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public record SanctumConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                             URI apiEndpoint,
                             URI extraApiEndpoint,
-                            ErrorHandler errorHandler) {
+                            Backoff backoff) {
 
   public SanctumClient createClient(final HttpClient httpClient) {
     return SanctumClient.createClient(apiEndpoint, extraApiEndpoint, httpClient, capacityMonitor.errorTracker());
@@ -34,7 +34,7 @@ public record SanctumConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> ca
     private URI apiEndpoint;
     private URI extraApiEndpoint;
     private CapacityConfig capacityConfig;
-    private ErrorHandler errorHandler;
+    private Backoff backoff;
 
     private SanctumConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Sanctum");
@@ -42,7 +42,7 @@ public record SanctumConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> ca
           capacityMonitor,
           apiEndpoint == null ? URI.create(SanctumClient.PUBLIC_ENDPOINT) : apiEndpoint,
           extraApiEndpoint == null ? URI.create(SanctumClient.EXTRA_API_ENDPOINT) : extraApiEndpoint,
-          errorHandler
+          backoff
       );
     }
 
@@ -55,7 +55,7 @@ public record SanctumConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> ca
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        errorHandler = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        backoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }
