@@ -41,6 +41,18 @@ public interface Call<T> extends Supplier<T> {
     );
   }
 
+  static <I, R> Call<R> createCourteousCall(final Supplier<CompletableFuture<R>> call,
+                                            final CapacityState capacityState,
+                                            final ErrorHandler errorHandler,
+                                            final String retryLogContext) {
+    return createCourteousCall(
+        call,
+        capacityState,
+        CallContext.DEFAULT_CALL_CONTEXT, 1, Integer.MAX_VALUE,
+        errorHandler, retryLogContext
+    );
+  }
+
   static <I, R> Call<R> createCourteousCallOrGiveUp(final Supplier<CompletableFuture<R>> call,
                                                     final CapacityState capacityState,
                                                     final CallContext callContext,

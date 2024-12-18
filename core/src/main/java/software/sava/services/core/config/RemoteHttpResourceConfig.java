@@ -13,14 +13,14 @@ import java.net.http.HttpResponse;
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
-public record RemoteResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
-                                   URI endpoint,
-                                   ErrorHandler errorHandler) {
+public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
+                                       URI endpoint,
+                                       ErrorHandler errorHandler) {
 
-  public static RemoteResourceConfig parseConfig(final JsonIterator ji,
-                                                 final String defaultServiceName,
-                                                 final String defaultEndpoint,
-                                                 final ErrorHandler defaultErrorHandler) {
+  public static RemoteHttpResourceConfig parseConfig(final JsonIterator ji,
+                                                     final String defaultServiceName,
+                                                     final String defaultEndpoint,
+                                                     final ErrorHandler defaultErrorHandler) {
     final var parser = new Parser();
     ji.testObject(parser);
     return parser.create(defaultServiceName, defaultEndpoint, defaultErrorHandler);
@@ -33,11 +33,11 @@ public record RemoteResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte
     private CapacityConfig capacityConfig;
     private ErrorHandler errorHandler;
 
-    private RemoteResourceConfig create(final String defaultServiceName,
-                                        final String defaultEndpoint,
-                                        final ErrorHandler defaultErrorHandler) {
+    private RemoteHttpResourceConfig create(final String defaultServiceName,
+                                            final String defaultEndpoint,
+                                            final ErrorHandler defaultErrorHandler) {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor(requireNonNullElse(name, defaultServiceName));
-      return new RemoteResourceConfig(
+      return new RemoteHttpResourceConfig(
           capacityMonitor,
           URI.create(requireNonNullElse(endpoint, defaultEndpoint)),
           requireNonNullElse(errorHandler, defaultErrorHandler)

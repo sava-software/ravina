@@ -66,7 +66,7 @@ public record HeliusConfig(URI endpoint,
 
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("url", buf, offset, len)) {
+      if (fieldEquals("url", buf, offset, len) || fieldEquals("endpoint", buf, offset, len)) {
         endpoint = URI.create(ji.readString());
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
