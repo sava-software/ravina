@@ -110,13 +110,13 @@ final class CallTests {
           "maxCapacity": 400,
           "resetDuration": "PT1S"
         }"""));
-    final var errorHandler = Backoff.fibonacci(1, 21);
+    final var backoff = Backoff.fibonacci(1, 21);
     final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE);
 
     final var loadBalancer = LoadBalancer.createBalancer(BalancedItem.createItem(
         new AtomicLong(0),
         monitor,
-        errorHandler
+        backoff
     ));
     final var call = Call.createCourteousCall(
         loadBalancer, count -> {

@@ -5,9 +5,11 @@ import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static software.sava.services.core.remote.call.ComposedCall.throwException;
 
 class UncheckedBalancedCall<I, R> implements Call<R> {
 
@@ -35,42 +37,44 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
 
   @Override
   public final R get() {
-    final int numItems = loadBalancer.size();
-    long start = callContext.measureCallTime() ? System.currentTimeMillis() : 0;
-    var callFuture = call();
-    for (long errorCount = 0, retry = 0; ; ) {
-      try {
-        if (callFuture == null) {
-          return null;
-        } else {
-          final var result = callFuture.join();
-          if (callContext.measureCallTime()) {
+    try {
+      var callFuture = call();
+      if (callFuture == null) {
+        return null;
+      }
+      long start = callContext.measureCallTime() ? System.currentTimeMillis() : 0;
+      final int numItems = loadBalancer.size();
+      for (long errorCount = 0, retry = 0; ; ) {
+        try {
+          final var result = callFuture.get();
+          if (start > 0) {
             this.next.sample(System.currentTimeMillis() - start);
           }
           this.next.success();
           return result;
-        }
-      } catch (final RuntimeException e) {
-        final long sleep = this.next.onError(++errorCount, retryLogContext, e, MILLISECONDS);
-        loadBalancer.sort();
-        if (sleep < 0 || errorCount > callContext.maxRetries()) {
-          return null;
-        }
-        if (++retry < numItems && !loadBalancer.peek().equals(this.next)) {
-          errorCount = retry - 1; // try next balanced item.
-        } else if (sleep > 0) {
-          try {
+        } catch (final ExecutionException e) {
+          final long sleep = this.next.onError(++errorCount, retryLogContext, e.getCause(), MILLISECONDS);
+          loadBalancer.sort();
+          if (sleep < 0 || errorCount > callContext.maxRetries()) {
+            throw throwException(e);
+          }
+          if (++retry < numItems && !loadBalancer.peek().equals(this.next)) {
+            errorCount = retry - 1; // try next balanced item.
+          } else if (sleep > 0) {
             //noinspection BusyWait
             Thread.sleep(sleep);
-          } catch (final InterruptedException ex) {
-            throw new RuntimeException(ex);
+          }
+          callFuture = call();
+          if (callFuture == null) {
+            return null;
+          }
+          if (start > 0) {
+            start = System.currentTimeMillis();
           }
         }
-        if (callContext.measureCallTime()) {
-          start = System.currentTimeMillis();
-        }
-        callFuture = call();
       }
+    } catch (final InterruptedException ex) {
+      throw new RuntimeException(ex);
     }
   }
 }

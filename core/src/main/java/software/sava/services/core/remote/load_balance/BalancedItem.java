@@ -46,6 +46,6 @@ public interface BalancedItem<T> {
 
   long onError(final long errorCount,
                final String retryLogContext,
-               final RuntimeException exception,
+               final Throwable exception,
                final TimeUnit timeUnit);
 }

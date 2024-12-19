@@ -118,7 +118,7 @@ final class ItemContext<T> implements BalancedItem<T> {
   @Override
   public long onError(final long errorCount,
                       final String retryLogContext,
-                      final RuntimeException exception,
+                      final Throwable exception,
                       final TimeUnit timeUnit) {
     failed();
     return backoff.onError(errorCount, retryLogContext, exception, timeUnit);

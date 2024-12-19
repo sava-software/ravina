@@ -68,8 +68,7 @@ public interface Backoff {
     return new FibonacciBackoffErrorHandler(timeUnit, sequence);
   }
 
-  static Backoff fibonacci(final int initialRetryDelaySeconds,
-                           final int maxRetryDelaySeconds) {
+  static Backoff fibonacci(final int initialRetryDelaySeconds, final int maxRetryDelaySeconds) {
     int mark;
     int previous = 1;
     int current = 1;
