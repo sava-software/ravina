@@ -1,7 +1,7 @@
 package software.sava.services.solana.config;
 
 import software.sava.services.core.remote.call.Backoff;
-import software.sava.services.core.remote.call.ErrorHandlerConfig;
+import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -71,7 +71,7 @@ public record HeliusConfig(URI endpoint,
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }

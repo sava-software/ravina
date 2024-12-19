@@ -1,7 +1,7 @@
 package software.sava.services.core.config;
 
 import software.sava.services.core.remote.call.Backoff;
-import software.sava.services.core.remote.call.ErrorHandlerConfig;
+import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.FieldBufferPredicate;
@@ -53,7 +53,7 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createHandler();
       } else {
         ji.skip();
       }

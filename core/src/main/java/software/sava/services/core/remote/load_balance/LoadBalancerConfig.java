@@ -1,7 +1,7 @@
 package software.sava.services.core.remote.load_balance;
 
 import software.sava.services.core.remote.call.Backoff;
-import software.sava.services.core.remote.call.ErrorHandlerConfig;
+import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
@@ -71,7 +71,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       if (fieldEquals("defaultCapacity", buf, offset, len)) {
         defaultCapacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("defaultBackoff", buf, offset, len)) {
-        defaultBackoff = ErrorHandlerConfig.parseConfig(ji).createHandler();
+        defaultBackoff = BackoffConfig.parseConfig(ji).createHandler();
       } else if (fieldEquals("endpoints", buf, offset, len)) {
         final var rpcConfigs = new ArrayList<UriCapacityConfig>();
         while (ji.readArray()) {

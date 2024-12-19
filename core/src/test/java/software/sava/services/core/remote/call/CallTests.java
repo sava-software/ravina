@@ -110,7 +110,7 @@ final class CallTests {
           "maxCapacity": 400,
           "resetDuration": "PT1S"
         }"""));
-    final var errorHandler = Backoff.fibonacciBackoff(1, 21);
+    final var errorHandler = Backoff.fibonacci(1, 21);
     final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE);
 
     final var loadBalancer = LoadBalancer.createBalancer(BalancedItem.createItem(
@@ -173,7 +173,7 @@ final class CallTests {
 
   @Test
   void testCourteousMillis() {
-    var errorHandler = Backoff.fibonacciBackoff(TimeUnit.SECONDS, 1, 13);
+    var errorHandler = Backoff.fibonacci(TimeUnit.SECONDS, 1, 13);
     assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
     assertEquals(1000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
     assertEquals(2000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
@@ -184,7 +184,7 @@ final class CallTests {
     assertEquals(13000, errorHandler.delay(8, TimeUnit.MILLISECONDS));
     assertEquals(13000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
 
-    errorHandler = Backoff.exponentialBackoff(TimeUnit.SECONDS, 1, 32);
+    errorHandler = Backoff.exponential(TimeUnit.SECONDS, 1, 32);
     assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
     assertEquals(2000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
     assertEquals(4000, errorHandler.delay(3, TimeUnit.MILLISECONDS));

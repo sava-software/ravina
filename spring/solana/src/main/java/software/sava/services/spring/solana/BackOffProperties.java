@@ -14,10 +14,10 @@ public class BackOffProperties {
 
   public Backoff createErrorHandler() {
     return switch (backoffStrategy) {
-      case exponential -> exponentialBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
-      case fibonacci -> fibonacciBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
-      case linear -> linearBackoff(initialRetryDelaySeconds, maxRetryDelaySeconds);
-      case single -> singleBackoff(initialRetryDelaySeconds);
+      case exponential -> exponential(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case fibonacci -> fibonacci(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case linear -> linear(initialRetryDelaySeconds, maxRetryDelaySeconds);
+      case single -> single(initialRetryDelaySeconds);
     };
   }
 
@@ -52,8 +52,8 @@ public class BackOffProperties {
   public String toString() {
     return "BackOffProperties{" +
         "backoffStrategy=" + backoffStrategy +
-        ", initialRetryDelaySeconds=" + initialRetryDelaySeconds +
-        ", maxRetryDelaySeconds=" + maxRetryDelaySeconds +
+        ", initialRetryDelay=" + initialRetryDelaySeconds +
+        ", maxRetryDelay=" + maxRetryDelaySeconds +
         '}';
   }
 }

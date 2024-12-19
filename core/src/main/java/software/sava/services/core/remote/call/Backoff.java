@@ -4,37 +4,37 @@ import java.util.concurrent.TimeUnit;
 
 public interface Backoff {
 
-  static Backoff singleBackoff(final TimeUnit timeUnit, final long retryDelay) {
+  static Backoff single(final TimeUnit timeUnit, final long retryDelay) {
     return new SingleBackoffErrorHandler(timeUnit, retryDelay);
   }
 
-  static Backoff linearBackoff(final TimeUnit timeUnit,
-                               final long initialRetryDelay,
-                               final long maxRetryDelay) {
+  static Backoff linear(final TimeUnit timeUnit,
+                        final long initialRetryDelay,
+                        final long maxRetryDelay) {
     return new LinearBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
-  static Backoff exponentialBackoff(final TimeUnit timeUnit,
-                                    final long initialRetryDelay,
-                                    final long maxRetryDelay) {
+  static Backoff exponential(final TimeUnit timeUnit,
+                             final long initialRetryDelay,
+                             final long maxRetryDelay) {
     return new ExponentialBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
-  static Backoff singleBackoff(final long retryDelaySeconds) {
-    return singleBackoff(TimeUnit.SECONDS, retryDelaySeconds);
+  static Backoff single(final long retryDelaySeconds) {
+    return single(TimeUnit.SECONDS, retryDelaySeconds);
   }
 
-  static Backoff linearBackoff(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
-    return linearBackoff(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
+  static Backoff linear(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
+    return linear(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
   }
 
-  static Backoff exponentialBackoff(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
-    return exponentialBackoff(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
+  static Backoff exponential(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
+    return exponential(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
   }
 
-  static Backoff fibonacciBackoff(final TimeUnit timeUnit,
-                                  final long initialRetryDelay,
-                                  final long maxRetryDelay) {
+  static Backoff fibonacci(final TimeUnit timeUnit,
+                           final long initialRetryDelay,
+                           final long maxRetryDelay) {
     long mark;
     long previous = initialRetryDelay;
     long current = initialRetryDelay;
@@ -68,8 +68,8 @@ public interface Backoff {
     return new FibonacciBackoffErrorHandler(timeUnit, sequence);
   }
 
-  static Backoff fibonacciBackoff(final int initialRetryDelaySeconds,
-                                  final int maxRetryDelaySeconds) {
+  static Backoff fibonacci(final int initialRetryDelaySeconds,
+                           final int maxRetryDelaySeconds) {
     int mark;
     int previous = 1;
     int current = 1;
