@@ -8,6 +8,10 @@ import java.util.function.Supplier;
 
 public interface Caller {
 
+  static Caller createCaller(final CapacityState capacityState, final Backoff backoff) {
+    return new CallerRecord(capacityState, backoff);
+  }
+
   CapacityState capacityState();
 
   Backoff backoff();
