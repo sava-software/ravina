@@ -3,9 +3,9 @@ package software.sava.services.core.remote.call;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
+import static java.util.Locale.ENGLISH;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record BackoffConfig(BackoffStrategy strategy,
@@ -32,7 +32,7 @@ public record BackoffConfig(BackoffStrategy strategy,
 
     private BackoffStrategy strategy = BackoffStrategy.exponential;
     private long initialRetryDelay = 1;
-    private long maxRetryDelay = 34;
+    private long maxRetryDelay = 32;
     private TimeUnit timeUnit = TimeUnit.SECONDS;
 
     private Builder() {
@@ -50,13 +50,13 @@ public record BackoffConfig(BackoffStrategy strategy,
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("strategy", buf, offset, len)) {
-        strategy = BackoffStrategy.valueOf(ji.readString().toLowerCase(Locale.ENGLISH));
+        strategy = BackoffStrategy.valueOf(ji.readString().toLowerCase(ENGLISH));
       } else if (fieldEquals("initialRetryDelay", buf, offset, len) || fieldEquals("initialRetryDelaySeconds", buf, offset, len)) {
         initialRetryDelay = ji.readLong();
       } else if (fieldEquals("maxRetryDelay", buf, offset, len) || fieldEquals("maxRetryDelaySeconds", buf, offset, len)) {
         maxRetryDelay = ji.readLong();
       } else if (fieldEquals("timeUnit", buf, offset, len)) {
-        timeUnit = TimeUnit.valueOf(ji.readString().toUpperCase(Locale.ENGLISH));
+        timeUnit = TimeUnit.valueOf(ji.readString().toUpperCase(ENGLISH));
       } else {
         ji.skip();
       }
