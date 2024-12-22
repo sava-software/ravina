@@ -8,10 +8,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static software.sava.services.core.remote.call.ComposedCall.throwException;
 
 class UncheckedBalancedCall<I, R> implements Call<R> {
+
+  private static final System.Logger logger = System.getLogger(UncheckedBalancedCall.class.getName());
 
   protected final LoadBalancer<I> loadBalancer;
   protected final Function<I, CompletableFuture<R>> call;
@@ -53,14 +56,28 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
           this.next.success();
           return result;
         } catch (final ExecutionException e) {
-          final long sleep = this.next.onError(++errorCount, retryLogContext, e.getCause(), MILLISECONDS);
+          this.next.failed();
+          final var cause = e.getCause();
+          this.callContext.accept(cause);
+          final long sleep = this.next.backoff().delay(++errorCount, MILLISECONDS);
           loadBalancer.sort();
+          if (++retry == numItems) {
+            errorCount = retry;
+          }
           if (sleep < 0 || errorCount > callContext.maxRetries()) {
             throw throwException(e);
           }
-          if (++retry < numItems && !loadBalancer.peek().equals(this.next)) {
-            errorCount = retry - 1; // try next balanced item.
+          if (retry < numItems && !loadBalancer.peek().equals(this.next)) {
+            logger.log(WARNING, String.format(
+                "Failed %d times because [%s], trying next balanced item. Context: %s",
+                errorCount, cause.getMessage(), retryLogContext
+            ));
+            --errorCount;
           } else if (sleep > 0) {
+            logger.log(WARNING, String.format(
+                "Failed %d times because [%s], retrying in %dms. Context: %s",
+                errorCount, cause.getMessage(), sleep, retryLogContext
+            ));
             //noinspection BusyWait
             Thread.sleep(sleep);
           }

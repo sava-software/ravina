@@ -4,7 +4,6 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityMonitor;
 
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -45,7 +44,7 @@ final class ItemContext<T> implements BalancedItem<T> {
   }
 
   @Override
-  public Backoff errorHandler() {
+  public Backoff backoff() {
     return backoff;
   }
 
@@ -113,14 +112,5 @@ final class ItemContext<T> implements BalancedItem<T> {
   @Override
   public CapacityMonitor capacityMonitor() {
     return capacityMonitor;
-  }
-
-  @Override
-  public long onError(final long errorCount,
-                      final String retryLogContext,
-                      final Throwable exception,
-                      final TimeUnit timeUnit) {
-    failed();
-    return backoff.onError(errorCount, retryLogContext, exception, timeUnit);
   }
 }

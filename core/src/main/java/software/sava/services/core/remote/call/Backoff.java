@@ -133,15 +133,4 @@ public interface Backoff {
   default long delay(final long errorCount) {
     return delay(errorCount, timeUnit());
   }
-
-  long onError(final long errorCount,
-               final String retryLogContext,
-               final Throwable exception,
-               final TimeUnit timeUnit);
-
-  default long onError(final long errorCount,
-                       final String retryLogContext,
-                       final Throwable exception) {
-    return onError(errorCount, retryLogContext, exception, timeUnit());
-  }
 }

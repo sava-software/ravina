@@ -6,9 +6,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 class ComposedCall<T> implements Call<T> {
+
+  private static final System.Logger logger = System.getLogger(ComposedCall.class.getName());
 
   protected final Supplier<CompletableFuture<T>> call;
   private final Backoff backoff;
@@ -42,10 +45,18 @@ class ComposedCall<T> implements Call<T> {
         try {
           return callFuture == null ? null : callFuture.get();
         } catch (final ExecutionException e) {
-          final long sleep = backoff.onError(++errorCount, retryLogContext, e, MILLISECONDS);
+          final var cause = e.getCause();
+          callContext.accept(cause);
+          final long sleep = backoff.delay(++errorCount, MILLISECONDS);
           if (sleep < 0 || errorCount > callContext.maxRetries()) {
             throw throwException(e);
-          } else if (sleep > 0) {
+          }
+          logger.log(WARNING, String.format(
+              "Failed %d times because [%s], retrying in %dms. Context: %s",
+              errorCount, cause.getMessage(), sleep, retryLogContext
+          ));
+          if (sleep > 0) {
+            //noinspection BusyWait
             Thread.sleep(sleep);
           }
           callFuture = call();

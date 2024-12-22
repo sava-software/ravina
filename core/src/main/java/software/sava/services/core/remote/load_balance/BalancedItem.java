@@ -4,8 +4,6 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityMonitor;
 import software.sava.services.core.request_capacity.CapacityState;
 
-import java.util.concurrent.TimeUnit;
-
 public interface BalancedItem<T> {
 
   static <T> BalancedItem<T> createItem(final T item,
@@ -14,7 +12,7 @@ public interface BalancedItem<T> {
     return new ItemContext<>(item, capacityMonitor, backoff);
   }
 
-  Backoff errorHandler();
+  Backoff backoff();
 
   void sample(final long sample);
 
@@ -43,9 +41,4 @@ public interface BalancedItem<T> {
   default CapacityState capacityState() {
     return capacityMonitor().capacityState();
   }
-
-  long onError(final long errorCount,
-               final String retryLogContext,
-               final Throwable exception,
-               final TimeUnit timeUnit);
 }

@@ -6,8 +6,7 @@ final class FibonacciBackoffErrorHandler extends RootBackoff {
 
   private final long[] sequence;
 
-  FibonacciBackoffErrorHandler(final TimeUnit timeUnit,
-                               final long[] sequence) {
+  FibonacciBackoffErrorHandler(final TimeUnit timeUnit, final long[] sequence) {
     super(timeUnit, sequence[0], sequence[sequence.length - 1]);
     this.sequence = sequence;
   }
