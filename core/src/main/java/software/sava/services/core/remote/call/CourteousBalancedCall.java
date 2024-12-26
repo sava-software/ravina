@@ -20,8 +20,9 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
   @Override
   public CompletableFuture<R> call() {
     this.next = loadBalancer.withContext();
+    final long maxTry = callContext.maxTryClaim();
     TRY_NEXT:
-    for (int i = 0; i < callContext.maxTryClaim(); ++i) {
+    for (int i = 0; ; ) {
       if (this.next.capacityState().tryClaimRequest(callContext)) {
         return call.apply(this.next.item());
       } else {
@@ -39,12 +40,16 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
             }
           }
         }
+        if (++i >= maxTry) {
+          break;
+        }
         final long delayMillis = this.next.capacityState().durationUntil(callContext, MILLISECONDS);
         if (delayMillis <= 0) {
           this.next.capacityState().claimRequest(callContext);
           return call.apply(this.next.item());
         } else {
           try {
+            //noinspection BusyWait
             Thread.sleep(delayMillis);
           } catch (final InterruptedException e) {
             throw new RuntimeException(e);

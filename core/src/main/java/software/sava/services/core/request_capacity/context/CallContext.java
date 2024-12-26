@@ -2,8 +2,8 @@ package software.sava.services.core.request_capacity.context;
 
 import java.util.function.Consumer;
 
-import static software.sava.services.core.request_capacity.context.SimpleCallContext.DEFAULT_CALL_CONTEXT_WEIGHT;
-import static software.sava.services.core.request_capacity.context.SimpleCallContext.DEFAULT_MIN_CALL_CONTEXT_CAPACITY;
+import static software.sava.services.core.request_capacity.context.CallContextWithErrorHandler.DEFAULT_CALL_CONTEXT_WEIGHT;
+import static software.sava.services.core.request_capacity.context.CallContextWithErrorHandler.DEFAULT_MIN_CALL_CONTEXT_CAPACITY;
 
 public interface CallContext extends Consumer<Throwable> {
 
@@ -16,7 +16,9 @@ public interface CallContext extends Consumer<Throwable> {
                                    final long maxRetries,
                                    final boolean measureCallTime,
                                    final Consumer<Throwable> onError) {
-    return new SimpleCallContext(callWeight, minCapacity, maxTryClaim, forceCall, maxRetries, measureCallTime, onError);
+    return onError == null
+        ? new CallContextRecord(callWeight, minCapacity, maxTryClaim, forceCall, maxRetries, measureCallTime)
+        : new CallContextWithErrorHandler(callWeight, minCapacity, maxTryClaim, forceCall, maxRetries, measureCallTime, onError);
   }
 
   static CallContext createContext(final int callWeight,
@@ -25,7 +27,7 @@ public interface CallContext extends Consumer<Throwable> {
                                    final boolean forceCall,
                                    final long maxRetries,
                                    final boolean measureCallTime) {
-    return new SimpleCallContext(callWeight, minCapacity, maxTryClaim, forceCall, maxRetries, measureCallTime, null);
+    return createContext(callWeight, minCapacity, maxTryClaim, forceCall, maxRetries, measureCallTime, null);
   }
 
   static CallContext createContext(final int callWeight,
@@ -59,7 +61,9 @@ public interface CallContext extends Consumer<Throwable> {
                                    final long maxRetries,
                                    final boolean measureCallTime,
                                    final Consumer<Throwable> onError) {
-    return new WeightMultiplierCallContext(callWeight, minCapacity, weightMultiplier, maxTryClaim, forceCall, maxRetries, measureCallTime, onError);
+    return onError == null
+        ? new WeightMultiplierCallContext(callWeight, minCapacity, weightMultiplier, maxTryClaim, forceCall, maxRetries, measureCallTime)
+        : new WeightMultiplierCallContextWithErrorHandler(callWeight, minCapacity, weightMultiplier, maxTryClaim, forceCall, maxRetries, measureCallTime, onError);
   }
 
   static CallContext createContext(final int callWeight,
@@ -69,7 +73,7 @@ public interface CallContext extends Consumer<Throwable> {
                                    final boolean forceCall,
                                    final long maxRetries,
                                    final boolean measureCallTime) {
-    return new WeightMultiplierCallContext(callWeight, minCapacity, weightMultiplier, maxTryClaim, forceCall, maxRetries, measureCallTime, null);
+    return createContext(callWeight, minCapacity, weightMultiplier, maxTryClaim, forceCall, maxRetries, measureCallTime, null);
   }
 
   static CallContext createContext(final int callWeight,
