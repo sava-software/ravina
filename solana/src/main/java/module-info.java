@@ -10,6 +10,7 @@ module software.sava.solana_services {
   requires software.sava.anchor_programs;
   requires software.sava.core_services;
   requires software.sava.jetty_services;
+  requires software.sava.kms_core;
 
   requires org.eclipse.jetty.server;
   requires org.eclipse.jetty.http2.server;
@@ -22,4 +23,6 @@ module software.sava.solana_services {
   exports software.sava.services.solana.epoch;
   exports software.sava.services.solana.load_balance;
   exports software.sava.services.solana.remote.call;
+  exports software.sava.services.solana.transactions;
+  exports software.sava.services.solana.websocket;
 }

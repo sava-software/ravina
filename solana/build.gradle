@@ -11,6 +11,7 @@ dependencies {
   implementation libs.sava.solana.programs
   implementation libs.sava.anchor.src.gen
   implementation libs.sava.anchor.programs
+  implementation libs.sava.kms.core
 
   implementation libs.jetty.server
   implementation libs.jetty.http2.server

@@ -14,6 +14,7 @@ module software.sava.core_services {
   exports software.sava.services.core.request_capacity;
   exports software.sava.services.core.request_capacity.context;
   exports software.sava.services.core.request_capacity.trackers;
+  exports software.sava.services.core;
 
   uses software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 
