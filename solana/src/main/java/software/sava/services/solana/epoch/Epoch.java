@@ -13,6 +13,7 @@ import static java.time.temporal.ChronoUnit.MINUTES;
 public record Epoch(long startedAt,
                     long endsAt,
                     EpochInfo info,
+                    int defaultMillisPerSlot,
                     SlotPerformanceStats slotStats,
                     long sampledAt) {
 
@@ -20,18 +21,20 @@ public record Epoch(long startedAt,
 
   public static Epoch create(final Epoch earliestEpochInfo,
                              final EpochInfo epochInfo,
+                             final int defaultMillisPerSlot,
                              final SlotPerformanceStats slotStats,
                              final long sampledAt) {
     final long slotsRemaining = epochInfo.slotsInEpoch() - epochInfo.slotIndex();
-    final long millisRemaining = slotsRemaining * slotStats.median();
+    final int millsPerSlot = slotStats == null ? defaultMillisPerSlot : slotStats.median();
+    final long millisRemaining = slotsRemaining * millsPerSlot;
     final long endsAt = sampledAt + millisRemaining;
     final long startedAt;
     if (earliestEpochInfo == null || Long.compareUnsigned(epochInfo.epoch(), earliestEpochInfo.epoch()) != 0) {
-      startedAt = sampledAt - ((long) epochInfo.slotIndex() * slotStats.median());
+      startedAt = sampledAt - ((long) epochInfo.slotIndex() * millsPerSlot);
     } else {
       startedAt = earliestEpochInfo.startedAt;
     }
-    return new Epoch(startedAt, endsAt, epochInfo, slotStats, sampledAt);
+    return new Epoch(startedAt, endsAt, epochInfo, millsPerSlot, slotStats, sampledAt);
   }
 
   public int epochsPerYear(final int estimatedMillisPerSlot) {
@@ -62,11 +65,11 @@ public record Epoch(long startedAt,
   }
 
   public long estimatedSlot() {
-    return estimatedSlot(slotStats().median());
+    return estimatedSlot(slotStats == null ? defaultMillisPerSlot : slotStats.median());
   }
 
   public String logFormat() {
-    final int median = slotStats.median();
+    final int median = slotStats == null ? defaultMillisPerSlot : slotStats.median();
     final long millisRemaining = millisRemaining();
     final long estimatedSlot = estimatedSlot(median);
     final long slotsPerEpoch = slotsPerEpoch();

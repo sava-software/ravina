@@ -110,12 +110,20 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
 
   protected final long medianMillisPerSlot() {
     final var epochInfo = epochInfoService.epochInfo();
-    return epochInfo == null ? epochInfoService.defaultMillisPerSlot() : epochInfo.slotStats().median();
+    if (epochInfo == null) {
+      return epochInfoService.defaultMillisPerSlot();
+    }
+    final var slotStats = epochInfo.slotStats();
+    return slotStats == null ? epochInfoService.defaultMillisPerSlot() : slotStats.median();
   }
 
   protected final long oneStandardDeviationMillisPerSlot() {
     final var epochInfo = epochInfoService.epochInfo();
-    return epochInfo == null ? epochInfoService.defaultMillisPerSlot() : epochInfo.slotStats().medianPercentile68();
+    if (epochInfo == null) {
+      return epochInfoService.defaultMillisPerSlot();
+    }
+    final var slotStats = epochInfo.slotStats();
+    return slotStats == null ? epochInfoService.defaultMillisPerSlot() : slotStats.medianPercentile68();
   }
 
   protected final void completeFuture(final TxContext txContext) {

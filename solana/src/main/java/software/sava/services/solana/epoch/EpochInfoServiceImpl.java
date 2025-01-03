@@ -58,7 +58,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
             "rpcClient::getEpochInfo"
         ).get();
         final long addedMillis = (System.currentTimeMillis() - request) >> 1;
-        final var epoch = Epoch.create(earliestEpochInfo, epochInfo, slotStats, request + addedMillis);
+        final var epoch = Epoch.create(earliestEpochInfo, epochInfo, defaultMillisPerSlot, slotStats, request + addedMillis);
         this.epoch = epoch;
         return epoch;
       } catch (final RuntimeException ex) {

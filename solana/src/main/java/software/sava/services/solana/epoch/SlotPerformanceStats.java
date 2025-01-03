@@ -14,7 +14,10 @@ public record SlotPerformanceStats(int median,
 
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples) {
     final var msPerSlotArray = samples.stream()
-        .filter(s -> Long.compareUnsigned(s.numSlots(), s.slot()) < 0) // Ignore opening epoch slots.
+        .filter(s ->
+            Long.compareUnsigned(s.numSlots(), s.slot()) < 0 // Ignore opening epoch slots.
+                && s.samplePeriodSecs() > 0
+                && s.numSlots() > 0)
         .mapToInt(s -> (int) Math.round((s.samplePeriodSecs() / (double) s.numSlots()) * 1_000))
         .sorted()
         .toArray();
