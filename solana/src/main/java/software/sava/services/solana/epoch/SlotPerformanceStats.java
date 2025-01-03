@@ -13,12 +13,24 @@ public record SlotPerformanceStats(int median,
                                    int numPerfSamples) {
 
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples) {
+    return calculateStats(samples, 400);
+  }
+
+  public static SlotPerformanceStats calculateStats(final List<PerfSample> samples, final int maxMillis) {
+    return calculateStats(samples, 400, maxMillis);
+  }
+
+  public static SlotPerformanceStats calculateStats(final List<PerfSample> samples,
+                                                    final int minMillis, final int maxMillis) {
     final var msPerSlotArray = samples.stream()
         .filter(s ->
             Long.compareUnsigned(s.numSlots(), s.slot()) < 0 // Ignore opening epoch slots.
                 && s.samplePeriodSecs() > 0
                 && s.numSlots() > 0)
-        .mapToInt(s -> (int) Math.round((s.samplePeriodSecs() / (double) s.numSlots()) * 1_000))
+        .mapToInt(s -> {
+          final int millisPerSlot = (int) Math.round((s.samplePeriodSecs() / (double) s.numSlots()) * 1_000);
+          return Math.max(minMillis, Math.min(millisPerSlot, maxMillis));
+        })
         .sorted()
         .toArray();
     final int numPerfSamples = msPerSlotArray.length;
