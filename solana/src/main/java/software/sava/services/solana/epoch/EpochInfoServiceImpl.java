@@ -20,6 +20,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   static final int SECONDS_PER_SAMPLE = 60;
 
   private final int defaultMillisPerSlot;
+  private final int minMillisPerSlot;
+  private final int maxMillisPerSlot;
   private final LoadBalancer<SolanaRpcClient> rpcClients;
   private final int numSamples;
   private final long fetchSamplesDelayMillis;
@@ -30,11 +32,15 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private volatile Epoch epoch;
 
   EpochInfoServiceImpl(final int defaultMillisPerSlot,
+                       final int minMillisPerSlot,
+                       final int maxMillisPerSlot,
                        final LoadBalancer<SolanaRpcClient> rpcClients,
                        final int numSamples,
                        final long fetchSamplesDelayMillis,
                        final long fetchEpochInfoAfterEndDelayMillis) {
     this.defaultMillisPerSlot = defaultMillisPerSlot;
+    this.minMillisPerSlot = minMillisPerSlot;
+    this.maxMillisPerSlot = maxMillisPerSlot;
     this.rpcClients = rpcClients;
     this.numSamples = numSamples;
     this.fetchSamplesDelayMillis = fetchSamplesDelayMillis;
@@ -101,7 +107,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       var samples = getSamples();
       long now = System.currentTimeMillis();
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
-      var slotStats = SlotPerformanceStats.calculateStats(samples);
+      var slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
       var earliestEpochInfo = getEpochInfo(null, slotStats);
       epoch = earliestEpochInfo;
       initialized.countDown();
@@ -120,7 +126,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           samples = getSamples();
           now = System.currentTimeMillis();
           fetchSamplesAfter = now + fetchSamplesDelayMillis;
-          slotStats = SlotPerformanceStats.calculateStats(samples);
+          slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
           epoch = getEpochInfo(earliestEpochInfo, slotStats);
           logEpoch(epoch);
           endsAt = epoch.endsAt();

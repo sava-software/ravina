@@ -6,9 +6,12 @@ import systems.comodal.jsoniter.JsonIterator;
 import java.time.Duration;
 
 import static software.sava.services.core.config.ServiceConfigUtil.parseDuration;
+import static software.sava.services.solana.epoch.SlotPerformanceStats.TARGET_MILLIS_PER_SLOT;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record EpochServiceConfig(int defaultMillisPerSlot,
+                                 int minMillisPerSlot,
+                                 int maxMillisPerSlot,
                                  Duration slotSampleWindow,
                                  Duration fetchSlotSamplesDelay,
                                  Duration fetchEpochInfoAfterEndDelay) {
@@ -22,15 +25,19 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
   public static EpochServiceConfig createDefault() {
     return new EpochServiceConfig(
         420,
-        Duration.ofMinutes(60),
-        Duration.ofMinutes(15),
-        Duration.ofSeconds(1)
+        TARGET_MILLIS_PER_SLOT,
+        500,
+        java.time.Duration.ofMinutes(60),
+        java.time.Duration.ofMinutes(15),
+        java.time.Duration.ofSeconds(1)
     );
   }
 
   private static final class Parser implements FieldBufferPredicate {
 
-    private int defaultMillisPerSlot;
+    private int defaultMillisPerSlot = 420;
+    private int minMillisPerSlot = 400;
+    private int maxMillisPerSlot = 500;
     private Duration slotSampleWindow;
     private Duration fetchSlotSamplesDelay;
     private Duration fetchEpochInfoAfterEndDelay;
@@ -39,9 +46,6 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
     }
 
     private EpochServiceConfig createConfig() {
-      if (defaultMillisPerSlot <= 0) {
-        defaultMillisPerSlot = 420;
-      }
       if (slotSampleWindow == null) {
         slotSampleWindow = Duration.ofMinutes(60);
       }
@@ -50,6 +54,8 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
       }
       return new EpochServiceConfig(
           defaultMillisPerSlot,
+          minMillisPerSlot,
+          maxMillisPerSlot,
           slotSampleWindow,
           fetchSlotSamplesDelay,
           fetchEpochInfoAfterEndDelay == null
@@ -62,6 +68,10 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("defaultMillisPerSlot", buf, offset, len)) {
         defaultMillisPerSlot = ji.readInt();
+      } else if (fieldEquals("minMillisPerSlot", buf, offset, len)) {
+        minMillisPerSlot = ji.readInt();
+      } else if (fieldEquals("maxMillisPerSlot", buf, offset, len)) {
+        maxMillisPerSlot = ji.readInt();
       } else if (fieldEquals("slotSampleWindow", buf, offset, len)) {
         slotSampleWindow = parseDuration(ji);
       } else if (fieldEquals("fetchSlotSamplesDelay", buf, offset, len)) {

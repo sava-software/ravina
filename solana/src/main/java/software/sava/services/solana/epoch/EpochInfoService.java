@@ -14,6 +14,8 @@ public interface EpochInfoService extends Runnable {
     final long fetchEpochInfoAfterEndDelayMillis = epochServiceConfig.fetchEpochInfoAfterEndDelay().toMillis();
     return new EpochInfoServiceImpl(
         epochServiceConfig.defaultMillisPerSlot(),
+        epochServiceConfig.minMillisPerSlot(),
+        epochServiceConfig.maxMillisPerSlot(),
         rpcClients,
         numSamples,
         fetchSamplesDelayMillis,
