@@ -5,7 +5,9 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
-public record CallWeights(int getProgramAccounts) {
+public record CallWeights(int getProgramAccounts,
+                          int getTransaction,
+                          int sendTransaction) {
 
   public static CallWeights parse(final JsonIterator ji) {
     final var parser = new Builder();
@@ -15,14 +17,18 @@ public record CallWeights(int getProgramAccounts) {
 
   private static final class Builder implements FieldBufferPredicate {
 
-    private int getProgramAccounts;
+    private int getProgramAccounts = 2;
+    private int getTransaction = 5;
+    private int sendTransaction = 10;
 
     private Builder() {
     }
 
     private CallWeights create() {
       return new CallWeights(
-          Math.max(1, getProgramAccounts)
+          getProgramAccounts,
+          getTransaction,
+          sendTransaction
       );
     }
 
@@ -30,6 +36,10 @@ public record CallWeights(int getProgramAccounts) {
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("getProgramAccounts", buf, offset, len)) {
         getProgramAccounts = ji.readInt();
+      } else if (fieldEquals("getTransaction", buf, offset, len)) {
+        getTransaction = ji.readInt();
+      } else if (fieldEquals("sendTransaction", buf, offset, len)) {
+        sendTransaction = ji.readInt();
       } else {
         ji.skip();
       }

@@ -19,6 +19,7 @@ module software.sava.solana_services {
   exports software.sava.services.solana.accounts.lookup;
   exports software.sava.services.solana.accounts.lookup.http;
   exports software.sava.services.solana.config;
+  exports software.sava.services.solana.epoch;
   exports software.sava.services.solana.load_balance;
   exports software.sava.services.solana.remote.call;
 }
