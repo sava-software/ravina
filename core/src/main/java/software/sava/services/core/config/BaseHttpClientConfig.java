@@ -56,7 +56,9 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
       } else if (fieldEquals("backoff", buf, offset, len)) {
         backoff = BackoffConfig.parseConfig(ji).createHandler();
       } else {
-        ji.skip();
+        throw new IllegalStateException(String.format(
+            "Unknown %s field [%s]",
+            getClass().getSimpleName(), new String(buf, offset, len)));
       }
       return true;
     }

@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity;
 
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 import systems.comodal.jsoniter.ContextFieldBufferPredicate;
@@ -58,21 +59,21 @@ public record CapacityConfig(int minCapacity,
     if (fieldEquals("minCapacity", buf, offset, len)) {
       builder.minCapacity = ji.readInt();
     } else if (fieldEquals("minCapacityDuration", buf, offset, len)) {
-      builder.minCapacityDuration = Duration.parse(ji.readString());
+      builder.minCapacityDuration = ServiceConfigUtil.parseDuration(ji);
     } else if (fieldEquals("maxCapacity", buf, offset, len)) {
       builder.maxCapacity = ji.readInt();
     } else if (fieldEquals("resetDuration", buf, offset, len)) {
-      builder.resetDuration = Duration.parse(ji.readString());
+      builder.resetDuration = ServiceConfigUtil.parseDuration(ji);
     } else if (fieldEquals("maxGroupedErrorResponses", buf, offset, len)) {
       builder.maxGroupedErrorResponses = ji.readInt();
     } else if (fieldEquals("maxGroupedErrorExpiration", buf, offset, len)) {
-      builder.maxGroupedErrorExpiration = Duration.parse(ji.readString());
+      builder.maxGroupedErrorExpiration = ServiceConfigUtil.parseDuration(ji);
     } else if (fieldEquals("tooManyErrorsBackoffDuration", buf, offset, len)) {
-      builder.tooManyErrorsBackoffDuration = Duration.parse(ji.readString());
+      builder.tooManyErrorsBackoffDuration = ServiceConfigUtil.parseDuration(ji);
     } else if (fieldEquals("serverErrorBackOffDuration", buf, offset, len)) {
-      builder.serverErrorBackOffDuration = Duration.parse(ji.readString());
+      builder.serverErrorBackOffDuration = ServiceConfigUtil.parseDuration(ji);
     } else if (fieldEquals("rateLimitedBackOffDuration", buf, offset, len)) {
-      builder.rateLimitedBackOffDuration = Duration.parse(ji.readString());
+      builder.rateLimitedBackOffDuration = ServiceConfigUtil.parseDuration(ji);
     } else {
       throw new IllegalStateException("Unhandled CapacityConfig field " + new String(buf, offset, len));
     }

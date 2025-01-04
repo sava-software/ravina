@@ -5,6 +5,8 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.time.Duration;
 
+import static java.time.Duration.ofMinutes;
+import static java.time.Duration.ofSeconds;
 import static software.sava.services.core.config.ServiceConfigUtil.parseDuration;
 import static software.sava.services.solana.epoch.SlotPerformanceStats.TARGET_MILLIS_PER_SLOT;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -27,9 +29,9 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
         420,
         TARGET_MILLIS_PER_SLOT,
         500,
-        java.time.Duration.ofMinutes(60),
-        java.time.Duration.ofMinutes(15),
-        java.time.Duration.ofSeconds(1)
+        ofMinutes(60),
+        ofMinutes(15),
+        ofSeconds(1)
     );
   }
 
@@ -47,7 +49,7 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
 
     private EpochServiceConfig createConfig() {
       if (slotSampleWindow == null) {
-        slotSampleWindow = Duration.ofMinutes(60);
+        slotSampleWindow = ofMinutes(60);
       }
       if (fetchSlotSamplesDelay == null) {
         slotSampleWindow.dividedBy(4);
@@ -59,7 +61,7 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
           slotSampleWindow,
           fetchSlotSamplesDelay,
           fetchEpochInfoAfterEndDelay == null
-              ? Duration.ofSeconds(1)
+              ? ofSeconds(1)
               : fetchEpochInfoAfterEndDelay
       );
     }
@@ -79,7 +81,7 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
       } else if (fieldEquals("fetchEpochInfoAfterEndDelay", buf, offset, len)) {
         fetchEpochInfoAfterEndDelay = parseDuration(ji);
       } else {
-        ji.skip();
+        throw new IllegalStateException("Unknown EpochServiceConfig field " + new String(buf, offset, len));
       }
       return true;
     }

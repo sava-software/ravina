@@ -75,7 +75,7 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
       } else if (fieldEquals("address", buf, offset, len)) {
         addressFormat = ji.readString();
       } else {
-        ji.skip();
+        throw new IllegalStateException("Unknown ChainItemFormatter config field " + new String(buf, offset, len));
       }
       return true;
     }

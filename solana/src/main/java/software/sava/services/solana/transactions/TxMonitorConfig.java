@@ -45,7 +45,7 @@ public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling, Duration
       } else if (fieldEquals("webSocketConfirmationTimeout", buf, offset, len)) {
         webSocketConfirmationTimeout = parseDuration(ji);
       } else {
-        ji.skip();
+        throw new IllegalStateException("Unknown TxMonitorConfig field " + new String(buf, offset, len));
       }
       return true;
     }

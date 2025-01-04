@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static java.util.Objects.requireNonNull;
+import static software.sava.services.core.config.ServiceConfigUtil.parseDuration;
 import static software.sava.services.solana.load_balance.LoadBalanceUtil.createRPCLoadBalancer;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -164,11 +165,6 @@ public record LookupTableServiceConfig(Path workDir,
         return true;
       }
     }
-  }
-
-  private static Duration parseDuration(final JsonIterator ji) {
-    final var duration = ji.readString();
-    return duration == null || duration.isBlank() ? null : Duration.parse(duration);
   }
 
   public record DiscoveryServiceConfig(boolean cacheOnly,
