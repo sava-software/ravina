@@ -49,6 +49,10 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
     protected CapacityConfig capacityConfig;
     protected Backoff backoff;
 
+    protected BaseParser(final Backoff defaultBackoff) {
+      this.backoff = defaultBackoff;
+    }
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("capacity", buf, offset, len)) {

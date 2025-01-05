@@ -27,7 +27,11 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
   }
 
   public static HeliusConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Parser();
+    return parseConfig(ji, null);
+  }
+
+  public static HeliusConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
+    final var parser = new Parser(defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -55,8 +59,10 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
     private URI endpoint;
 
-    private Parser() {
+    Parser(final Backoff defaultBackoff) {
+      super(defaultBackoff);
     }
+
 
     private HeliusConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Helius");

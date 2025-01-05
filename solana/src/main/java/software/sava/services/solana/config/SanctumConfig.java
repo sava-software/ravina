@@ -32,7 +32,11 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
   }
 
   public static SanctumConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Parser();
+    return parseConfig(ji, null);
+  }
+
+  public static SanctumConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
+    final var parser = new Parser(defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -49,6 +53,10 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
 
     private URI apiEndpoint;
     private URI extraApiEndpoint;
+
+    Parser(final Backoff defaultBackoff) {
+      super(defaultBackoff);
+    }
 
     private SanctumConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Sanctum");
@@ -72,7 +80,7 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
       return true;
     }
   }
-  
+
   @Override
   public boolean equals(final Object obj) {
     if (obj == this) return true;

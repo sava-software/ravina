@@ -41,7 +41,11 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
   }
 
   public static JupiterConfig parseConfig(final JsonIterator ji) {
-    final var parser = new JupiterConfig.Parser();
+    return parseConfig(ji, null);
+  }
+
+  public static JupiterConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
+    final var parser = new JupiterConfig.Parser(defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -50,6 +54,10 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
     private URI quoteEndpoint;
     private URI tokensEndpoint;
+
+    Parser(final Backoff defaultBackoff) {
+      super(defaultBackoff);
+    }
 
     private JupiterConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Jupiter");
@@ -76,7 +84,6 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
   @Override
   public boolean equals(Object obj) {
-    if (obj == this) return true;
     if (obj instanceof JupiterConfig that) {
       return Objects.equals(this.capacityMonitor, that.capacityMonitor) &&
           Objects.equals(this.quoteEndpoint, that.quoteEndpoint) &&
