@@ -181,13 +181,13 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
           completeFuture(txContext, sigStatus);
           continue;
         } else {
-          logger.log(INFO, """
+          logger.log(INFO, String.format("""
                   Transaction has been successfully %s, awaiting %s.
                   %s
                   """,
               commitment, awaitCommitment,
               formatter.formatSig(sig)
-          );
+          ));
         }
       }
 

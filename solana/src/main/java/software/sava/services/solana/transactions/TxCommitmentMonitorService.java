@@ -197,8 +197,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         .orTimeout(confirmedTimeout, timeUnit)
         .exceptionally(_ -> {
           logger.log(WARNING, String.format(
-              "%s not confirmed via websocket after %d %s.",
-              txSig, confirmedTimeout, timeUnit
+              "%s not confirmed via websocket after %d seconds.",
+              txSig, timeUnit.toSeconds(confirmedTimeout)
           ));
           webSocket.signatureUnsubscribe(CONFIRMED, txSig);
           return null;
@@ -232,8 +232,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 .orTimeout(finalizationTimeout, TimeUnit.MILLISECONDS)
                 .exceptionally(_ -> {
                   logger.log(WARNING, String.format(
-                      "%s not FINALIZED via websocket after %d ms.",
-                      txSig, finalizationTimeout
+                      "%s not FINALIZED via websocket after %d seconds.",
+                      txSig, TimeUnit.MILLISECONDS.toSeconds(finalizationTimeout)
                   ));
                   _webSocket.signatureUnsubscribe(FINALIZED, txSig);
                   return null;
