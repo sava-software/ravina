@@ -44,9 +44,13 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
   }
 
   public static LoadBalancerConfig parse(final JsonIterator ji) {
+    return parse(ji, null);
+  }
+
+  public static LoadBalancerConfig parse(final JsonIterator ji, final Backoff defaultBackoff) {
     final var parser = new Builder();
     ji.testObject(parser);
-    return parser.create();
+    return parser.create(defaultBackoff);
   }
 
   private static final class Builder implements FieldBufferPredicate {
@@ -58,10 +62,10 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
     private Builder() {
     }
 
-    private LoadBalancerConfig create() {
+    private LoadBalancerConfig create(final Backoff defaultBackoff) {
       return new LoadBalancerConfig(
           defaultCapacityConfig,
-          defaultBackoff,
+          requireNonNullElse(this.defaultBackoff, defaultBackoff),
           resourceConfigs
       );
     }

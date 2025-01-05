@@ -93,7 +93,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   public final void notifyWorker() {
     workLock.lock();
     try {
-      processTransactions.notifyAll();
+      processTransactions.signalAll();
     } finally {
       workLock.unlock();
     }

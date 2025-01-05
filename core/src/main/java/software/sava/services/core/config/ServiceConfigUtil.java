@@ -25,7 +25,8 @@ public final class ServiceConfigUtil {
     if (!Files.exists(serviceConfigFile)) {
       throw new IllegalStateException(String.format("""
           Config file %s does not exist, provide a service configuration file via the System Property [%s], or via the default location [config.json]
-          """, serviceConfigFile.toAbsolutePath(), moduleNameConfigProperty));
+          """, serviceConfigFile.toAbsolutePath(), moduleNameConfigProperty
+      ));
     }
     return serviceConfigFile.toAbsolutePath();
   }
