@@ -75,8 +75,8 @@ public record Epoch(long startedAt,
     final long slotsPerEpoch = slotsPerEpoch();
     final double percentProgress = (estimatedSlot / (double) slotsPerEpoch) * 100;
     final long startedAgo = System.currentTimeMillis() - startedAt;
-    return String.format("""
-            Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%%""",
+    return String.format(
+        "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%%",
         Long.toUnsignedString(epoch()),
         Duration.ofMillis(startedAgo).truncatedTo(MINUTES).toString().substring(2),
         Duration.ofMillis(millisRemaining).truncatedTo(MINUTES).toString().substring(2),

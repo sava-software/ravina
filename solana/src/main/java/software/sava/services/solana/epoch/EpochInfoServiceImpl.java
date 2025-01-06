@@ -96,8 +96,25 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     }
   }
 
-  private static void logEpoch(final Epoch epoch) {
-    logger.log(INFO, epoch.logFormat());
+  private static Epoch logEpoch(final Epoch previous, final Epoch epoch) {
+    final String log;
+    if (previous == null) {
+      log = epoch.logFormat();
+    } else if (Long.compareUnsigned(epoch.epoch(), previous.epoch()) > 0) {
+      log = "New " + epoch.logFormat();
+    } else {
+      final long previousMillisRemaining = previous.millisRemaining();
+      final long delta = epoch.millisRemaining() - previousMillisRemaining;
+      final double percentDelta = 100 * (delta / (double) previousMillisRemaining);
+      log = String.format("""
+              %s
+              %d ms | %.1f%% difference from previous estimate.
+              """,
+          epoch.logFormat(), delta, percentDelta
+      );
+    }
+    logger.log(INFO, log);
+    return epoch;
   }
 
   @SuppressWarnings({"InfiniteLoopStatement", "BusyWait"})
@@ -109,9 +126,11 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
       var slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
       var earliestEpochInfo = getEpochInfo(null, slotStats);
+
       epoch = earliestEpochInfo;
       initialized.countDown();
-      logEpoch(epoch);
+
+      var previous = logEpoch(null, epoch);
 
       for (long endsAt = epoch.endsAt(), sleep; ; ) {
         now = System.currentTimeMillis();
@@ -128,14 +147,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           fetchSamplesAfter = now + fetchSamplesDelayMillis;
           slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
           epoch = getEpochInfo(earliestEpochInfo, slotStats);
-          logEpoch(epoch);
+          previous = logEpoch(previous, epoch);
           endsAt = epoch.endsAt();
           if (epoch.epoch() > earliestEpochInfo.epoch()) {
             earliestEpochInfo = epoch;
           }
         } else if (now > endsAt) {
           epoch = getEpochInfo(earliestEpochInfo, slotStats);
-          logEpoch(epoch);
+          previous = logEpoch(previous, epoch);
           endsAt = epoch.endsAt();
           if (epoch.epoch() > earliestEpochInfo.epoch()) {
             earliestEpochInfo = epoch;

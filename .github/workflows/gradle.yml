@@ -45,5 +45,3 @@ jobs:
           VIRTUAL_SERVER: true
           GITHUB_ACTOR: ${{ secrets.GITHUB_ACTOR }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_SAVA_USER: ${{ secrets.GPR_USER }}
-          GITHUB_SAVA_TOKEN: ${{ secrets.GPR_TOKEN }}
