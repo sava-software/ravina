@@ -3,8 +3,8 @@ rootProject.name = 'sava-services'
 include 'core'
 include 'jetty'
 include 'solana'
-include 'spring/solana'
-project(':spring/solana').name = 'solana_spring'
+//include 'spring/solana'
+//project(':spring/solana').name = 'solana_spring'
 
 def gprUser = providers.gradleProperty("gpr.user")
 def gprToken = providers.gradleProperty("gpr.token")
@@ -26,7 +26,7 @@ dependencyResolutionManagement {
   }
   versionCatalogs {
     libs {
-      from("software.sava:solana-version-catalog:0.4.41")
+      from("software.sava:solana-version-catalog:0.4.43")
     }
   }
 }
