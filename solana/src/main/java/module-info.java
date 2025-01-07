@@ -11,6 +11,7 @@ module software.sava.solana_services {
   requires software.sava.core_services;
   requires software.sava.kms_core;
 
+  exports software.sava.services.solana.alt;
   exports software.sava.services.solana.config;
   exports software.sava.services.solana.epoch;
   exports software.sava.services.solana.load_balance;
