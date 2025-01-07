@@ -18,7 +18,7 @@ import static java.lang.System.Logger.Level.WARNING;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 
-public abstract class BatchInstructionService {
+public class BatchInstructionService {
 
   protected static final System.Logger logger = System.getLogger(BatchInstructionService.class.getName());
 
@@ -32,12 +32,12 @@ public abstract class BatchInstructionService {
   protected final TxMonitorService txMonitorService;
   protected int batchSize;
 
-  protected BatchInstructionService(final RpcCaller rpcCaller,
-                                    final TransactionProcessor transactionProcessor,
-                                    final NativeProgramClient nativeProgramClient,
-                                    final EpochInfoService epochInfoService,
-                                    final TxMonitorService txMonitorService,
-                                    final int batchSize) {
+  public BatchInstructionService(final RpcCaller rpcCaller,
+                                 final TransactionProcessor transactionProcessor,
+                                 final NativeProgramClient nativeProgramClient,
+                                 final EpochInfoService epochInfoService,
+                                 final TxMonitorService txMonitorService,
+                                 final int batchSize) {
     this.rpcCaller = rpcCaller;
     this.transactionProcessor = transactionProcessor;
     this.nativeProgramClient = nativeProgramClient;

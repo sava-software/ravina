@@ -17,33 +17,6 @@ public record UriCapacityConfig(URI endpoint,
                                 CapacityConfig capacityConfig,
                                 Backoff backoff) {
 
-
-  public static void main(final String[] args) throws InterruptedException {
-    final var resetDuration = Duration.ofSeconds(2);
-    final var config = new CapacityConfig(
-        -(13 * 2),
-        200,
-        Duration.ofSeconds(2),
-        5,
-        Duration.ofHours(1),
-        resetDuration,
-        resetDuration,
-        resetDuration
-    );
-
-    final var monitor = config.createHttpResponseMonitor("test");
-    final var monitorState = monitor.capacityState();
-
-    for (long now, from = System.currentTimeMillis(); ; ) {
-      if (monitorState.tryClaimRequest()) {
-        now = System.currentTimeMillis();
-        System.out.println(now - from);
-        from = now;
-      }
-      Thread.sleep(10);
-    }
-  }
-
   public static UriCapacityConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.STRING) {
       final var endpoint = ji.readString();
@@ -83,7 +56,7 @@ public record UriCapacityConfig(URI endpoint,
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = BackoffConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createBackoff();
       } else {
         ji.skip();
       }

@@ -44,13 +44,15 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
   }
 
   public static LoadBalancerConfig parse(final JsonIterator ji) {
-    return parse(ji, null);
+    return parse(ji, null, null);
   }
 
-  public static LoadBalancerConfig parse(final JsonIterator ji, final Backoff defaultBackoff) {
+  public static LoadBalancerConfig parse(final JsonIterator ji,
+                                         final CapacityConfig defaultCapacityConfig,
+                                         final Backoff defaultBackoff) {
     final var parser = new Builder();
     ji.testObject(parser);
-    return parser.create(defaultBackoff);
+    return parser.create(defaultCapacityConfig, defaultBackoff);
   }
 
   private static final class Builder implements FieldBufferPredicate {
@@ -62,9 +64,9 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
     private Builder() {
     }
 
-    private LoadBalancerConfig create(final Backoff defaultBackoff) {
+    private LoadBalancerConfig create(final CapacityConfig defaultCapacityConfig, final Backoff defaultBackoff) {
       return new LoadBalancerConfig(
-          defaultCapacityConfig,
+          requireNonNullElse(this.defaultCapacityConfig, defaultCapacityConfig),
           requireNonNullElse(this.defaultBackoff, defaultBackoff),
           resourceConfigs
       );
@@ -75,7 +77,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       if (fieldEquals("defaultCapacity", buf, offset, len)) {
         defaultCapacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("defaultBackoff", buf, offset, len)) {
-        defaultBackoff = BackoffConfig.parseConfig(ji).createHandler();
+        defaultBackoff = BackoffConfig.parseConfig(ji).createBackoff();
       } else if (fieldEquals("endpoints", buf, offset, len)) {
         final var rpcConfigs = new ArrayList<UriCapacityConfig>();
         while (ji.readArray()) {

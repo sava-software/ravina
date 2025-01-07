@@ -37,7 +37,7 @@ public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
       if (fieldEquals("endpoint", buf, offset, len)) {
         endpoint = ji.readString();
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = BackoffConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createBackoff();
       } else {
         throw new IllegalStateException(String.format(
             "Unknown RemoteResourceConfig field [%s] [endpoint=%s]",

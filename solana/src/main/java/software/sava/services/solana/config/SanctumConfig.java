@@ -2,6 +2,7 @@ package software.sava.services.solana.config;
 
 import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;
+import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.solana.web2.sanctum.client.http.SanctumClient;
 import systems.comodal.jsoniter.JsonIterator;
@@ -32,11 +33,13 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
   }
 
   public static SanctumConfig parseConfig(final JsonIterator ji) {
-    return parseConfig(ji, null);
+    return parseConfig(ji, null, null);
   }
 
-  public static SanctumConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
-    final var parser = new Parser(defaultBackoff);
+  public static SanctumConfig parseConfig(final JsonIterator ji,
+                                          final CapacityConfig defaultCapacity,
+                                          final Backoff defaultBackoff) {
+    final var parser = new Parser(defaultCapacity, defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -54,16 +57,15 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
     private URI apiEndpoint;
     private URI extraApiEndpoint;
 
-    Parser(final Backoff defaultBackoff) {
-      super(defaultBackoff);
+    Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
+      super(defaultCapacity, defaultBackoff);
     }
 
     private SanctumConfig create() {
-      final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Sanctum");
       return new SanctumConfig(
           apiEndpoint == null ? URI.create(SanctumClient.PUBLIC_ENDPOINT) : apiEndpoint,
           extraApiEndpoint == null ? URI.create(SanctumClient.EXTRA_API_ENDPOINT) : extraApiEndpoint,
-          capacityMonitor,
+          capacityConfig.createHttpResponseMonitor("Sanctum"),
           backoff
       );
     }

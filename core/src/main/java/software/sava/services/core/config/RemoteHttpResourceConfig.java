@@ -53,7 +53,7 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = BackoffConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createBackoff();
       } else {
         ji.skip();
       }

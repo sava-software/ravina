@@ -4,6 +4,7 @@ import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.solana.web2.helius.client.http.HeliusClient;
 import systems.comodal.jsoniter.JsonIterator;
@@ -27,11 +28,13 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
   }
 
   public static HeliusConfig parseConfig(final JsonIterator ji) {
-    return parseConfig(ji, null);
+    return parseConfig(ji, null, null);
   }
 
-  public static HeliusConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
-    final var parser = new Parser(defaultBackoff);
+  public static HeliusConfig parseConfig(final JsonIterator ji,
+                                         final CapacityConfig defaultCapacity,
+                                         final Backoff defaultBackoff) {
+    final var parser = new Parser(defaultCapacity, defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -59,8 +62,8 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
     private URI endpoint;
 
-    Parser(final Backoff defaultBackoff) {
-      super(defaultBackoff);
+    Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
+      super(defaultCapacity, defaultBackoff);
     }
 
 

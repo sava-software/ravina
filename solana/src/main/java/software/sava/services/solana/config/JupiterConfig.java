@@ -2,6 +2,7 @@ package software.sava.services.solana.config;
 
 import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;
+import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.solana.web2.jupiter.client.http.JupiterClient;
 import systems.comodal.jsoniter.JsonIterator;
@@ -41,11 +42,13 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
   }
 
   public static JupiterConfig parseConfig(final JsonIterator ji) {
-    return parseConfig(ji, null);
+    return parseConfig(ji, null, null);
   }
 
-  public static JupiterConfig parseConfig(final JsonIterator ji, final Backoff defaultBackoff) {
-    final var parser = new JupiterConfig.Parser(defaultBackoff);
+  public static JupiterConfig parseConfig(final JsonIterator ji,
+                                          final CapacityConfig defaultCapacity,
+                                          final Backoff defaultBackoff) {
+    final var parser = new JupiterConfig.Parser(defaultCapacity, defaultBackoff);
     ji.testObject(parser);
     return parser.create();
   }
@@ -55,16 +58,15 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
     private URI quoteEndpoint;
     private URI tokensEndpoint;
 
-    Parser(final Backoff defaultBackoff) {
-      super(defaultBackoff);
+    Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
+      super(defaultCapacity, defaultBackoff);
     }
 
     private JupiterConfig create() {
-      final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Jupiter");
       return new JupiterConfig(
           quoteEndpoint == null ? URI.create(JupiterClient.PUBLIC_QUOTE_ENDPOINT) : quoteEndpoint,
           tokensEndpoint == null ? URI.create(JupiterClient.PUBLIC_TOKEN_LIST_ENDPOINT) : tokensEndpoint,
-          capacityMonitor,
+          capacityConfig.createHttpResponseMonitor("Jupiter"),
           backoff
       );
     }

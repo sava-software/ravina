@@ -14,7 +14,7 @@ public record BackoffConfig(BackoffStrategy strategy,
                             Duration initialRetryDelay,
                             Duration maxRetryDelay) {
 
-  public Backoff createHandler() {
+  public Backoff createBackoff() {
     return switch (strategy) {
       case exponential ->
           Backoff.exponential(TimeUnit.NANOSECONDS, initialRetryDelay.toNanos(), maxRetryDelay.toNanos());

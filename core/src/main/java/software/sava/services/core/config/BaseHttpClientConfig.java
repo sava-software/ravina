@@ -49,7 +49,8 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
     protected CapacityConfig capacityConfig;
     protected Backoff backoff;
 
-    protected BaseParser(final Backoff defaultBackoff) {
+    protected BaseParser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
+      this.capacityConfig = defaultCapacity;
       this.backoff = defaultBackoff;
     }
 
@@ -58,7 +59,7 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
       if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = BackoffConfig.parseConfig(ji).createHandler();
+        backoff = BackoffConfig.parseConfig(ji).createBackoff();
       } else {
         throw new IllegalStateException(String.format(
             "Unknown %s field [%s]",
