@@ -59,7 +59,7 @@ final class WebSocketManagerImpl implements WebSocketManager {
           this.webSocket = null;
           logger.log(WARNING, String.format(
               "Websocket failure.  Can re-connect in %d seconds.",
-              connectionDelay * 1_000
+              TimeUnit.MILLISECONDS.toSeconds(connectionDelay)
           ), throwable);
         })
         .create();
@@ -131,6 +131,5 @@ final class WebSocketManagerImpl implements WebSocketManager {
     if (webSocket != null) {
       webSocket.close();
     }
-    this.httpClient.close();
   }
 }
