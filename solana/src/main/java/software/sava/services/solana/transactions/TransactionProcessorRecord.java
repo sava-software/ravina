@@ -20,6 +20,7 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
@@ -28,6 +29,7 @@ import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.
 record TransactionProcessorRecord(ExecutorService executor,
                                   SigningService signingService,
                                   PublicKey feePayer,
+                                  Function<List<Instruction>, Transaction> legacyTransactionFactory,
                                   SolanaAccounts solanaAccounts,
                                   ChainItemFormatter formatter,
                                   LoadBalancer<SolanaRpcClient> rpcClients,
@@ -129,7 +131,7 @@ record TransactionProcessorRecord(ExecutorService executor,
   @Override
   public Transaction createTransaction(final SimulationFutures simulationFutures,
                                        final TxSimulation simulationResult) {
-    return simulationFutures.createTransaction(solanaAccounts, feePayer, simulationResult);
+    return simulationFutures.createTransaction(solanaAccounts, simulationResult);
   }
 
   @Override
@@ -224,7 +226,9 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+  public SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                               final List<Instruction> instructions,
+                                               final Function<List<Instruction>, Transaction> transactionFactory) {
     final var simulateTx = Transaction.createTx(feePayer, instructions).prependInstructions(
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 12345)
@@ -250,6 +254,6 @@ record TransactionProcessorRecord(ExecutorService executor,
         "heliusClient::getRecommendedTransactionPriorityFeeEstimate"
     ).async(executor);
 
-    return new SimulationFutures(commitment, instructions, simulationFuture, feeEstimateFuture);
+    return new SimulationFutures(commitment, instructions, transactionFactory, simulationFuture, feeEstimateFuture);
   }
 }

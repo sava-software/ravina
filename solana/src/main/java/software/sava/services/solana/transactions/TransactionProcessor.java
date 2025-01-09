@@ -17,6 +17,7 @@ import software.sava.solana.web2.helius.client.http.HeliusClient;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
@@ -37,6 +38,7 @@ public interface TransactionProcessor {
         executor,
         signingService,
         feePayer,
+        instructions -> Transaction.createTx(feePayer, instructions),
         solanaAccounts,
         formatter,
         rpcClients,
@@ -48,6 +50,8 @@ public interface TransactionProcessor {
   }
 
   ChainItemFormatter formatter();
+
+  Function<List<Instruction>, Transaction> legacyTransactionFactory();
 
   static String formatSimulationResult(final TxSimulation simulationResult) {
     return String.format("""
@@ -107,9 +111,20 @@ public interface TransactionProcessor {
 
   SendTxContext signAndSignedTx(final Transaction transaction, final long blockHeight);
 
-  SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions);
+  SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                        final List<Instruction> instructions,
+                                        final Function<List<Instruction>, Transaction> transactionFactory);
+
+  default SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+    return simulateAndEstimate(commitment, instructions, legacyTransactionFactory());
+  }
+
+  default SimulationFutures simulateAndEstimate(final List<Instruction> instructions,
+                                                final Function<List<Instruction>, Transaction> transactionFactory) {
+    return simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
+  }
 
   default SimulationFutures simulateAndEstimate(final List<Instruction> instructions) {
-    return simulateAndEstimate(CONFIRMED, instructions);
+    return simulateAndEstimate(CONFIRMED, instructions, legacyTransactionFactory());
   }
 }
