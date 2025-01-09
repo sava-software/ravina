@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
+import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.services.core.request_capacity.context.CallContext;
@@ -46,8 +47,7 @@ public class BatchInstructionService {
     this.batchSize = batchSize;
   }
 
-  private SendTxContext sendTransaction(final SimulationFutures simulationFutures,
-                                        final TxSimulation simulationResult) {
+  private SendTxContext sendTransaction(final SimulationFutures simulationFutures, final TxSimulation simulationResult) {
     final var transaction = transactionProcessor.createTransaction(simulationFutures, simulationResult);
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
     if (blockHeight < 0) {
@@ -67,8 +67,14 @@ public class BatchInstructionService {
   }
 
   protected final TransactionError processInstructions(final List<Instruction> instructions, final String logContext) throws InterruptedException {
+    return processInstructions(instructions, transactionProcessor.legacyTransactionFactory(), logContext);
+  }
+
+  protected final TransactionError processInstructions(final List<Instruction> instructions,
+                                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                                       final String logContext) throws InterruptedException {
     for (; ; ) {
-      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
+      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
       if (simulationFutures == null) {
         throw new IllegalStateException(String.format(
             "Transaction exceeds size limit for %d %s instructions",
