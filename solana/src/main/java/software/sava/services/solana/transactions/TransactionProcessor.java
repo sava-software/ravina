@@ -9,6 +9,7 @@ import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
@@ -26,6 +27,7 @@ public interface TransactionProcessor {
 
   static TransactionProcessor createProcessor(final ExecutorService executor,
                                               final SigningService signingService,
+                                              final LookupTableCache lookupTableCache,
                                               final PublicKey feePayer,
                                               final SolanaAccounts solanaAccounts,
                                               final ChainItemFormatter formatter,
@@ -38,6 +40,7 @@ public interface TransactionProcessor {
         executor,
         signingService,
         feePayer,
+        lookupTableCache,
         instructions -> Transaction.createTx(feePayer, instructions),
         solanaAccounts,
         formatter,
@@ -48,10 +51,6 @@ public interface TransactionProcessor {
         webSocketManager
     );
   }
-
-  ChainItemFormatter formatter();
-
-  Function<List<Instruction>, Transaction> legacyTransactionFactory();
 
   static String formatSimulationResult(final TxSimulation simulationResult) {
     return String.format("""
@@ -73,6 +72,14 @@ public interface TransactionProcessor {
         simulationResult.logs().stream().collect(Collectors.joining("\n    * ", "  * ", ""))
     );
   }
+
+  ChainItemFormatter formatter();
+
+  Function<List<Instruction>, Transaction> legacyTransactionFactory();
+
+  Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys);
+
+  LookupTableCache lookupTableCache();
 
   WebSocketManager webSocketManager();
 

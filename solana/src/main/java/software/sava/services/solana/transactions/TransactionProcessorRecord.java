@@ -11,12 +11,13 @@ import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 import software.sava.solana.web2.helius.client.http.HeliusClient;
 
-import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -29,6 +30,7 @@ import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.
 record TransactionProcessorRecord(ExecutorService executor,
                                   SigningService signingService,
                                   PublicKey feePayer,
+                                  LookupTableCache lookupTableCache,
                                   Function<List<Instruction>, Transaction> legacyTransactionFactory,
                                   SolanaAccounts solanaAccounts,
                                   ChainItemFormatter formatter,
@@ -38,10 +40,29 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
-  private static final int RECENT_BLOCK_QUEUE = 151;
-  private static final BigInteger BIG_RECENT_BLOCK_QUEUE = BigInteger.valueOf(RECENT_BLOCK_QUEUE);
-  private static final long MAX_SIGNED_HEIGHT = Long.MAX_VALUE - RECENT_BLOCK_QUEUE;
-  private static final System.Logger logger = System.getLogger(TransactionProcessor.class.getName());
+  @Override
+  public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
+    final int numTables = lookupTableKeys.size();
+    if (numTables == 0) {
+      return legacyTransactionFactory;
+    } else if (numTables == 1) {
+      final var lookupTableKey = lookupTableKeys.getFirst();
+      final var lookupTable = lookupTableCache.getOrFetchTable(lookupTableKey);
+      if (lookupTable == null) {
+        throw new IllegalStateException("Failed to find lookup table " + lookupTableKey);
+      }
+      return instructions -> Transaction.createTx(feePayer, instructions, lookupTable);
+    } else {
+      final var lookupTableMetas = lookupTableCache.getOrFetchTables(lookupTableKeys);
+      if (lookupTableMetas.length < lookupTableKeys.size()) {
+        final var missingTableKeys = Arrays.stream(lookupTableMetas)
+            .filter(meta -> !lookupTableKeys.contains(meta.lookupTable().address()))
+            .toList();
+        throw new IllegalStateException("Failed to find lookup table(s) " + missingTableKeys);
+      }
+      return instructions -> Transaction.createTx(feePayer, instructions, lookupTableMetas);
+    }
+  }
 
   @Override
   public String formatTxMeta(final String sig, final TxMeta txMeta) {
