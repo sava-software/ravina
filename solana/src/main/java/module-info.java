@@ -10,6 +10,7 @@ module software.sava.solana_services {
   requires software.sava.anchor_programs;
   requires software.sava.core_services;
   requires software.sava.kms_core;
+  requires org.bouncycastle.provider;
 
   exports software.sava.services.solana.alt;
   exports software.sava.services.solana.config;

@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.services.core.request_capacity.context.CallContext;
@@ -78,11 +79,16 @@ public class BaseInstructionService implements InstructionService {
     return transactionProcessor.signAndSignedTx(transaction, blockHeight);
   }
 
-  public final TransactionError processInstructions(final List<Instruction> instructions, final String logContext) throws InterruptedException {
-    return processInstructions(instructions, transactionProcessor.legacyTransactionFactory(), logContext);
+  public final TransactionError processInstructions(final List<Instruction> instructions,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final String logContext) throws InterruptedException {
+    return processInstructions(instructions, awaitCommitment, awaitCommitmentOnError, transactionProcessor.legacyTransactionFactory(), logContext);
   }
 
   public final TransactionError processInstructions(final List<Instruction> instructions,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext) throws InterruptedException {
     for (; ; ) {

@@ -73,6 +73,12 @@ public interface TransactionProcessor {
     );
   }
 
+  PublicKey feePayer();
+
+  SolanaAccounts solanaAccounts();
+
+  CallWeights callWeights();
+
   ChainItemFormatter formatter();
 
   Function<List<Instruction>, Transaction> legacyTransactionFactory();
