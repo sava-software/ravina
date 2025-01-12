@@ -18,13 +18,10 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
-  private final URI endpoint;
-
   public HeliusConfig(final URI endpoint,
                       final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                       final Backoff backoff) {
-    super(capacityMonitor, backoff);
-    this.endpoint = endpoint;
+    super(endpoint, capacityMonitor, backoff);
   }
 
   public static HeliusConfig parseConfig(final JsonIterator ji) {
@@ -37,10 +34,6 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
     final var parser = new Parser(defaultCapacity, defaultBackoff);
     ji.testObject(parser);
     return parser.create();
-  }
-
-  public URI endpoint() {
-    return endpoint;
   }
 
   @Override
@@ -60,22 +53,20 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
   private static final class Parser extends BaseParser {
 
-    private URI endpoint;
-
     Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
-      super(defaultCapacity, defaultBackoff);
+      super(null, defaultCapacity, defaultBackoff);
     }
 
 
     private HeliusConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Helius");
-      return new HeliusConfig(endpoint, capacityMonitor, backoff);
+      return new HeliusConfig(URI.create(endpoint), capacityMonitor, backoff);
     }
 
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("url", buf, offset, len) || fieldEquals("endpoint", buf, offset, len)) {
-        endpoint = URI.create(ji.readString());
+        endpoint = ji.readString();
       } else {
         return super.test(buf, offset, len, ji);
       }

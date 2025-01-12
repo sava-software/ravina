@@ -16,20 +16,18 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
 
-  private final URI apiEndpoint;
   private final URI extraApiEndpoint;
 
   public SanctumConfig(final URI apiEndpoint,
                        final URI extraApiEndpoint,
                        final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                        final Backoff backoff) {
-    super(capacityMonitor, backoff);
-    this.apiEndpoint = apiEndpoint;
+    super(apiEndpoint, capacityMonitor, backoff);
     this.extraApiEndpoint = extraApiEndpoint;
   }
 
   public SanctumClient createClient(final HttpClient httpClient) {
-    return SanctumClient.createClient(apiEndpoint, extraApiEndpoint, httpClient, capacityMonitor.errorTracker());
+    return SanctumClient.createClient(endpoint, extraApiEndpoint, httpClient, capacityMonitor.errorTracker());
   }
 
   public static SanctumConfig parseConfig(final JsonIterator ji) {
@@ -44,26 +42,21 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
     return parser.create();
   }
 
-  public URI apiEndpoint() {
-    return apiEndpoint;
-  }
-
   public URI extraApiEndpoint() {
     return extraApiEndpoint;
   }
 
   private static final class Parser extends BaseParser {
 
-    private URI apiEndpoint;
     private URI extraApiEndpoint;
 
     Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
-      super(defaultCapacity, defaultBackoff);
+      super(SanctumClient.PUBLIC_ENDPOINT, defaultCapacity, defaultBackoff);
     }
 
     private SanctumConfig create() {
       return new SanctumConfig(
-          apiEndpoint == null ? URI.create(SanctumClient.PUBLIC_ENDPOINT) : apiEndpoint,
+          URI.create(endpoint),
           extraApiEndpoint == null ? URI.create(SanctumClient.EXTRA_API_ENDPOINT) : extraApiEndpoint,
           capacityConfig.createHttpResponseMonitor("Sanctum"),
           backoff
@@ -73,7 +66,7 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("endpoint", buf, offset, len)) {
-        apiEndpoint = URI.create(ji.readString());
+        endpoint = ji.readString();
       } else if (fieldEquals("extraEndpoint", buf, offset, len)) {
         extraApiEndpoint = URI.create(ji.readString());
       } else {
@@ -87,9 +80,9 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
   public boolean equals(final Object obj) {
     if (obj == this) return true;
     if (obj instanceof SanctumConfig that) {
-      return Objects.equals(this.capacityMonitor, that.capacityMonitor) &&
-          Objects.equals(this.apiEndpoint, that.apiEndpoint) &&
+      return Objects.equals(this.endpoint, that.endpoint) &&
           Objects.equals(this.extraApiEndpoint, that.extraApiEndpoint) &&
+          Objects.equals(this.capacityMonitor, that.capacityMonitor) &&
           Objects.equals(this.backoff, that.backoff);
     } else {
       return false;
@@ -98,15 +91,15 @@ public final class SanctumConfig extends BaseHttpClientConfig<SanctumClient> {
 
   @Override
   public int hashCode() {
-    return Objects.hash(capacityMonitor, apiEndpoint, extraApiEndpoint, backoff);
+    return Objects.hash(endpoint, extraApiEndpoint, capacityMonitor, backoff);
   }
 
   @Override
   public String toString() {
     return "SanctumConfig[" +
-        "capacityMonitor=" + capacityMonitor + ", " +
-        "apiEndpoint=" + apiEndpoint + ", " +
+        "apiEndpoint=" + endpoint + ", " +
         "extraApiEndpoint=" + extraApiEndpoint + ", " +
+        "capacityMonitor=" + capacityMonitor + ", " +
         "backoff=" + backoff + ']';
   }
 }

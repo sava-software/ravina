@@ -8,6 +8,7 @@ import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 
@@ -15,13 +16,21 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
 
+  protected final URI endpoint;
   protected final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor;
   protected final Backoff backoff;
 
-  protected BaseHttpClientConfig(final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
+  protected BaseHttpClientConfig(final URI endpoint,
+                                 final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                                  final Backoff backoff) {
+    this.endpoint = endpoint;
     this.capacityMonitor = capacityMonitor;
     this.backoff = backoff;
+  }
+
+  @Override
+  public final URI endpoint() {
+    return endpoint;
   }
 
   @Override
@@ -46,10 +55,14 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
 
   protected static class BaseParser implements FieldBufferPredicate {
 
+    protected String endpoint;
     protected CapacityConfig capacityConfig;
     protected Backoff backoff;
 
-    protected BaseParser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
+    protected BaseParser(final String defaultEndpoint,
+                         final CapacityConfig defaultCapacity,
+                         final Backoff defaultBackoff) {
+      this.endpoint = defaultEndpoint;
       this.capacityConfig = defaultCapacity;
       this.backoff = defaultBackoff;
     }

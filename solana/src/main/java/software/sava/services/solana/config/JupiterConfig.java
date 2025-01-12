@@ -16,20 +16,14 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
-  private final URI quoteEndpoint;
   private final URI tokensEndpoint;
 
   public JupiterConfig(final URI quoteEndpoint,
                        final URI tokensEndpoint,
                        final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                        final Backoff backoff) {
-    super(capacityMonitor, backoff);
-    this.quoteEndpoint = quoteEndpoint;
+    super(quoteEndpoint, capacityMonitor, backoff);
     this.tokensEndpoint = tokensEndpoint;
-  }
-
-  public URI quoteEndpoint() {
-    return quoteEndpoint;
   }
 
   public URI tokensEndpoint() {
@@ -38,7 +32,7 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
   @Override
   public JupiterClient createClient(final HttpClient httpClient) {
-    return JupiterClient.createClient(quoteEndpoint, tokensEndpoint, httpClient, capacityMonitor.errorTracker());
+    return JupiterClient.createClient(endpoint, tokensEndpoint, httpClient, capacityMonitor.errorTracker());
   }
 
   public static JupiterConfig parseConfig(final JsonIterator ji) {
@@ -55,16 +49,15 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
   private static final class Parser extends BaseParser {
 
-    private URI quoteEndpoint;
     private URI tokensEndpoint;
 
     Parser(final CapacityConfig defaultCapacity, final Backoff defaultBackoff) {
-      super(defaultCapacity, defaultBackoff);
+      super(JupiterClient.PUBLIC_QUOTE_ENDPOINT, defaultCapacity, defaultBackoff);
     }
 
     private JupiterConfig create() {
       return new JupiterConfig(
-          quoteEndpoint == null ? URI.create(JupiterClient.PUBLIC_QUOTE_ENDPOINT) : quoteEndpoint,
+          URI.create(endpoint),
           tokensEndpoint == null ? URI.create(JupiterClient.PUBLIC_TOKEN_LIST_ENDPOINT) : tokensEndpoint,
           capacityConfig.createHttpResponseMonitor("Jupiter"),
           backoff
@@ -74,7 +67,7 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
       if (fieldEquals("quoteEndpoint", buf, offset, len)) {
-        quoteEndpoint = URI.create(ji.readString());
+        endpoint = ji.readString();
       } else if (fieldEquals("tokensEndpoint", buf, offset, len)) {
         tokensEndpoint = URI.create(ji.readString());
       } else {
@@ -87,9 +80,9 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
   @Override
   public boolean equals(Object obj) {
     if (obj instanceof JupiterConfig that) {
-      return Objects.equals(this.capacityMonitor, that.capacityMonitor) &&
-          Objects.equals(this.quoteEndpoint, that.quoteEndpoint) &&
+      return Objects.equals(this.endpoint, that.endpoint) &&
           Objects.equals(this.tokensEndpoint, that.tokensEndpoint) &&
+          Objects.equals(this.capacityMonitor, that.capacityMonitor) &&
           Objects.equals(this.backoff, that.backoff);
     } else {
       return false;
@@ -98,15 +91,15 @@ public final class JupiterConfig extends BaseHttpClientConfig<JupiterClient> {
 
   @Override
   public int hashCode() {
-    return Objects.hash(capacityMonitor, quoteEndpoint, tokensEndpoint, backoff);
+    return Objects.hash(endpoint, tokensEndpoint, capacityMonitor, backoff);
   }
 
   @Override
   public String toString() {
     return "JupiterConfig[" +
-        "capacityMonitor=" + capacityMonitor + ", " +
-        "quoteEndpoint=" + quoteEndpoint + ", " +
+        "quoteEndpoint=" + endpoint + ", " +
         "tokensEndpoint=" + tokensEndpoint + ", " +
+        "capacityMonitor=" + capacityMonitor + ", " +
         "backoff=" + backoff + ']';
   }
 }

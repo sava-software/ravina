@@ -4,10 +4,13 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ClientCaller;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 
 public interface HttpClientConfig<C> {
+
+  URI endpoint();
 
   ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor();
 
