@@ -7,6 +7,7 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -18,8 +19,6 @@ import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 public class BaseBatchInstructionService extends BaseInstructionService implements BatchInstructionService {
 
   protected static final System.Logger logger = System.getLogger(BaseBatchInstructionService.class.getName());
-
-  private static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
 
   protected int batchSize;
 
@@ -34,9 +33,9 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final TransactionError processBatch(final List<Instruction> instructions,
-                                             SimulationFutures simulationFutures,
-                                             final String logContext) throws InterruptedException {
+  public final TransactionResult processBatch(final List<Instruction> instructions,
+                                              SimulationFutures simulationFutures,
+                                              final String logContext) throws InterruptedException {
     for (; ; ) {
       final var simulationResult = simulationFutures.simulationFuture().join();
       final var simulationError = simulationResult.error();
@@ -46,15 +45,15 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                 """,
             instructions.size(), logContext, simulationError
         ));
-        return simulationError;
+        return TransactionResult.createResult(instructions, simulationError);
       }
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
       if (sendContext == null) {
-        return FAILED_RETRIEVE_BLOCK_HASH;
+        return TransactionResult.createResult(instructions, FAILED_RETRIEVE_BLOCK_HASH);
       }
-      final var txSig = sendContext.sig();
-      final var formattedSig = transactionProcessor.formatter().formatSig(txSig);
+      final var sig = sendContext.sig();
+      final var formattedSig = transactionProcessor.formatter().formatSig(sig);
       logger.log(INFO, String.format("""
               Published %d %s instructions:
               %s
@@ -66,7 +65,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           sendContext,
           FINALIZED,
           FINALIZED,
-          txSig
+          sig
       );
 
       final TransactionError error;
@@ -76,14 +75,14 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         final var sigStatus = txMonitorService.queueResult(
             FINALIZED,
             FINALIZED,
-            txSig,
+            sig,
             sendContext.blockHeight(),
             true
         ).join();
         if (sigStatus == null) {
           simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
           if (simulationFutures == null) {
-            return SIZE_LIMIT_EXCEEDED;
+            return TransactionResult.createResult(instructions, SIZE_LIMIT_EXCEEDED);
           }
           logger.log(INFO, String.format("""
                   %s transaction expired, retrying:
@@ -91,7 +90,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                   """,
               logContext, formattedSig
           ));
-          continue; // blockhash expired, retry batch.
+          continue; // block hash expired, retry batch.
         }
         error = sigStatus.error();
       }
@@ -103,7 +102,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                 """,
             instructions.size(), logContext, error, formattedSig
         ));
-        return error;
+        return TransactionResult.createResult(instructions, error);
       } else {
         logger.log(INFO, String.format("""
                 Finalized %d %s instructions:
@@ -111,14 +110,15 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                 """,
             instructions.size(), logContext, formattedSig
         ));
-        return null;
+        return TransactionResult.createResult(instructions, sig, formattedSig);
       }
     }
   }
 
   @Override
-  public final TransactionError batchProcess(final List<Instruction> instructions,
-                                             final String logContext) throws InterruptedException {
+  public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                                    final String logContext) throws InterruptedException {
+    final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
     for (int from = 0, to; from < numAccounts; ) {
       to = Math.min(numAccounts, from + batchSize);
@@ -130,25 +130,29 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       if (simulationFutures == null) {
         --batchSize;
       } else {
-        final var error = processBatch(batch, simulationFutures, logContext);
+        final var transactionResult = processBatch(batch, simulationFutures, logContext);
+        final var error = transactionResult.error();
         if (error != null) {
           if (error == SIZE_LIMIT_EXCEEDED) {
             --batchSize;
-          } else {
-            return error;
+          } else if (error != FAILED_RETRIEVE_BLOCK_HASH) {
+            results.add(transactionResult);
+            return results;
           }
         } else {
+          results.add(transactionResult);
           from = to;
         }
       }
     }
-    return null;
+    return results;
   }
 
   @Override
-  public final TransactionError batchProcess(final Map<PublicKey, ?> accountsMap,
-                                             final String logContext,
-                                             final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+  public final ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                                         final String logContext,
+                                                         final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    final var results = new ArrayList<TransactionResult>();
     final var publicKeys = List.copyOf(accountsMap.keySet());
     final int numAccounts = publicKeys.size();
     for (int from = 0, to; from < numAccounts; ) {
@@ -163,23 +167,26 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       if (simulationFutures == null) {
         --batchSize;
       } else {
-        final var error = processBatch(
+        final var transactionResult = processBatch(
             instructions,
             simulationFutures,
             logContext
         );
+        final var error = transactionResult.error();
         if (error != null) {
           if (error == SIZE_LIMIT_EXCEEDED) {
             --batchSize;
-          } else {
-            return error;
+          } else if (error != FAILED_RETRIEVE_BLOCK_HASH) {
+            results.add(transactionResult);
+            return results;
           }
         } else {
+          results.add(transactionResult);
           batch.forEach(accountsMap::remove);
           from = to;
         }
       }
     }
-    return null;
+    return results;
   }
 }

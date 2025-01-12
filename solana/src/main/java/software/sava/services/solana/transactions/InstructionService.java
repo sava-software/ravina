@@ -3,7 +3,6 @@ package software.sava.services.solana.transactions;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
-import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
@@ -27,25 +26,25 @@ public interface InstructionService {
     );
   }
 
-  TransactionError processInstructions(final List<Instruction> instructions,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final String logContext) throws InterruptedException;
+  TransactionResult processInstructions(final List<Instruction> instructions,
+                                        final Commitment awaitCommitment,
+                                        final Commitment awaitCommitmentOnError,
+                                        final String logContext) throws InterruptedException;
 
-  TransactionError processInstructions(final List<Instruction> instructions,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext) throws InterruptedException;
+  TransactionResult processInstructions(final List<Instruction> instructions,
+                                        final Commitment awaitCommitment,
+                                        final Commitment awaitCommitmentOnError,
+                                        final Function<List<Instruction>, Transaction> transactionFactory,
+                                        final String logContext) throws InterruptedException;
 
-  default TransactionError processInstructions(final List<Instruction> instructions,
-                                               final String logContext) throws InterruptedException {
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final String logContext) throws InterruptedException {
     return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, logContext);
   }
 
-  default TransactionError processInstructions(final List<Instruction> instructions,
-                                               final Function<List<Instruction>, Transaction> transactionFactory,
-                                               final String logContext) throws InterruptedException {
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
     return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, transactionFactory, logContext);
   }
 }

@@ -20,7 +20,10 @@ import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 
 public class BaseInstructionService implements InstructionService {
 
-  protected static final TransactionError FAILED_RETRIEVE_BLOCK_HASH = new TransactionError.Unknown("FAILED_RETRIEVE_BLOCK_HASH");
+  protected static final System.Logger logger = System.getLogger(BaseInstructionService.class.getName());
+
+  public static final TransactionError FAILED_RETRIEVE_BLOCK_HASH = new TransactionError.Unknown("FAILED_RETRIEVE_BLOCK_HASH");
+  public static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
 
   protected final RpcCaller rpcCaller;
   protected final TransactionProcessor transactionProcessor;
@@ -72,51 +75,48 @@ public class BaseInstructionService implements InstructionService {
         );
         blockHeight = transactionProcessor.setBlockHash(transaction, blockHash);
       } catch (final RuntimeException ex) {
-        BaseBatchInstructionService.logger.log(WARNING, "Failed to retrieve block hash for transaction.", ex);
+        logger.log(WARNING, "Failed to retrieve block hash for transaction.", ex);
         return null;
       }
     }
     return transactionProcessor.signAndSignedTx(transaction, blockHeight);
   }
 
-  public final TransactionError processInstructions(final List<Instruction> instructions,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final String logContext) throws InterruptedException {
+  public final TransactionResult processInstructions(final List<Instruction> instructions,
+                                                     final Commitment awaitCommitment,
+                                                     final Commitment awaitCommitmentOnError,
+                                                     final String logContext) throws InterruptedException {
     return processInstructions(instructions, awaitCommitment, awaitCommitmentOnError, transactionProcessor.legacyTransactionFactory(), logContext);
   }
 
-  public final TransactionError processInstructions(final List<Instruction> instructions,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final Function<List<Instruction>, Transaction> transactionFactory,
-                                                    final String logContext) throws InterruptedException {
+  public final TransactionResult processInstructions(final List<Instruction> instructions,
+                                                     final Commitment awaitCommitment,
+                                                     final Commitment awaitCommitmentOnError,
+                                                     final Function<List<Instruction>, Transaction> transactionFactory,
+                                                     final String logContext) throws InterruptedException {
     for (; ; ) {
       final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
       if (simulationFutures == null) {
-        throw new IllegalStateException(String.format(
-            "Transaction exceeds size limit for %d %s instructions",
-            instructions.size(), logContext
-        ));
+        return TransactionResult.createResult(instructions, SIZE_LIMIT_EXCEEDED);
       }
       final var simulationResult = simulationFutures.simulationFuture().join();
       final var simulationError = simulationResult.error();
       if (simulationError != null) {
-        BaseBatchInstructionService.logger.log(INFO, String.format("""
+        logger.log(INFO, String.format("""
                 Failed to simulate %d %s instructions because %s.
                 """,
             instructions.size(), logContext, simulationError
         ));
-        return simulationError;
+        return TransactionResult.createResult(instructions, simulationError);
       }
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
       if (sendContext == null) {
-        return FAILED_RETRIEVE_BLOCK_HASH;
+        return TransactionResult.createResult(instructions, FAILED_RETRIEVE_BLOCK_HASH);
       }
-      final var txSig = sendContext.sig();
-      final var formattedSig = transactionProcessor.formatter().formatSig(txSig);
-      BaseBatchInstructionService.logger.log(INFO, String.format("""
+      final var sig = sendContext.sig();
+      final var formattedSig = transactionProcessor.formatter().formatSig(sig);
+      logger.log(INFO, String.format("""
               Published %d %s instructions:
               %s
               """,
@@ -127,7 +127,7 @@ public class BaseInstructionService implements InstructionService {
           sendContext,
           FINALIZED,
           FINALIZED,
-          txSig
+          sig
       );
 
       final TransactionError error;
@@ -137,38 +137,38 @@ public class BaseInstructionService implements InstructionService {
         final var sigStatus = txMonitorService.queueResult(
             FINALIZED,
             FINALIZED,
-            txSig,
+            sig,
             sendContext.blockHeight(),
             true
         ).join();
         if (sigStatus == null) {
-          BaseBatchInstructionService.logger.log(INFO, String.format("""
+          logger.log(INFO, String.format("""
                   %s transaction expired, retrying:
                   %s
                   """,
               logContext, formattedSig
           ));
-          continue; // blockhash expired, retry batch.
+          continue; // block hash expired, retry batch.
         }
         error = sigStatus.error();
       }
 
       if (error != null) {
-        BaseBatchInstructionService.logger.log(INFO, String.format("""
+        logger.log(INFO, String.format("""
                 Failed to execute %d %s instructions because %s:
                 %s
                 """,
             instructions.size(), logContext, error, formattedSig
         ));
-        return error;
+        return new TransactionResult(instructions, error, sig, formattedSig);
       } else {
-        BaseBatchInstructionService.logger.log(INFO, String.format("""
+        logger.log(INFO, String.format("""
                 Finalized %d %s instructions:
                 %s
                 """,
             instructions.size(), logContext, formattedSig
         ));
-        return null;
+        return TransactionResult.createResult(instructions, sig, formattedSig);
       }
     }
   }

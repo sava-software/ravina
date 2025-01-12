@@ -24,5 +24,9 @@ public interface WebHookClient {
     );
   }
 
+  URI endpoint();
+
+  HttpClient httpClient();
+
   CompletableFuture<String> postMsg(final String msg);
 }
