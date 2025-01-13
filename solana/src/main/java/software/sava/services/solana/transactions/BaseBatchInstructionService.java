@@ -2,7 +2,8 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
-import software.sava.rpc.json.http.response.TransactionError;
+import software.sava.core.tx.Transaction;
+import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
@@ -12,9 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-import static java.lang.System.Logger.Level.INFO;
-import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
-import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
+import static java.lang.System.Logger.Level.WARNING;
 
 public class BaseBatchInstructionService extends BaseInstructionService implements BatchInstructionService {
 
@@ -33,91 +32,24 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final TransactionResult processBatch(final List<Instruction> instructions,
-                                              SimulationFutures simulationFutures,
-                                              final String logContext) throws InterruptedException {
-    for (; ; ) {
-      final var simulationResult = simulationFutures.simulationFuture().join();
-      final var simulationError = simulationResult.error();
-      if (simulationError != null) {
-        logger.log(INFO, String.format("""
-                Failed to simulate %d %s instructions because %s.
-                """,
-            instructions.size(), logContext, simulationError
-        ));
-        return TransactionResult.createResult(instructions, simulationError);
-      }
-
-      final var sendContext = sendTransaction(simulationFutures, simulationResult);
-      if (sendContext == null) {
-        return TransactionResult.createResult(instructions, TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH);
-      }
-      final var sig = sendContext.sig();
-      final var formattedSig = transactionProcessor.formatter().formatSig(sig);
-      logger.log(INFO, String.format("""
-              Published %d %s instructions:
-              %s
-              """,
-          instructions.size(), logContext, formattedSig
-      ));
-
-      final var txResult = txMonitorService.validateResponseAndAwaitCommitmentViaWebSocket(
-          sendContext,
-          FINALIZED,
-          FINALIZED,
-          sig
-      );
-
-      final TransactionError error;
-      if (txResult != null) {
-        error = txResult.error();
-      } else {
-        final var sigStatus = txMonitorService.queueResult(
-            FINALIZED,
-            FINALIZED,
-            sig,
-            sendContext.blockHeight(),
-            true
-        ).join();
-        if (sigStatus == null) {
-          simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
-          if (simulationFutures == null) {
-            return TransactionResult.createResult(instructions, TransactionResult.SIZE_LIMIT_EXCEEDED);
-          }
-          logger.log(INFO, String.format("""
-                  %s transaction expired, retrying:
-                  %s
-                  """,
-              logContext, formattedSig
-          ));
-          continue; // block hash expired, retry batch.
-        }
-        error = sigStatus.error();
-      }
-
-      final var transaction = sendContext.transaction();
-      if (error != null) {
-        logger.log(INFO, String.format("""
-                Failed to execute %d %s instructions because %s:
-                %s
-                """,
-            instructions.size(), logContext, error, formattedSig
-        ));
-        return new TransactionResult(instructions, transaction, error, sig, formattedSig);
-      } else {
-        logger.log(INFO, String.format("""
-                Finalized %d %s instructions:
-                %s
-                """,
-            instructions.size(), logContext, formattedSig
-        ));
-        return TransactionResult.createResult(instructions, transaction, sig, formattedSig);
-      }
-    }
+  public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final String logContext) throws InterruptedException {
+    return batchProcess(
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionProcessor.legacyTransactionFactory(),
+        logContext
+    );
   }
 
   @Override
   public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
@@ -127,16 +59,26 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           ? instructions
           : instructions.subList(from, to);
 
-      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, batch);
-      if (simulationFutures == null) {
+      final var transactionResult = processInstructions(
+          batch,
+          awaitCommitment,
+          awaitCommitmentOnError,
+          transactionFactory,
+          logContext
+      );
+      if (transactionResult.exceedsSizeLimit()) {
+        logger.log(WARNING, String.format("""
+                Reducing %s batch size because transaction exceeds size limit. [length=%d] [base64Length=%d]
+                """,
+            logContext,
+            transactionResult.transaction().size(),
+            transactionResult.base64Length()
+        ));
         --batchSize;
       } else {
-        final var transactionResult = processBatch(batch, simulationFutures, logContext);
         final var error = transactionResult.error();
         if (error != null) {
-          if (error == TransactionResult.SIZE_LIMIT_EXCEEDED) {
-            --batchSize;
-          } else if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
+          if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
             results.add(transactionResult);
             return results;
           } // else retry
@@ -151,6 +93,25 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   @Override
   public final ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                                         final Commitment awaitCommitment,
+                                                         final Commitment awaitCommitmentOnError,
+                                                         final String logContext,
+                                                         final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionProcessor.legacyTransactionFactory(),
+        logContext,
+        batchFactory
+    );
+  }
+
+  @Override
+  public final ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                                         final Commitment awaitCommitment,
+                                                         final Commitment awaitCommitmentOnError,
+                                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                                          final String logContext,
                                                          final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
@@ -158,32 +119,37 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final int numAccounts = publicKeys.size();
     for (int from = 0, to; from < numAccounts; ) {
       to = Math.min(numAccounts, from + batchSize);
-      final var batch = to - from == numAccounts
+      final var batchAccounts = to - from == numAccounts
           ? publicKeys
           : publicKeys.subList(from, to);
+      final var batch = batchFactory.apply(batchAccounts);
 
-      final var instructions = batchFactory.apply(batch);
-
-      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
-      if (simulationFutures == null) {
+      final var transactionResult = processInstructions(
+          batch,
+          awaitCommitment,
+          awaitCommitmentOnError,
+          transactionFactory,
+          logContext
+      );
+      if (transactionResult.exceedsSizeLimit()) {
+        logger.log(WARNING, String.format("""
+                Reducing %s batch size because transaction exceeds size limit. [length=%d] [base64Length=%d]
+                """,
+            logContext,
+            transactionResult.transaction().size(),
+            transactionResult.base64Length()
+        ));
         --batchSize;
       } else {
-        final var transactionResult = processBatch(
-            instructions,
-            simulationFutures,
-            logContext
-        );
         final var error = transactionResult.error();
         if (error != null) {
-          if (error == TransactionResult.SIZE_LIMIT_EXCEEDED) {
-            --batchSize;
-          } else if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
+          if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
             results.add(transactionResult);
             return results;
           } // else retry
         } else {
           results.add(transactionResult);
-          batch.forEach(accountsMap::remove);
+          batchAccounts.forEach(accountsMap::remove);
           from = to;
         }
       }

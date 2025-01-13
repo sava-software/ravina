@@ -63,7 +63,7 @@ public class BaseInstructionService implements InstructionService {
   protected final SendTxContext sendTransaction(final SimulationFutures simulationFutures, final TxSimulation simulationResult) {
     final var transaction = transactionProcessor.createTransaction(simulationFutures, simulationResult);
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
-    if (blockHeight < 0) {
+    if (Long.compareUnsigned(blockHeight, 0) <= 0) {
       try {
         final var blockHash = rpcCaller.courteousGet(
             rpcClient -> rpcClient.getLatestBlockHash(FINALIZED),
@@ -93,8 +93,15 @@ public class BaseInstructionService implements InstructionService {
                                                      final String logContext) throws InterruptedException {
     for (; ; ) {
       final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
-      if (simulationFutures == null) {
-        return TransactionResult.createResult(instructions, TransactionResult.SIZE_LIMIT_EXCEEDED);
+      final int base64Length = simulationFutures.base64Length();
+      if (simulationFutures.exceedsSizeLimit()) {
+        return TransactionResult.createResult(
+            instructions,
+            true,
+            simulationFutures.transaction(),
+            base64Length,
+            TransactionResult.SIZE_LIMIT_EXCEEDED
+        );
       }
       final var simulationResult = simulationFutures.simulationFuture().join();
       final var simulationError = simulationResult.error();
@@ -104,12 +111,24 @@ public class BaseInstructionService implements InstructionService {
                 """,
             instructions.size(), logContext, simulationError
         ));
-        return TransactionResult.createResult(instructions, simulationError);
+        return TransactionResult.createResult(
+            instructions,
+            true,
+            simulationFutures.transaction(),
+            base64Length,
+            simulationError
+        );
       }
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
       if (sendContext == null) {
-        return TransactionResult.createResult(instructions, TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH);
+        return TransactionResult.createResult(
+            instructions,
+            false,
+            simulationFutures.transaction(),
+            base64Length,
+            TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH
+        );
       }
       final var sig = sendContext.sig();
       final var formattedSig = transactionProcessor.formatter().formatSig(sig);
@@ -122,8 +141,8 @@ public class BaseInstructionService implements InstructionService {
 
       final var txResult = txMonitorService.validateResponseAndAwaitCommitmentViaWebSocket(
           sendContext,
-          FINALIZED,
-          FINALIZED,
+          awaitCommitment,
+          awaitCommitmentOnError,
           sig
       );
 
@@ -132,8 +151,8 @@ public class BaseInstructionService implements InstructionService {
         error = txResult.error();
       } else {
         final var sigStatus = txMonitorService.queueResult(
-            FINALIZED,
-            FINALIZED,
+            awaitCommitment,
+            awaitCommitmentOnError,
             sig,
             sendContext.blockHeight(),
             true
@@ -158,15 +177,28 @@ public class BaseInstructionService implements InstructionService {
                 """,
             instructions.size(), logContext, error, formattedSig
         ));
-        return new TransactionResult(instructions, transaction, error, sig, formattedSig);
+        return TransactionResult.createResult(
+            instructions,
+            transaction,
+            base64Length,
+            error,
+            sig,
+            formattedSig
+        );
       } else {
         logger.log(INFO, String.format("""
-                Finalized %d %s instructions:
+                %s %d %s instructions:
                 %s
                 """,
-            instructions.size(), logContext, formattedSig
+            awaitCommitment, instructions.size(), logContext, formattedSig
         ));
-        return TransactionResult.createResult(instructions, transaction, sig, formattedSig);
+        return TransactionResult.createResult(
+            instructions,
+            transaction,
+            base64Length,
+            sig,
+            formattedSig
+        );
       }
     }
   }

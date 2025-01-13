@@ -40,6 +40,8 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
+  private static final System.Logger logger = System.getLogger(TransactionProcessor.class.getName());
+
   @Override
   public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
     final int numTables = lookupTableKeys.size();
@@ -161,9 +163,9 @@ record TransactionProcessorRecord(ExecutorService executor,
     final var replacementBlockHash = simulationResult.replacementBlockHash();
     final long blockHeight;
     if (replacementBlockHash != null) {
-      final var blockhash = replacementBlockHash.blockhash();
-      if (blockhash != null) {
-        recentBlockHash = blockhash;
+      final var blockHash = replacementBlockHash.blockhash();
+      if (blockHash != null) {
+        recentBlockHash = blockHash;
         blockHeight = replacementBlockHash.lastValidBlockHeight();
       } else {
         return -1;
@@ -254,14 +256,21 @@ record TransactionProcessorRecord(ExecutorService executor,
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 12345)
     );
-    if (simulateTx.exceedsSizeLimit()) {
-      return null;
-    }
 
     final var base64EncodedTx = simulateTx.base64EncodeToString();
-    if (base64EncodedTx.length() > Transaction.MAX_BASE_64_ENCODED_LENGTH) {
-      return null;
+    final int base64Length = base64EncodedTx.length();
+    if (simulateTx.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH) {
+      return new SimulationFutures(
+          commitment,
+          instructions,
+          simulateTx,
+          base64Length,
+          transactionFactory,
+          null,
+          null
+      );
     }
+
 
     final var simulationFuture = Call.createCourteousCall(
         rpcClients,
@@ -275,6 +284,14 @@ record TransactionProcessorRecord(ExecutorService executor,
         "heliusClient::getRecommendedTransactionPriorityFeeEstimate"
     ).async(executor);
 
-    return new SimulationFutures(commitment, instructions, transactionFactory, simulationFuture, feeEstimateFuture);
+    return new SimulationFutures(
+        commitment,
+        instructions,
+        simulateTx,
+        base64Length,
+        transactionFactory,
+        simulationFuture,
+        feeEstimateFuture
+    );
   }
 }

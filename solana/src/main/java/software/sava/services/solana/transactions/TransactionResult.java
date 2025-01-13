@@ -7,7 +7,9 @@ import software.sava.rpc.json.http.response.TransactionError;
 import java.util.List;
 
 public record TransactionResult(List<Instruction> instructions,
+                                boolean simulationFailed,
                                 Transaction transaction,
+                                int base64Length,
                                 TransactionError error,
                                 String sig,
                                 String formattedSig) {
@@ -16,24 +18,29 @@ public record TransactionResult(List<Instruction> instructions,
   public static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
 
   static TransactionResult createResult(final List<Instruction> instructions,
+                                        final boolean simulationFailed,
                                         final Transaction transaction,
+                                        final int base64Length,
                                         final TransactionError error) {
-    return new TransactionResult(instructions, transaction, error, null, null);
-  }
-
-  static TransactionResult createResult(final List<Instruction> instructions, final TransactionError error) {
-    return createResult(instructions, null, error);
+    return new TransactionResult(instructions, simulationFailed, transaction, base64Length, error, null, null);
   }
 
   static TransactionResult createResult(final List<Instruction> instructions,
                                         final Transaction transaction,
+                                        final int base64Length,
+                                        final TransactionError error,
                                         final String sig, final String formattedSig) {
-    return new TransactionResult(instructions, transaction, null, sig, formattedSig);
+    return new TransactionResult(instructions, false, transaction, base64Length, error, sig, formattedSig);
   }
 
-  public boolean simulationFailed() {
-    return transaction == null
-        && error != null
-        && error != FAILED_TO_RETRIEVE_BLOCK_HASH;
+  static TransactionResult createResult(final List<Instruction> instructions,
+                                        final Transaction transaction,
+                                        final int base64Length,
+                                        final String sig, final String formattedSig) {
+    return createResult(instructions, transaction, base64Length, null, sig, formattedSig);
+  }
+
+  public boolean exceedsSizeLimit() {
+    return transaction.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH;
   }
 }

@@ -16,6 +16,8 @@ import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.
 
 public record SimulationFutures(Commitment commitment,
                                 List<Instruction> instructions,
+                                Transaction transaction,
+                                int base64Length,
                                 Function<List<Instruction>, Transaction> transactionFactory,
                                 CompletableFuture<TxSimulation> simulationFuture,
                                 CompletableFuture<BigDecimal> feeEstimateFuture) {
@@ -27,5 +29,9 @@ public record SimulationFutures(Commitment commitment,
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), computeBudget),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), recommendedFee)
     );
+  }
+
+  public boolean exceedsSizeLimit() {
+    return transaction.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH;
   }
 }
