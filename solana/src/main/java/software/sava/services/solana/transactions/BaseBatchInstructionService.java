@@ -31,6 +31,35 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     this.batchSize = batchSize;
   }
 
+  private TransactionResult processBatch(final List<Instruction> batch,
+                                         final Commitment awaitCommitment,
+                                         final Commitment awaitCommitmentOnError,
+                                         final Function<List<Instruction>, Transaction> transactionFactory,
+                                         final String logContext) throws InterruptedException {
+    final var transactionResult = processInstructions(
+        batch,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionFactory,
+        logContext
+    );
+    if (transactionResult.exceedsSizeLimit()) {
+      logger.log(WARNING, String.format("""
+              Reducing %s batch size from %d, because transaction exceeds size limit. [length=%d] [base64Length=%d]
+              """,
+          logContext,
+          batchSize,
+          transactionResult.transaction().size(),
+          transactionResult.base64Length()
+      ));
+      --batchSize;
+      return null;
+    } else {
+      final var error = transactionResult.error();
+      return error == TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH ? null : transactionResult;
+    }
+  }
+
   @Override
   public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
                                                     final Commitment awaitCommitment,
@@ -59,33 +88,24 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           ? instructions
           : instructions.subList(from, to);
 
-      final var transactionResult = processInstructions(
+      final var transactionResult = processBatch(
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
           transactionFactory,
           logContext
       );
-      if (transactionResult.exceedsSizeLimit()) {
-        logger.log(WARNING, String.format("""
-                Reducing %s batch size because transaction exceeds size limit. [length=%d] [base64Length=%d]
-                """,
-            logContext,
-            transactionResult.transaction().size(),
-            transactionResult.base64Length()
-        ));
-        --batchSize;
+
+      if (transactionResult == null) {
+        continue;
+      }
+
+      final var error = transactionResult.error();
+      results.add(transactionResult);
+      if (error != null) {
+        return results;
       } else {
-        final var error = transactionResult.error();
-        if (error != null) {
-          if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
-            results.add(transactionResult);
-            return results;
-          } // else retry
-        } else {
-          results.add(transactionResult);
-          from = to;
-        }
+        from = to;
       }
     }
     return results;
@@ -124,34 +144,25 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           : publicKeys.subList(from, to);
       final var batch = batchFactory.apply(batchAccounts);
 
-      final var transactionResult = processInstructions(
+      final var transactionResult = processBatch(
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
           transactionFactory,
           logContext
       );
-      if (transactionResult.exceedsSizeLimit()) {
-        logger.log(WARNING, String.format("""
-                Reducing %s batch size because transaction exceeds size limit. [length=%d] [base64Length=%d]
-                """,
-            logContext,
-            transactionResult.transaction().size(),
-            transactionResult.base64Length()
-        ));
-        --batchSize;
+
+      if (transactionResult == null) {
+        continue;
+      }
+
+      final var error = transactionResult.error();
+      results.add(transactionResult);
+      if (error != null) {
+        return results;
       } else {
-        final var error = transactionResult.error();
-        if (error != null) {
-          if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
-            results.add(transactionResult);
-            return results;
-          } // else retry
-        } else {
-          results.add(transactionResult);
-          batchAccounts.forEach(accountsMap::remove);
-          from = to;
-        }
+        batchAccounts.forEach(accountsMap::remove);
+        from = to;
       }
     }
     return results;
