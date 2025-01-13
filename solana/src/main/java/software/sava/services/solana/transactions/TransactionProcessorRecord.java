@@ -237,7 +237,7 @@ record TransactionProcessorRecord(ExecutorService executor,
     final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64SignedTx, 1);
     final long publishedAt = System.currentTimeMillis();
     rpcClient.capacityState().claimRequest();
-    return new SendTxContext(rpcClient, resultFuture, transaction.getBase58Id(), blockHeight, publishedAt);
+    return new SendTxContext(rpcClient, resultFuture, transaction, blockHeight, publishedAt);
   }
 
   @Override

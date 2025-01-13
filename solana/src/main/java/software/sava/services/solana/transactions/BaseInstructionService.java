@@ -22,9 +22,6 @@ public class BaseInstructionService implements InstructionService {
 
   protected static final System.Logger logger = System.getLogger(BaseInstructionService.class.getName());
 
-  public static final TransactionError FAILED_RETRIEVE_BLOCK_HASH = new TransactionError.Unknown("FAILED_RETRIEVE_BLOCK_HASH");
-  public static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
-
   protected final RpcCaller rpcCaller;
   protected final TransactionProcessor transactionProcessor;
   protected final NativeProgramClient nativeProgramClient;
@@ -97,7 +94,7 @@ public class BaseInstructionService implements InstructionService {
     for (; ; ) {
       final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
       if (simulationFutures == null) {
-        return TransactionResult.createResult(instructions, SIZE_LIMIT_EXCEEDED);
+        return TransactionResult.createResult(instructions, TransactionResult.SIZE_LIMIT_EXCEEDED);
       }
       final var simulationResult = simulationFutures.simulationFuture().join();
       final var simulationError = simulationResult.error();
@@ -112,7 +109,7 @@ public class BaseInstructionService implements InstructionService {
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
       if (sendContext == null) {
-        return TransactionResult.createResult(instructions, FAILED_RETRIEVE_BLOCK_HASH);
+        return TransactionResult.createResult(instructions, TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH);
       }
       final var sig = sendContext.sig();
       final var formattedSig = transactionProcessor.formatter().formatSig(sig);
@@ -153,6 +150,7 @@ public class BaseInstructionService implements InstructionService {
         error = sigStatus.error();
       }
 
+      final var transaction = sendContext.transaction();
       if (error != null) {
         logger.log(INFO, String.format("""
                 Failed to execute %d %s instructions because %s:
@@ -160,7 +158,7 @@ public class BaseInstructionService implements InstructionService {
                 """,
             instructions.size(), logContext, error, formattedSig
         ));
-        return new TransactionResult(instructions, error, sig, formattedSig);
+        return new TransactionResult(instructions, transaction, error, sig, formattedSig);
       } else {
         logger.log(INFO, String.format("""
                 Finalized %d %s instructions:
@@ -168,7 +166,7 @@ public class BaseInstructionService implements InstructionService {
                 """,
             instructions.size(), logContext, formattedSig
         ));
-        return TransactionResult.createResult(instructions, sig, formattedSig);
+        return TransactionResult.createResult(instructions, transaction, sig, formattedSig);
       }
     }
   }

@@ -50,7 +50,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
       if (sendContext == null) {
-        return TransactionResult.createResult(instructions, FAILED_RETRIEVE_BLOCK_HASH);
+        return TransactionResult.createResult(instructions, TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH);
       }
       final var sig = sendContext.sig();
       final var formattedSig = transactionProcessor.formatter().formatSig(sig);
@@ -82,7 +82,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         if (sigStatus == null) {
           simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
           if (simulationFutures == null) {
-            return TransactionResult.createResult(instructions, SIZE_LIMIT_EXCEEDED);
+            return TransactionResult.createResult(instructions, TransactionResult.SIZE_LIMIT_EXCEEDED);
           }
           logger.log(INFO, String.format("""
                   %s transaction expired, retrying:
@@ -95,6 +95,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         error = sigStatus.error();
       }
 
+      final var transaction = sendContext.transaction();
       if (error != null) {
         logger.log(INFO, String.format("""
                 Failed to execute %d %s instructions because %s:
@@ -102,7 +103,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                 """,
             instructions.size(), logContext, error, formattedSig
         ));
-        return TransactionResult.createResult(instructions, error);
+        return new TransactionResult(instructions, transaction, error, sig, formattedSig);
       } else {
         logger.log(INFO, String.format("""
                 Finalized %d %s instructions:
@@ -110,7 +111,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                 """,
             instructions.size(), logContext, formattedSig
         ));
-        return TransactionResult.createResult(instructions, sig, formattedSig);
+        return TransactionResult.createResult(instructions, transaction, sig, formattedSig);
       }
     }
   }
@@ -133,12 +134,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         final var transactionResult = processBatch(batch, simulationFutures, logContext);
         final var error = transactionResult.error();
         if (error != null) {
-          if (error == SIZE_LIMIT_EXCEEDED) {
+          if (error == TransactionResult.SIZE_LIMIT_EXCEEDED) {
             --batchSize;
-          } else if (error != FAILED_RETRIEVE_BLOCK_HASH) {
+          } else if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
             results.add(transactionResult);
             return results;
-          }
+          } // else retry
         } else {
           results.add(transactionResult);
           from = to;
@@ -174,12 +175,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         );
         final var error = transactionResult.error();
         if (error != null) {
-          if (error == SIZE_LIMIT_EXCEEDED) {
+          if (error == TransactionResult.SIZE_LIMIT_EXCEEDED) {
             --batchSize;
-          } else if (error != FAILED_RETRIEVE_BLOCK_HASH) {
+          } else if (error != TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH) {
             results.add(transactionResult);
             return results;
-          }
+          } // else retry
         } else {
           results.add(transactionResult);
           batch.forEach(accountsMap::remove);
