@@ -19,6 +19,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   protected static final System.Logger logger = System.getLogger(BaseBatchInstructionService.class.getName());
 
+  protected final int reduceSize;
   protected int batchSize;
 
   protected BaseBatchInstructionService(final RpcCaller rpcCaller,
@@ -26,8 +27,10 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                         final NativeProgramClient nativeProgramClient,
                                         final EpochInfoService epochInfoService,
                                         final TxMonitorService txMonitorService,
-                                        final int batchSize) {
+                                        final int batchSize,
+                                        final int reduceSize) {
     super(rpcCaller, transactionProcessor, nativeProgramClient, epochInfoService, txMonitorService);
+    this.reduceSize = reduceSize;
     this.batchSize = batchSize;
   }
 
@@ -52,7 +55,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           transactionResult.transaction().size(),
           transactionResult.base64Length()
       ));
-      --batchSize;
+      batchSize -= reduceSize;
       return null;
     } else {
       final var error = transactionResult.error();

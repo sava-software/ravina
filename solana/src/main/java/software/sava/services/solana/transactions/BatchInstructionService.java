@@ -22,14 +22,33 @@ public interface BatchInstructionService extends InstructionService {
                                                final NativeProgramClient nativeProgramClient,
                                                final EpochInfoService epochInfoService,
                                                final TxMonitorService txMonitorService,
-                                               final int batchSize) {
+                                               final int batchSize,
+                                               final int reduceSize) {
     return new BaseBatchInstructionService(
         rpcCaller,
         transactionProcessor,
         nativeProgramClient,
         epochInfoService,
         txMonitorService,
-        batchSize
+        batchSize,
+        reduceSize
+    );
+  }
+
+  static BatchInstructionService createService(final RpcCaller rpcCaller,
+                                               final TransactionProcessor transactionProcessor,
+                                               final NativeProgramClient nativeProgramClient,
+                                               final EpochInfoService epochInfoService,
+                                               final TxMonitorService txMonitorService,
+                                               final int batchSize) {
+    return createService(
+        rpcCaller,
+        transactionProcessor,
+        nativeProgramClient,
+        epochInfoService,
+        txMonitorService,
+        batchSize,
+        1
     );
   }
 
@@ -56,7 +75,7 @@ public interface BatchInstructionService extends InstructionService {
 
   default ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
                                                     final String logContext,
-                                                    final  Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
         accountsMap,
         FINALIZED,
