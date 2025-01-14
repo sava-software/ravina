@@ -1,24 +1,21 @@
 package software.sava.services.solana.websocket;
 
-import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.remote.call.Backoff;
 
-import java.net.URI;
-import java.net.http.HttpClient;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
+import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
 final class WebSocketManagerImpl implements WebSocketManager {
 
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
 
-  private final HttpClient httpClient;
-  private final URI webSocketURI;
+  private final SolanaRpcWebsocket.Builder builderPrototype;
   private final Backoff backoff;
   private final Consumer<SolanaRpcWebsocket> onNewWebSocket;
   private final AtomicInteger errorCount;
@@ -28,12 +25,10 @@ final class WebSocketManagerImpl implements WebSocketManager {
   private volatile boolean needsConnect;
   private volatile long lastWebSocketConnect;
 
-  WebSocketManagerImpl(final HttpClient httpClient,
-                       final URI webSocketURI,
-                       final Backoff backoff,
+  WebSocketManagerImpl(final Backoff backoff,
+                       final SolanaRpcWebsocket.Builder builderPrototype,
                        final Consumer<SolanaRpcWebsocket> onNewWebSocket) {
-    this.httpClient = httpClient;
-    this.webSocketURI = webSocketURI;
+    this.builderPrototype = builderPrototype;
     this.backoff = backoff;
     this.onNewWebSocket = onNewWebSocket;
     this.errorCount = new AtomicInteger(0);
@@ -42,11 +37,12 @@ final class WebSocketManagerImpl implements WebSocketManager {
   }
 
   private SolanaRpcWebsocket createWebSocket() {
-    final var webSocket = SolanaRpcWebsocket.build()
-        .uri(webSocketURI)
-        .webSocketBuilder(httpClient)
-        .commitment(Commitment.CONFIRMED)
-        .onOpen(_ -> this.errorCount.set(0))
+    // TODO append actions to any existing on* operations.
+    final var webSocket = builderPrototype
+        .onOpen(ws -> {
+          this.errorCount.set(0);
+          logger.log(INFO, "WebSocket connected to " + ws.endpoint().getHost());
+        })
         .onClose((ws, statusCode, reason) -> {
               ws.close();
               logger.log(WARNING, String.format("%d: %s%n", statusCode, reason));
