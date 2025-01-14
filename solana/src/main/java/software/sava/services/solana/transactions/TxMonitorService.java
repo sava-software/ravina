@@ -11,7 +11,7 @@ import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 public interface TxMonitorService extends Worker {
@@ -32,7 +32,7 @@ public interface TxMonitorService extends Worker {
     );
   }
 
-  void run(final ExecutorService executorService);
+  void run(final Executor executor);
 
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,

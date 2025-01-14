@@ -10,10 +10,7 @@ import software.sava.services.solana.websocket.WebSocketManager;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -48,9 +45,9 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   }
 
   @Override
-  public void run(final ExecutorService executorService) {
-    executorService.execute(expirationMonitorService);
-    executorService.execute(this);
+  public void run(final Executor executor) {
+    executor.execute(expirationMonitorService);
+    executor.execute(this);
   }
 
   @Override
