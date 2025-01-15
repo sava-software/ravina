@@ -17,6 +17,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
+import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.MAX_COMPUTE_BUDGET;
 
 public class BaseInstructionService implements InstructionService {
 
@@ -76,7 +77,7 @@ public class BaseInstructionService implements InstructionService {
         return null;
       }
     }
-    return transactionProcessor.signAndSignedTx(transaction, blockHeight);
+    return transactionProcessor.signAndSendTx(transaction, blockHeight);
   }
 
   public final TransactionResult processInstructions(final List<Instruction> instructions,
@@ -98,6 +99,7 @@ public class BaseInstructionService implements InstructionService {
         return TransactionResult.createResult(
             instructions,
             true,
+            MAX_COMPUTE_BUDGET, 0,
             simulationFutures.transaction(),
             base64Length,
             TransactionResult.SIZE_LIMIT_EXCEEDED
@@ -114,6 +116,7 @@ public class BaseInstructionService implements InstructionService {
         return TransactionResult.createResult(
             instructions,
             true,
+            MAX_COMPUTE_BUDGET, 0,
             simulationFutures.transaction(),
             base64Length,
             simulationError
@@ -121,10 +124,13 @@ public class BaseInstructionService implements InstructionService {
       }
 
       final var sendContext = sendTransaction(simulationFutures, simulationResult);
+      final int cuBudget = SimulationFutures.cuBudget(simulationResult);
+      final long cuPrice = simulationFutures.cuPrice();
       if (sendContext == null) {
         return TransactionResult.createResult(
             instructions,
             false,
+            cuBudget, cuPrice,
             simulationFutures.transaction(),
             base64Length,
             TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH
@@ -179,6 +185,7 @@ public class BaseInstructionService implements InstructionService {
         ));
         return TransactionResult.createResult(
             instructions,
+            cuBudget, cuPrice,
             transaction,
             base64Length,
             error,
@@ -194,6 +201,7 @@ public class BaseInstructionService implements InstructionService {
         ));
         return TransactionResult.createResult(
             instructions,
+            cuBudget, cuPrice,
             transaction,
             base64Length,
             sig,

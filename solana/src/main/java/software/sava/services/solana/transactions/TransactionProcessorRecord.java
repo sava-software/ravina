@@ -243,7 +243,7 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SendTxContext signAndSignedTx(final Transaction transaction, final long blockHeight) {
+  public SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight) {
     signTransaction(transaction);
     return sendSignedTx(transaction, blockHeight);
   }

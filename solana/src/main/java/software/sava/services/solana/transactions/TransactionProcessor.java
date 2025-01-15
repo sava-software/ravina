@@ -122,7 +122,7 @@ public interface TransactionProcessor {
 
   SendTxContext sendSignedTx(final Transaction transaction, final long blockHeight);
 
-  SendTxContext signAndSignedTx(final Transaction transaction, final long blockHeight);
+  SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);
 
   SimulationFutures simulateAndEstimate(final Commitment commitment,
                                         final List<Instruction> instructions,

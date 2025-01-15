@@ -22,12 +22,19 @@ public record SimulationFutures(Commitment commitment,
                                 CompletableFuture<TxSimulation> simulationFuture,
                                 CompletableFuture<BigDecimal> feeEstimateFuture) {
 
+  public static int cuBudget(final TxSimulation simulationResult) {
+    return simulationResult.unitsConsumed().orElseThrow();
+  }
+
+  public long cuPrice() {
+    return feeEstimateFuture.join().longValue();
+  }
+
   public Transaction createTransaction(final SolanaAccounts solanaAccounts, final TxSimulation simulationResult) {
-    final int computeBudget = simulationResult.unitsConsumed().orElseThrow();
-    final long recommendedFee = feeEstimateFuture.join().longValue();
+    final int computeBudget = cuBudget(simulationResult);
     return transactionFactory.apply(instructions).prependInstructions(
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), computeBudget),
-        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), recommendedFee)
+        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), cuPrice())
     );
   }
 
