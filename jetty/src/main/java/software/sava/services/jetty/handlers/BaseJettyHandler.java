@@ -2,28 +2,12 @@ package software.sava.services.jetty.handlers;
 
 import org.eclipse.jetty.http.HttpField;
 import org.eclipse.jetty.http.HttpFields;
-import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Response;
 import org.eclipse.jetty.util.Callback;
 
 public abstract class BaseJettyHandler extends Handler.Abstract implements JettyHandler {
-
-  protected static final HttpField JSON_CONTENT = new HttpField(HttpHeader.CONTENT_TYPE, "application/json");
-
-  protected static final HttpField ALLOW_GET = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "GET");
-  protected static final HttpField ALLOW_POST = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "POST");
-
-  private static String parseParam(final String query,
-                                   final int index,
-                                   final String param) {
-    final int from = index + param.length();
-    final int to = query.indexOf('&', from + 1);
-    return to < 0
-        ? query.substring(from)
-        : query.substring(from, to);
-  }
 
   protected final HttpField allowMethod;
 

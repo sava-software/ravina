@@ -1,12 +1,17 @@
 package software.sava.services.jetty.handlers;
 
+import org.eclipse.jetty.http.HttpField;
+import org.eclipse.jetty.http.HttpHeader;
+
 import java.util.ArrayList;
 
 public class HandlerUtil {
 
-  private static String parseParam(final String query,
-                                   final int index,
-                                   final String param) {
+  public static final HttpField JSON_CONTENT = new HttpField(HttpHeader.CONTENT_TYPE, "application/json");
+  public static final HttpField ALLOW_GET = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "GET");
+  public static final HttpField ALLOW_POST = new HttpField(HttpHeader.ACCESS_CONTROL_ALLOW_METHODS, "POST");
+
+  public static String parseParam(final String query, final int index, final String param) {
     final int from = index + param.length();
     final int to = query.indexOf('&', from + 1);
     return to < 0

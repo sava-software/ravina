@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static java.lang.System.Logger.Level.ERROR;
-import static software.sava.services.jetty.handlers.BaseJettyHandler.JSON_CONTENT;
+import static software.sava.services.jetty.handlers.HandlerUtil.JSON_CONTENT;
 
 public class RootJettyHandler extends Handler.Sequence {
 
