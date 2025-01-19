@@ -49,7 +49,7 @@ public class HandlerUtil {
     }
   }
 
-  protected static String parseParam(final String query, final String param) {
+  public static String parseParam(final String query, final String param) {
     return parseParam(query, param, null);
   }
 
