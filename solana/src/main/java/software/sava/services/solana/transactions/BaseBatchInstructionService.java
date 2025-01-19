@@ -115,11 +115,11 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                                         final Commitment awaitCommitment,
-                                                         final Commitment awaitCommitmentOnError,
-                                                         final String logContext,
-                                                         final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+  public final List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final String logContext,
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
         accountsMap,
         awaitCommitment,
@@ -131,12 +131,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                                         final Commitment awaitCommitment,
-                                                         final Commitment awaitCommitmentOnError,
-                                                         final Function<List<Instruction>, Transaction> transactionFactory,
-                                                         final String logContext,
-                                                         final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+  public final List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final Function<List<Instruction>, Transaction> transactionFactory,
+                                                    final String logContext,
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
     final var publicKeys = List.copyOf(accountsMap.keySet());
     final int numAccounts = publicKeys.size();

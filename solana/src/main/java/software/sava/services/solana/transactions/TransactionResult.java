@@ -53,7 +53,7 @@ public record TransactionResult(List<Instruction> instructions,
   }
 
   public long priorityFeeLamports() {
-    return (cuBudget * cuPrice);
+    return (cuBudget * cuPrice) / 1_000_000;
   }
 
   public long baseFeeLamports() {

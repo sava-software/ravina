@@ -8,7 +8,6 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -73,9 +72,9 @@ public interface BatchInstructionService extends InstructionService {
                                        final Function<List<Instruction>, Transaction> transactionFactory,
                                        final String logContext) throws InterruptedException;
 
-  default ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                                    final String logContext,
-                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+  default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
         accountsMap,
         FINALIZED,
@@ -85,16 +84,16 @@ public interface BatchInstructionService extends InstructionService {
     );
   }
 
-  ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                            final Commitment awaitCommitment,
-                                            final Commitment awaitCommitmentOnError,
-                                            final String logContext,
-                                            final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
+  List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final String logContext,
+                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 
-  ArrayList<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                            final Commitment awaitCommitment,
-                                            final Commitment awaitCommitmentOnError,
-                                            final Function<List<Instruction>, Transaction> transactionFactory,
-                                            final String logContext,
-                                            final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
+  List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                       final String logContext,
+                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 }
