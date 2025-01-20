@@ -68,12 +68,24 @@ public record Epoch(long startedAt,
     return estimatedSlot(slotStats == null ? defaultMillisPerSlot : slotStats.median());
   }
 
+  public int medianMillisPerSlot() {
+    return slotStats == null ? defaultMillisPerSlot : slotStats.median();
+  }
+
+  public double percentComplete(final long estimatedSlot) {
+    return (estimatedSlot / (double) slotsPerEpoch()) * 100.0;
+  }
+
+  public double percentComplete() {
+    return percentComplete(estimatedSlot(medianMillisPerSlot()));
+  }
+
   public String logFormat() {
-    final int median = slotStats == null ? defaultMillisPerSlot : slotStats.median();
+    final int median = medianMillisPerSlot();
     final long millisRemaining = millisRemaining();
     final long estimatedSlot = estimatedSlot(median);
     final long slotsPerEpoch = slotsPerEpoch();
-    final double percentProgress = (estimatedSlot / (double) slotsPerEpoch) * 100;
+    final double percentProgress = percentComplete(estimatedSlot);
     final long startedAgo = System.currentTimeMillis() - startedAt;
     return String.format(
         "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%%",

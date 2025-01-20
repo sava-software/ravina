@@ -108,10 +108,10 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       final double percentDelta = 100 * (delta / (double) previousMillisRemaining);
       log = String.format("""
               %s
-              %d ms | %.1f%% difference %sestimating the duration until the end of the epoch.
+              %d ms | %.1f%% difference%s estimating the duration until the end of the epoch.
               """,
-          epoch.logFormat(), delta, percentDelta,
-          delta < 0 ? "over " : delta == 0 ? "" : "under "
+          epoch.logFormat(), Math.abs(delta), Math.abs(percentDelta),
+          delta < 0 ? " over" : delta == 0 ? "" : " under"
       );
     }
     logger.log(INFO, log);
