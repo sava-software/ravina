@@ -33,7 +33,8 @@ public record SimulationFutures(Commitment commitment,
   public Transaction createTransaction(final SolanaAccounts solanaAccounts, final TxSimulation simulationResult) {
     final int computeBudget = cuBudget(simulationResult);
     return transactionFactory.apply(instructions).prependInstructions(
-        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), computeBudget),
+        // TODO: allow user to provide dynamic cu budget buffer buffer.
+        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), (int) (computeBudget * 1.1)),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), cuPrice())
     );
   }
