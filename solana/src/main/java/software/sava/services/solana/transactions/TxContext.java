@@ -16,6 +16,7 @@ record TxContext(Commitment awaitCommitment,
                  BigInteger bigBlockHeight,
                  boolean verifyExpired,
                  boolean retrySend,
+                 int retryCount,
                  CompletableFuture<TxStatus> sigStatusFuture) implements Comparable<TxContext> {
 
   static TxContext createContext(final Commitment awaitCommitment,
@@ -34,6 +35,7 @@ record TxContext(Commitment awaitCommitment,
         new BigInteger(toUnsignedString(blockHeight)),
         verifyExpired,
         retrySend,
+        0,
         new CompletableFuture<>()
     );
   }
@@ -48,6 +50,7 @@ record TxContext(Commitment awaitCommitment,
         bigBlockHeight,
         verifyExpired,
         retrySend,
+        retryCount + 1,
         sigStatusFuture
     );
   }
