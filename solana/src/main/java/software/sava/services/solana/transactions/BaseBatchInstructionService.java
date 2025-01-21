@@ -34,12 +34,14 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     this.batchSize = batchSize;
   }
 
-  private TransactionResult processBatch(final List<Instruction> batch,
+  private TransactionResult processBatch(final double cuBudgetMultiplier,
+                                         final List<Instruction> batch,
                                          final Commitment awaitCommitment,
                                          final Commitment awaitCommitmentOnError,
                                          final Function<List<Instruction>, Transaction> transactionFactory,
                                          final String logContext) throws InterruptedException {
     final var transactionResult = processInstructions(
+        cuBudgetMultiplier,
         batch,
         awaitCommitment,
         awaitCommitmentOnError,
@@ -64,21 +66,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final String logContext) throws InterruptedException {
-    return batchProcess(
-        instructions,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        transactionProcessor.legacyTransactionFactory(),
-        logContext
-    );
-  }
-
-  @Override
-  public final List<TransactionResult> batchProcess(final List<Instruction> instructions,
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final List<Instruction> instructions,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
@@ -92,6 +81,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           : instructions.subList(from, to);
 
       final var transactionResult = processBatch(
+          cuBudgetMultiplier,
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
@@ -115,23 +105,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   }
 
   @Override
-  public final List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final String logContext,
-                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
-    return batchProcess(
-        accountsMap,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        transactionProcessor.legacyTransactionFactory(),
-        logContext,
-        batchFactory
-    );
-  }
-
-  @Override
-  public final List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final Map<PublicKey, ?> accountsMap,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
@@ -148,6 +123,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       final var batch = batchFactory.apply(batchAccounts);
 
       final var transactionResult = processBatch(
+          cuBudgetMultiplier,
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
@@ -169,5 +145,39 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       }
     }
     return results;
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final List<Instruction> instructions,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final String logContext) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionProcessor.legacyTransactionFactory(),
+        logContext
+    );
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final Map<PublicKey, ?> accountsMap,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final String logContext,
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionProcessor.legacyTransactionFactory(),
+        logContext,
+        batchFactory
+    );
   }
 }

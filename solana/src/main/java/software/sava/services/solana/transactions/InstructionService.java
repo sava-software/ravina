@@ -26,16 +26,46 @@ public interface InstructionService {
     );
   }
 
-  TransactionResult processInstructions(final List<Instruction> instructions,
+  TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                        final List<Instruction> instructions,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
                                         final String logContext) throws InterruptedException;
 
-  TransactionResult processInstructions(final List<Instruction> instructions,
+  TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                        final List<Instruction> instructions,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                         final String logContext) throws InterruptedException;
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionFactory,
+        logContext
+    );
+  }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
                                                 final String logContext) throws InterruptedException {

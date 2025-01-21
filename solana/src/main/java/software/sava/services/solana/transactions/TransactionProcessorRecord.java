@@ -152,8 +152,12 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public Transaction createTransaction(final SimulationFutures simulationFutures,
-                                       final TxSimulation simulationResult) {
+  public Transaction createTransaction(final SimulationFutures simulationFutures, final int cuBudget) {
+    return simulationFutures.createTransaction(solanaAccounts, cuBudget);
+  }
+
+  @Override
+  public Transaction createTransaction(final SimulationFutures simulationFutures, final TxSimulation simulationResult) {
     return simulationFutures.createTransaction(solanaAccounts, simulationResult);
   }
 
@@ -221,8 +225,9 @@ record TransactionProcessorRecord(ExecutorService executor,
   @Override
   public Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
                                               final TxSimulation simulationResult,
+                                              final int cuBudget,
                                               final CompletableFuture<LatestBlockHash> blockHashFuture) {
-    final var transaction = createTransaction(simulationFutures, simulationResult);
+    final var transaction = createTransaction(simulationFutures, cuBudget);
     setBlockHash(transaction, simulationResult, blockHashFuture);
     signTransaction(transaction);
     return transaction;

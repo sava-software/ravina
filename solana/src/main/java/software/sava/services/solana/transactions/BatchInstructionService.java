@@ -51,6 +51,94 @@ public interface BatchInstructionService extends InstructionService {
     );
   }
 
+  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                       final List<Instruction> instructions,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final String logContext) throws InterruptedException;
+
+  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                       final List<Instruction> instructions,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                       final String logContext) throws InterruptedException;
+
+  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                       final Map<PublicKey, ?> accountsMap,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final String logContext,
+                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
+
+  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                       final Map<PublicKey, ?> accountsMap,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                       final String logContext,
+                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
+
+  default List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final String logContext) throws InterruptedException {
+    return batchProcess(
+        1.0,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        logContext
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final Function<List<Instruction>, Transaction> transactionFactory,
+                                               final String logContext) throws InterruptedException {
+    return batchProcess(
+        1.0,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        1.0,
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        logContext,
+        batchFactory
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final Function<List<Instruction>, Transaction> transactionFactory,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        1.0,
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionFactory,
+        logContext,
+        batchFactory
+    );
+  }
+
   default List<TransactionResult> batchProcess(final List<Instruction> instructions,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
@@ -60,17 +148,6 @@ public interface BatchInstructionService extends InstructionService {
         logContext
     );
   }
-
-  List<TransactionResult> batchProcess(final List<Instruction> instructions,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final String logContext) throws InterruptedException;
-
-  List<TransactionResult> batchProcess(final List<Instruction> instructions,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext) throws InterruptedException;
 
   default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
                                                final String logContext,
@@ -83,17 +160,4 @@ public interface BatchInstructionService extends InstructionService {
         batchFactory
     );
   }
-
-  List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final String logContext,
-                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
-
-  List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext,
-                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 }

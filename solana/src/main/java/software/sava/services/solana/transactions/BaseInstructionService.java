@@ -61,8 +61,10 @@ public class BaseInstructionService implements InstructionService {
     return txMonitorService;
   }
 
-  protected final SendTxContext sendTransaction(final SimulationFutures simulationFutures, final TxSimulation simulationResult) {
-    final var transaction = transactionProcessor.createTransaction(simulationFutures, simulationResult);
+  protected final SendTxContext sendTransaction(final SimulationFutures simulationFutures,
+                                                final TxSimulation simulationResult,
+                                                final int cuBudget) {
+    final var transaction = transactionProcessor.createTransaction(simulationFutures, cuBudget);
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
     if (Long.compareUnsigned(blockHeight, 0) <= 0) {
       try {
@@ -80,14 +82,25 @@ public class BaseInstructionService implements InstructionService {
     return transactionProcessor.signAndSendTx(transaction, blockHeight);
   }
 
-  public final TransactionResult processInstructions(final List<Instruction> instructions,
+  @Override
+  public final TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                     final List<Instruction> instructions,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
                                                      final String logContext) throws InterruptedException {
-    return processInstructions(instructions, awaitCommitment, awaitCommitmentOnError, transactionProcessor.legacyTransactionFactory(), logContext);
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        transactionProcessor.legacyTransactionFactory(),
+        logContext
+    );
   }
 
-  public final TransactionResult processInstructions(final List<Instruction> instructions,
+  @Override
+  public final TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                     final List<Instruction> instructions,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
                                                      final Function<List<Instruction>, Transaction> transactionFactory,
@@ -123,8 +136,8 @@ public class BaseInstructionService implements InstructionService {
         );
       }
 
-      final var sendContext = sendTransaction(simulationFutures, simulationResult);
-      final int cuBudget = SimulationFutures.cuBudget(simulationResult);
+      final int cuBudget = SimulationFutures.cuBudget(cuBudgetMultiplier, simulationResult);
+      final var sendContext = sendTransaction(simulationFutures, simulationResult, cuBudget);
       final long cuPrice = simulationFutures.cuPrice();
       if (sendContext == null) {
         return TransactionResult.createResult(

@@ -26,15 +26,21 @@ public record SimulationFutures(Commitment commitment,
     return simulationResult.unitsConsumed().orElseThrow();
   }
 
+  public static int cuBudget(final double cuBudgetMultiplier, final TxSimulation simulationResult) {
+    return (int) Math.round(cuBudgetMultiplier * cuBudget(simulationResult));
+  }
+
   public long cuPrice() {
     return feeEstimateFuture.join().longValue();
   }
 
   public Transaction createTransaction(final SolanaAccounts solanaAccounts, final TxSimulation simulationResult) {
-    final int computeBudget = cuBudget(simulationResult);
+    return createTransaction(solanaAccounts, cuBudget(simulationResult));
+  }
+
+  public Transaction createTransaction(final SolanaAccounts solanaAccounts, final int cuBudget) {
     return transactionFactory.apply(instructions).prependInstructions(
-        // TODO: allow user to provide dynamic cu budget buffer buffer.
-        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), (int) (computeBudget * 1.1)),
+        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), cuBudget),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), cuPrice())
     );
   }

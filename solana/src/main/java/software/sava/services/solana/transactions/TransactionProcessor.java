@@ -103,6 +103,8 @@ public interface TransactionProcessor {
 
   void setSignature(final Transaction transaction, final byte[] sig);
 
+  Transaction createTransaction(final SimulationFutures simulationFutures, final int cuBudget);
+
   Transaction createTransaction(final SimulationFutures simulationFutures,
                                 final TxSimulation simulationResult);
 
@@ -114,11 +116,23 @@ public interface TransactionProcessor {
                     final TxSimulation simulationResult,
                     final CompletableFuture<LatestBlockHash> blockHashFuture);
 
+  void signTransaction(final Transaction transaction);
+
   Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
                                        final TxSimulation simulationResult,
+                                       final int cuBudget,
                                        final CompletableFuture<LatestBlockHash> blockHashFuture);
 
-  void signTransaction(final Transaction transaction);
+  default Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
+                                               final TxSimulation simulationResult,
+                                               final CompletableFuture<LatestBlockHash> blockHashFuture) {
+    return createAndSignTransaction(
+        simulationFutures,
+        simulationResult,
+        SimulationFutures.cuBudget(simulationResult),
+        blockHashFuture
+    );
+  }
 
   SendTxContext sendSignedTx(final Transaction transaction, final long blockHeight);
 
