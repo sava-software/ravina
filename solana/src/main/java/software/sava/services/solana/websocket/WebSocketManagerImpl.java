@@ -6,18 +6,22 @@ import software.sava.services.core.remote.call.Backoff;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 
-final class WebSocketManagerImpl implements WebSocketManager {
+final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsocket>, SolanaRpcWebsocket.OnClose, BiConsumer<SolanaRpcWebsocket, Throwable> {
 
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
 
   private final SolanaRpcWebsocket.Builder builderPrototype;
   private final Backoff backoff;
   private final Consumer<SolanaRpcWebsocket> onNewWebSocket;
+  private final Consumer<SolanaRpcWebsocket> onOpen;
+  private final SolanaRpcWebsocket.OnClose onClose;
+  private final BiConsumer<SolanaRpcWebsocket, Throwable> onError;
   private final AtomicInteger errorCount;
   private final ReentrantLock lock;
   private volatile SolanaRpcWebsocket webSocket;
@@ -31,33 +35,55 @@ final class WebSocketManagerImpl implements WebSocketManager {
     this.builderPrototype = builderPrototype;
     this.backoff = backoff;
     this.onNewWebSocket = onNewWebSocket;
+    final var onOpen = builderPrototype.onOpen();
+    this.onOpen = onOpen == null ? this : this.andThen(onOpen);
+    final var onClose = builderPrototype.onClose();
+    this.onClose = onClose == null ? this : this.andThen(onClose);
+    final var onError = builderPrototype.onError();
+    this.onError = onError == null ? this : this.andThen(onError);
     this.errorCount = new AtomicInteger(0);
     this.lock = new ReentrantLock(false);
     this.connectionDelay = backoff.initialDelay(TimeUnit.MILLISECONDS);
   }
 
+  private long resetWebsocket() {
+    final int errorCount = this.errorCount.incrementAndGet();
+    final long connectionDelay = this.connectionDelay = backoff.delay(errorCount, TimeUnit.MILLISECONDS);
+    this.webSocket = null;
+    return connectionDelay;
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket websocket) {
+    this.errorCount.set(0);
+    logger.log(INFO, "WebSocket connected to " + websocket.endpoint().getHost());
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket webSocket, final int statusCode, final String reason) {
+    final long connectionDelay = resetWebsocket();
+    webSocket.close();
+    logger.log(WARNING, String.format(
+        "Websocket closed [statusCode=%d] [reason=%s]. Can re-connect in %d seconds.",
+        statusCode, reason, connectionDelay
+    ));
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket websocket, final Throwable throwable) {
+    final long connectionDelay = resetWebsocket();
+    websocket.close();
+    logger.log(WARNING, String.format(
+        "Websocket failure. Can re-connect in %d seconds.",
+        TimeUnit.MILLISECONDS.toSeconds(connectionDelay)
+    ), throwable);
+  }
+
   private SolanaRpcWebsocket createWebSocket() {
-    // TODO append actions to any existing on* operations.
     final var webSocket = builderPrototype
-        .onOpen(ws -> {
-          this.errorCount.set(0);
-          logger.log(INFO, "WebSocket connected to " + ws.endpoint().getHost());
-        })
-        .onClose((ws, statusCode, reason) -> {
-              ws.close();
-              logger.log(WARNING, String.format("%d: %s%n", statusCode, reason));
-            }
-        )
-        .onError((ws, throwable) -> {
-          ws.close();
-          final int errorCount = this.errorCount.incrementAndGet();
-          final long connectionDelay = this.connectionDelay = backoff.delay(errorCount, TimeUnit.MILLISECONDS);
-          this.webSocket = null;
-          logger.log(WARNING, String.format(
-              "Websocket failure.  Can re-connect in %d seconds.",
-              TimeUnit.MILLISECONDS.toSeconds(connectionDelay)
-          ), throwable);
-        })
+        .onOpen(onOpen)
+        .onClose(onClose)
+        .onError(onError)
         .create();
 
     if (onNewWebSocket != null) {
