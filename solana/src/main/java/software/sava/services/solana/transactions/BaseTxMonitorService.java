@@ -20,6 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static java.lang.Long.toUnsignedString;
 import static java.lang.System.Logger.Level.*;
+import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
 import static software.sava.rpc.json.http.request.Commitment.*;
 
@@ -27,7 +28,6 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
 
   protected static final System.Logger logger = System.getLogger(TxCommitmentMonitorService.class.getName());
   private static final BigInteger BIG_RECENT_BLOCK_QUEUE = BigInteger.valueOf(Transaction.BLOCK_QUEUE_SIZE);
-  protected static final int BLOCKS_UNTIL_FINALIZED = 32;
 
   protected final ChainItemFormatter formatter;
   protected final RpcCaller rpcCaller;

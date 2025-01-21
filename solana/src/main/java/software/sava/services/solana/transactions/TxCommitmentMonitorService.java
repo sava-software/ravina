@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.*;
 
 final class TxCommitmentMonitorService extends BaseTxMonitorService implements TxMonitorService {
@@ -144,13 +145,13 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         final var txContext = noSigStatus[i];
         if (txContext != null) {
           final var bigBlockHeight = txContext.bigBlockHeight();
-          if (txContext.bigBlockHeight().compareTo(expiredBlockHeight) <= 0) {
+          if (bigBlockHeight.compareTo(expiredBlockHeight) <= 0) {
             expirationMonitorService.addTxContext(txContext);
             pendingTransactions.remove(txContext);
             ++numExpired;
           } else {
             if (txContext.retrySend()) {
-              final long blocksRemaining = txContext.bigBlockHeight().subtract(expiredBlockHeight).longValue();
+              final long blocksRemaining = bigBlockHeight.subtract(expiredBlockHeight).longValue();
               if (blocksRemaining > minBlocksRemainingToResend) {
                 final var previousSendContext = txContext.sendTxContext();
                 if ((System.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
