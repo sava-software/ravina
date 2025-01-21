@@ -157,7 +157,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 if ((System.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
                   final var sendContext = transactionProcessor.sendSignedTx(previousSendContext.transaction(), txContext.blockHeight());
                   final var nexContext = txContext.resent(sendContext);
-                  contextMap.put(txContext.sig(), nexContext);
+                  pendingTransactions.remove(txContext);
+                  pendingTransactions.add(nexContext);
                   logger.log(INFO, String.format("""
                           Resent transaction:
                            * retry: %d

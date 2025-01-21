@@ -161,6 +161,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
       final var error = sigStatus.error();
 
       if (error != null) {
+        // TODO: if failed because already landed, fetch transaction.
         final var awaitCommitmentOnError = txContext.awaitCommitmentOnError();
         if (commitmentMet(awaitCommitmentOnError, commitment)) {
           completeFuture(txContext, sigStatus);
