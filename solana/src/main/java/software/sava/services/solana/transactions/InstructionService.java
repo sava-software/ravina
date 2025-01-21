@@ -26,18 +26,56 @@ public interface InstructionService {
     );
   }
 
-  TransactionResult processInstructions(final double cuBudgetMultiplier,
+  TransactionResult processInstructions(double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
+                                        final boolean verifyExpired,
+                                        final boolean retrySend,
                                         final String logContext) throws InterruptedException;
 
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
+                                        final boolean verifyExpired,
+                                        final boolean retrySend,
                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                         final String logContext) throws InterruptedException;
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        transactionFactory,
+        logContext
+    );
+  }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
                                                 final Commitment awaitCommitment,
@@ -62,6 +100,32 @@ public interface InstructionService {
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
         transactionFactory,
         logContext
     );

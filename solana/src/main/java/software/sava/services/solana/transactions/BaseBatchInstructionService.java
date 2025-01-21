@@ -38,6 +38,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                          final List<Instruction> batch,
                                          final Commitment awaitCommitment,
                                          final Commitment awaitCommitmentOnError,
+                                         final boolean verifyExpired,
+                                         final boolean retrySend,
                                          final Function<List<Instruction>, Transaction> transactionFactory,
                                          final String logContext) throws InterruptedException {
     final var transactionResult = processInstructions(
@@ -45,6 +47,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         batch,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         transactionFactory,
         logContext
     );
@@ -70,6 +74,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final List<Instruction> instructions,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
@@ -85,6 +91,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
+          verifyExpired,
+          retrySend,
           transactionFactory,
           logContext
       );
@@ -109,6 +117,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Map<PublicKey, ?> accountsMap,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
@@ -127,6 +137,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           batch,
           awaitCommitment,
           awaitCommitmentOnError,
+          verifyExpired,
+          retrySend,
           transactionFactory,
           logContext
       );
@@ -152,6 +164,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final List<Instruction> instructions,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
                                                     final String logContext) throws InterruptedException {
     return batchProcess(
         cuBudgetMultiplier,
@@ -168,6 +182,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Map<PublicKey, ?> accountsMap,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(

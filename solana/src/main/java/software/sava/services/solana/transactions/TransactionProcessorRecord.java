@@ -40,8 +40,6 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
-  private static final System.Logger logger = System.getLogger(TransactionProcessor.class.getName());
-
   @Override
   public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
     final int numTables = lookupTableKeys.size();
@@ -241,7 +239,7 @@ record TransactionProcessorRecord(ExecutorService executor,
     }
     sendClients.sort();
     final var rpcClient = sendClients.withContext();
-    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64SignedTx, 1);
+    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64SignedTx, 0);
     final long publishedAt = System.currentTimeMillis();
     rpcClient.capacityState().claimRequest();
     return new SendTxContext(rpcClient, resultFuture, transaction, blockHeight, publishedAt);

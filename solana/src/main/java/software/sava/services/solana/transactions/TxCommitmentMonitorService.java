@@ -10,7 +10,10 @@ import software.sava.services.solana.websocket.WebSocketManager;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
@@ -21,13 +24,19 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   private final WebSocketManager webSocketManager;
   private final TxExpirationMonitorService expirationMonitorService;
   private final long webSocketConfirmationTimeoutMillis;
+  private final TransactionProcessor transactionProcessor;
+  private final long retrySendDelayMillis;
+  private final int minBlocksRemainingToResend;
 
   TxCommitmentMonitorService(final ChainItemFormatter formatter,
                              final RpcCaller rpcCaller,
                              final EpochInfoService epochInfoService,
                              final WebSocketManager webSocketManager,
                              final Duration minSleepBetweenSigStatusPolling,
-                             final Duration webSocketConfirmationTimeout) {
+                             final Duration webSocketConfirmationTimeout,
+                             final TransactionProcessor transactionProcessor,
+                             final Duration retrySendDelay,
+                             final int minBlocksRemainingToResend) {
     super(
         formatter,
         rpcCaller,
@@ -35,6 +44,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         minSleepBetweenSigStatusPolling
     );
     this.webSocketManager = webSocketManager;
+    this.transactionProcessor = transactionProcessor;
     this.expirationMonitorService = new TxExpirationMonitorService(
         formatter,
         rpcCaller,
@@ -42,6 +52,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         minSleepBetweenSigStatusPolling
     );
     this.webSocketConfirmationTimeoutMillis = webSocketConfirmationTimeout.toMillis();
+    this.retrySendDelayMillis = retrySendDelay.toMillis();
+    this.minBlocksRemainingToResend = minBlocksRemainingToResend;
   }
 
   @Override
@@ -137,6 +149,17 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
             pendingTransactions.remove(txContext);
             ++numExpired;
           } else {
+            if (txContext.retrySend()) {
+              final long blocksRemaining = txContext.bigBlockHeight().subtract(expiredBlockHeight).longValue();
+              if (blocksRemaining > minBlocksRemainingToResend) {
+                final var previousSendContext = txContext.sendTxContext();
+                if ((System.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
+                  final var sendContext = transactionProcessor.sendSignedTx(previousSendContext.transaction(), txContext.blockHeight());
+                  contextMap.put(txContext.sig(), txContext.resent(sendContext));
+                }
+              }
+            }
+
             final long blocksUntilExpiration = bigBlockHeight.subtract(expiredBlockHeight).longValue();
             if (blocksUntilExpiration < minBlocksUntilExpiration) {
               minBlocksUntilExpiration = blocksUntilExpiration;
@@ -162,9 +185,10 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   public CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                                  final Commitment awaitCommitmentOnError,
                                                  final String sig,
-                                                 final long blockHashHeight,
-                                                 final boolean verifyExpired) {
-    final var txContext = TxContext.createContext(awaitCommitment, awaitCommitmentOnError, sig, blockHashHeight, verifyExpired);
+                                                 final SendTxContext sendTxContext,
+                                                 final boolean verifyExpired,
+                                                 final boolean retrySend) {
+    final var txContext = TxContext.createContext(awaitCommitment, awaitCommitmentOnError, sig, sendTxContext, verifyExpired, retrySend);
     pendingTransactions.add(txContext);
     return txContext.sigStatusFuture();
   }

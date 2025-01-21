@@ -21,14 +21,20 @@ public interface TxMonitorService extends Worker {
                                         final EpochInfoService epochInfoService,
                                         final WebSocketManager webSocketManager,
                                         final Duration minSleepBetweenSigStatusPolling,
-                                        final Duration webSocketConfirmationTimeout) {
+                                        final Duration webSocketConfirmationTimeout,
+                                        final TransactionProcessor transactionProcessor,
+                                        final Duration retrySendDelay,
+                                        final int minBlocksRemainingToResend) {
     return new TxCommitmentMonitorService(
         formatter,
         rpcCaller,
         epochInfoService,
         webSocketManager,
         minSleepBetweenSigStatusPolling,
-        webSocketConfirmationTimeout
+        webSocketConfirmationTimeout,
+        transactionProcessor,
+        retrySendDelay,
+        minBlocksRemainingToResend
     );
   }
 
@@ -37,8 +43,24 @@ public interface TxMonitorService extends Worker {
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,
-                                          final long blockHashHeight,
-                                          final boolean doubleCheckExistence);
+                                          final SendTxContext sendTxContext,
+                                          final boolean verifyExpired,
+                                          final boolean retrySend);
+
+  default CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
+                                                  final Commitment awaitCommitmentOnError,
+                                                  final String sig,
+                                                  final SendTxContext sendTxContext,
+                                                  final boolean verifyExpired) {
+    return queueResult(
+        awaitCommitment,
+        awaitCommitmentOnError,
+        sig,
+        sendTxContext,
+        verifyExpired,
+        false
+    );
+  }
 
   CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment, final Commitment awaitCommitmentOnError, final String txSig);
 

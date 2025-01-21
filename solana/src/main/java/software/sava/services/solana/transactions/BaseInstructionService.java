@@ -87,12 +87,16 @@ public class BaseInstructionService implements InstructionService {
                                                      final List<Instruction> instructions,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
+                                                     final boolean verifyExpired,
+                                                     final boolean retrySend,
                                                      final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         transactionProcessor.legacyTransactionFactory(),
         logContext
     );
@@ -103,6 +107,8 @@ public class BaseInstructionService implements InstructionService {
                                                      final List<Instruction> instructions,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
+                                                     final boolean verifyExpired,
+                                                     final boolean retrySend,
                                                      final Function<List<Instruction>, Transaction> transactionFactory,
                                                      final String logContext) throws InterruptedException {
     for (; ; ) {
@@ -173,8 +179,9 @@ public class BaseInstructionService implements InstructionService {
             awaitCommitment,
             awaitCommitmentOnError,
             sig,
-            sendContext.blockHeight(),
-            true
+            sendContext,
+            verifyExpired,
+            retrySend
         ).join();
         if (sigStatus == null) {
           logger.log(INFO, String.format("""

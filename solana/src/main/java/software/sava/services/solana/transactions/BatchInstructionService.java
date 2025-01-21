@@ -55,29 +55,109 @@ public interface BatchInstructionService extends InstructionService {
                                        final List<Instruction> instructions,
                                        final Commitment awaitCommitment,
                                        final Commitment awaitCommitmentOnError,
+                                       final boolean verifyExpired,
+                                       final boolean retrySend,
+                                       final Function<List<Instruction>, Transaction> transactionFactory,
                                        final String logContext) throws InterruptedException;
+
+  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                       final Map<PublicKey, ?> accountsMap,
+                                       final Commitment awaitCommitment,
+                                       final Commitment awaitCommitmentOnError,
+                                       final boolean verifyExpired,
+                                       final boolean retrySend,
+                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                       final String logContext,
+                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final List<Instruction> instructions,
                                        final Commitment awaitCommitment,
                                        final Commitment awaitCommitmentOnError,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
+                                       final boolean verifyExpired,
+                                       final boolean retrySend,
                                        final String logContext) throws InterruptedException;
 
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final Map<PublicKey, ?> accountsMap,
                                        final Commitment awaitCommitment,
                                        final Commitment awaitCommitmentOnError,
+                                       final boolean verifyExpired,
+                                       final boolean retrySend,
                                        final String logContext,
                                        final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 
-  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                       final Map<PublicKey, ?> accountsMap,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext,
-                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final List<Instruction> instructions,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final String logContext) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        logContext
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final List<Instruction> instructions,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final Function<List<Instruction>, Transaction> transactionFactory,
+                                               final String logContext) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        instructions,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final Map<PublicKey, ?> accountsMap,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        logContext,
+        batchFactory
+    );
+  }
+
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final Map<PublicKey, ?> accountsMap,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final Function<List<Instruction>, Transaction> transactionFactory,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        accountsMap,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        transactionFactory,
+        logContext,
+        batchFactory
+    );
+  }
 
   default List<TransactionResult> batchProcess(final List<Instruction> instructions,
                                                final Commitment awaitCommitment,
