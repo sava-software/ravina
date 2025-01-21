@@ -5,6 +5,7 @@ import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxSimulation;
+import software.sava.solana.programs.compute_budget.ComputeBudgetProgram;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -27,7 +28,10 @@ public record SimulationFutures(Commitment commitment,
   }
 
   public static int cuBudget(final double cuBudgetMultiplier, final TxSimulation simulationResult) {
-    return (int) Math.round(cuBudgetMultiplier * cuBudget(simulationResult));
+    return Math.min(
+        ComputeBudgetProgram.MAX_COMPUTE_BUDGET,
+        (int) Math.round(cuBudgetMultiplier * cuBudget(simulationResult))
+    );
   }
 
   public long cuPrice() {
