@@ -36,23 +36,35 @@ public interface Backoff {
                            final long initialRetryDelay,
                            final long maxRetryDelay) {
     long mark;
-    long previous = initialRetryDelay;
-    long current = initialRetryDelay;
+    long previous = 1;
+    long current = 1;
 
-    int steps = 2;
+    long startPrevious;
+    long startCurrent;
+    // Find previous value.
     for (; ; ) {
       mark = current;
       current += previous;
-      ++steps;
-      if (current >= maxRetryDelay) {
+      previous = mark;
+      if (initialRetryDelay <= current) {
+        startPrevious = previous;
+        startCurrent = current;
         break;
       }
-      previous = mark;
     }
 
+    // Calculate array size.
+    int steps = 2;
+    do {
+      mark = current;
+      current += previous;
+      previous = mark;
+      ++steps;
+    } while (maxRetryDelay > current);
+
     final long[] sequence = new long[steps];
-    previous = initialRetryDelay;
-    current = initialRetryDelay;
+    previous = startPrevious;
+    current = startCurrent;
     for (int i = 0; ; ) {
       sequence[i] = previous;
       if (++i == steps) {
@@ -69,49 +81,7 @@ public interface Backoff {
   }
 
   static Backoff fibonacci(final int initialRetryDelaySeconds, final int maxRetryDelaySeconds) {
-    int mark;
-    int previous = 1;
-    int current = 1;
-    int startPrevious;
-    int startCurrent;
-
-    for (; ; ) {
-      mark = current;
-      current += previous;
-      previous = mark;
-      if (initialRetryDelaySeconds <= current) {
-        startPrevious = previous;
-        startCurrent = current;
-        break;
-      }
-    }
-
-    int steps = 1;
-    for (; ; ++steps) {
-      mark = current;
-      current += previous;
-      previous = mark;
-      if (maxRetryDelaySeconds <= current) {
-        break;
-      }
-    }
-
-    final long[] sequence = new long[steps];
-    previous = startPrevious;
-    current = startCurrent;
-    for (int i = 0; ; ) {
-      sequence[i] = previous;
-      if (++i == steps) {
-        sequence[i - 1] = maxRetryDelaySeconds;
-        break;
-      } else {
-        mark = current;
-        current += previous;
-        previous = mark;
-      }
-    }
-
-    return new FibonacciBackoffErrorHandler(TimeUnit.SECONDS, sequence);
+    return fibonacci(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
   }
 
   TimeUnit timeUnit();

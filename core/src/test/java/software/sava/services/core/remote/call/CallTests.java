@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class CallTests {
@@ -173,25 +174,38 @@ final class CallTests {
 
   @Test
   void testCourteousMillis() {
-    var errorHandler = Backoff.fibonacci(TimeUnit.SECONDS, 1, 13);
-    assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
-    assertEquals(1000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
-    assertEquals(2000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
-    assertEquals(3000, errorHandler.delay(4, TimeUnit.MILLISECONDS));
-    assertEquals(5000, errorHandler.delay(5, TimeUnit.MILLISECONDS));
-    assertEquals(8000, errorHandler.delay(6, TimeUnit.MILLISECONDS));
-    assertEquals(13000, errorHandler.delay(7, TimeUnit.MILLISECONDS));
-    assertEquals(13000, errorHandler.delay(8, TimeUnit.MILLISECONDS));
-    assertEquals(13000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
+    var backoff = Backoff.fibonacci(TimeUnit.SECONDS, 1, 13);
+    assertEquals(1000, backoff.delay(0, TimeUnit.MILLISECONDS));
+    assertEquals(1000, backoff.delay(1, TimeUnit.MILLISECONDS));
+    assertEquals(2000, backoff.delay(2, TimeUnit.MILLISECONDS));
+    assertEquals(3000, backoff.delay(3, TimeUnit.MILLISECONDS));
+    assertEquals(5000, backoff.delay(4, TimeUnit.MILLISECONDS));
+    assertEquals(8000, backoff.delay(5, TimeUnit.MILLISECONDS));
+    assertEquals(13000, backoff.delay(6, TimeUnit.MILLISECONDS));
+    assertEquals(13000, backoff.delay(7, TimeUnit.MILLISECONDS));
+    assertEquals(13000, backoff.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
 
-    errorHandler = Backoff.exponential(TimeUnit.SECONDS, 1, 32);
-    assertEquals(1000, errorHandler.delay(1, TimeUnit.MILLISECONDS));
-    assertEquals(2000, errorHandler.delay(2, TimeUnit.MILLISECONDS));
-    assertEquals(4000, errorHandler.delay(3, TimeUnit.MILLISECONDS));
-    assertEquals(8000, errorHandler.delay(4, TimeUnit.MILLISECONDS));
-    assertEquals(16000, errorHandler.delay(5, TimeUnit.MILLISECONDS));
-    assertEquals(32000, errorHandler.delay(6, TimeUnit.MILLISECONDS));
-    assertEquals(32000, errorHandler.delay(7, TimeUnit.MILLISECONDS));
-    assertEquals(32000, errorHandler.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
+    backoff = Backoff.exponential(TimeUnit.SECONDS, 1, 32);
+    assertEquals(1000, backoff.delay(0, TimeUnit.MILLISECONDS));
+    assertEquals(1000, backoff.delay(1, TimeUnit.MILLISECONDS));
+    assertEquals(2000, backoff.delay(2, TimeUnit.MILLISECONDS));
+    assertEquals(4000, backoff.delay(3, TimeUnit.MILLISECONDS));
+    assertEquals(8000, backoff.delay(4, TimeUnit.MILLISECONDS));
+    assertEquals(16000, backoff.delay(5, TimeUnit.MILLISECONDS));
+    assertEquals(32000, backoff.delay(6, TimeUnit.MILLISECONDS));
+    assertEquals(32000, backoff.delay(7, TimeUnit.MILLISECONDS));
+    assertEquals(32000, backoff.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
+
+    backoff = Backoff.fibonacci(1, 21);
+    assertEquals(1000, backoff.delay(0, TimeUnit.MILLISECONDS));
+    assertEquals(1000, backoff.delay(1, TimeUnit.MILLISECONDS));
+    assertEquals(2000, backoff.delay(2, TimeUnit.MILLISECONDS));
+    assertEquals(3000, backoff.delay(3, TimeUnit.MILLISECONDS));
+    assertEquals(5000, backoff.delay(4, TimeUnit.MILLISECONDS));
+    assertEquals(8000, backoff.delay(5, TimeUnit.MILLISECONDS));
+    assertEquals(13000, backoff.delay(6, TimeUnit.MILLISECONDS));
+    assertEquals(21000, backoff.delay(7, TimeUnit.MILLISECONDS));
+    assertEquals(21000, backoff.delay(8, TimeUnit.MILLISECONDS));
+    assertEquals(21000, backoff.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
   }
 }

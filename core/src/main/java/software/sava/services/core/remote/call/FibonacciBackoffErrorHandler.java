@@ -13,6 +13,6 @@ final class FibonacciBackoffErrorHandler extends RootBackoff {
 
   @Override
   protected long calculateDelay(final long errorCount) {
-    return sequence[(int) Math.min(errorCount - 1, sequence.length - 1)];
+    return sequence[errorCount < 1 ? 0 : (int) Math.min(errorCount - 1, sequence.length - 1)];
   }
 }
