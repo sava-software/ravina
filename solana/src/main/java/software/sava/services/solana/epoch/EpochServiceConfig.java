@@ -2,6 +2,7 @@ package software.sava.services.solana.epoch;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 
@@ -19,9 +20,14 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
                                  Duration fetchEpochInfoAfterEndDelay) {
 
   public static EpochServiceConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Parser();
-    ji.testObject(parser);
-    return parser.createConfig();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser();
+      ji.testObject(parser);
+      return parser.createConfig();
+    }
   }
 
   public static EpochServiceConfig createDefault() {

@@ -4,6 +4,7 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.rpc.json.http.response.TxStatus;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -18,9 +19,14 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
   }
 
   public static ChainItemFormatter parseFormatter(final JsonIterator ji) {
-    final var parser = new Parser();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   public String formatSig(final String sig) {

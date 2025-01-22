@@ -2,6 +2,7 @@ package software.sava.services.solana.alt;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 
@@ -16,9 +17,14 @@ public record TableCacheConfig(int initialCapacity,
   private static final Duration DEFAULT_CONSIDERED_STALE = Duration.ofHours(8);
 
   public static TableCacheConfig parse(final JsonIterator ji) {
-    final var parser = new Builder();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Builder();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   public static TableCacheConfig createDefault() {

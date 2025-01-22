@@ -2,6 +2,7 @@ package software.sava.services.core.remote.call;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -25,9 +26,14 @@ public record BackoffConfig(BackoffStrategy strategy,
   }
 
   public static BackoffConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Builder();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Builder();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   private static final class Builder implements FieldBufferPredicate {

@@ -5,6 +5,7 @@ import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory
 import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 import systems.comodal.jsoniter.ContextFieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -33,7 +34,12 @@ public record CapacityConfig(int minCapacity,
   }
 
   public static CapacityConfig parse(final JsonIterator ji) {
-    return ji.testObject(new Builder(), PARSER).createConfig();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      return ji.testObject(new Builder(), PARSER).createConfig();
+    }
   }
 
   public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,

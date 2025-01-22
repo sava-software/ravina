@@ -8,7 +8,6 @@ import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpResponse;
-import java.time.Duration;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -18,7 +17,11 @@ public record UriCapacityConfig(URI endpoint,
                                 Backoff backoff) {
 
   public static UriCapacityConfig parseConfig(final JsonIterator ji) {
-    if (ji.whatIsNext() == ValueType.STRING) {
+    final var next = ji.whatIsNext();
+    if (next == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else if (next == ValueType.STRING) {
       final var endpoint = ji.readString();
       return new UriCapacityConfig(URI.create(endpoint), null, null);
     } else {

@@ -2,6 +2,7 @@ package software.sava.services.solana.remote.call;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -10,9 +11,14 @@ public record CallWeights(int getProgramAccounts,
                           int sendTransaction) {
 
   public static CallWeights parse(final JsonIterator ji) {
-    final var parser = new Builder();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Builder();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   private static final class Builder implements FieldBufferPredicate {

@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 
@@ -14,9 +15,14 @@ public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
                               int minBlocksRemainingToResend) {
 
   public static TxMonitorConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Parser();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   public static TxMonitorConfig createDefault() {

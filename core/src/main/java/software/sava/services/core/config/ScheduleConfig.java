@@ -2,6 +2,7 @@ package software.sava.services.core.config;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 import java.util.Locale;
@@ -31,9 +32,14 @@ public record ScheduleConfig(long initialDelay,
   }
 
   public static ScheduleConfig parseConfig(final JsonIterator ji) {
-    final var parser = new Parser();
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   private static final class Parser implements FieldBufferPredicate {

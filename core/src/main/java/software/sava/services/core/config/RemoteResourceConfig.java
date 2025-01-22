@@ -4,6 +4,7 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.BackoffConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 
@@ -15,9 +16,14 @@ public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
   public static RemoteResourceConfig parseConfig(final JsonIterator ji,
                                                  final String defaultEndpoint,
                                                  final Backoff defaultBackoff) {
-    final var parser = new Parser();
-    ji.testObject(parser);
-    return parser.create(defaultEndpoint, defaultBackoff);
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser();
+      ji.testObject(parser);
+      return parser.create(defaultEndpoint, defaultBackoff);
+    }
   }
 
   private static final class Parser implements FieldBufferPredicate {

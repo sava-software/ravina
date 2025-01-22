@@ -1,6 +1,7 @@
 package software.sava.services.core.config;
 
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -9,10 +10,15 @@ import java.security.KeyStore;
 
 public interface NetConfig {
 
-  static NetConfig parseConfig(JsonIterator ji) {
-    final var parser = new NetConfigRecord.Builder();
-    ji.testObject(parser);
-    return parser.create();
+  static NetConfig parseConfig(final JsonIterator ji) {
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new NetConfigRecord.Builder();
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   void cleanPassword();

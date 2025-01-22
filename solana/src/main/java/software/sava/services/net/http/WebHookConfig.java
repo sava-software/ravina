@@ -5,6 +5,7 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.JsonIterator;
+import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,9 +34,14 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
                                           final String defaultFormat,
                                           final CapacityConfig defaultCapacity,
                                           final Backoff defaultBackoff) {
-    final var parser = new Parser(defaultFormat, defaultCapacity, defaultBackoff);
-    ji.testObject(parser);
-    return parser.create();
+    if (ji.whatIsNext() == ValueType.NULL) {
+      ji.skip();
+      return null;
+    } else {
+      final var parser = new Parser(defaultFormat, defaultCapacity, defaultBackoff);
+      ji.testObject(parser);
+      return parser.create();
+    }
   }
 
   @Override
