@@ -12,12 +12,12 @@ final class ExponentialBackoffErrorHandler extends RootBackoff {
                                  final long initialRetryDelay,
                                  final long maxRetryDelay) {
     super(timeUnit, initialRetryDelay, maxRetryDelay);
-    this.maxErrorCount = (long) (Math.log(maxRetryDelay) / Math.log(2));
+    this.maxErrorCount = (long) (Math.log(maxRetryDelay) / Math.log(2)) - 1;
   }
 
   @Override
   protected long calculateDelay(final long errorCount) {
-    if (errorCount > maxErrorCount) {
+    if (errorCount >= maxErrorCount) {
       return maxRetryDelay;
     } else if (errorCount < 2) {
       return initialRetryDelay;
