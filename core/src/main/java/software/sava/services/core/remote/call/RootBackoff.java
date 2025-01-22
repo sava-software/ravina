@@ -4,7 +4,7 @@ import java.util.concurrent.TimeUnit;
 
 abstract class RootBackoff implements Backoff {
 
-  private final TimeUnit timeUnit;
+  protected final TimeUnit timeUnit;
   protected final long initialRetryDelay;
   protected final long maxRetryDelay;
 
@@ -35,7 +35,7 @@ abstract class RootBackoff implements Backoff {
 
   @Override
   public final long delay(final long errorCount, final TimeUnit timeUnit) {
-    final long delay = Math.min(calculateDelay(errorCount), maxRetryDelay);
+    final long delay = calculateDelay(errorCount);
     return timeUnit.convert(delay, this.timeUnit);
   }
 }
