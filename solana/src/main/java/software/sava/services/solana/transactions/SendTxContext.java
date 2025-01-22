@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 public record SendTxContext(BalancedItem<SolanaRpcClient> rpcClient,
                             CompletableFuture<String> sendFuture,
                             Transaction transaction,
+                            String base64Encoded,
                             long blockHeight,
                             long publishedAt) {
 

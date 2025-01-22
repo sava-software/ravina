@@ -232,23 +232,20 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SendTxContext sendSignedTx(final Transaction transaction, final long blockHeight) {
-    final var base64SignedTx = transaction.base64EncodeToString();
-    if (base64SignedTx.length() > Transaction.MAX_BASE_64_ENCODED_LENGTH) {
-      return null;
-    }
+  public SendTxContext publish(final Transaction transaction, final String base64Encoded, final long blockHeight) {
     sendClients.sort();
     final var rpcClient = sendClients.withContext();
-    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64SignedTx, 0);
+    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64Encoded, 0);
     final long publishedAt = System.currentTimeMillis();
     rpcClient.capacityState().claimRequest();
-    return new SendTxContext(rpcClient, resultFuture, transaction, blockHeight, publishedAt);
+    return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
   }
+
 
   @Override
   public SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight) {
     signTransaction(transaction);
-    return sendSignedTx(transaction, blockHeight);
+    return publish(transaction, blockHeight);
   }
 
   @Override

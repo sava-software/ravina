@@ -16,13 +16,14 @@ import java.util.concurrent.TimeUnit;
 
 public interface TxMonitorService extends Worker {
 
+  /// If you do not intend to use the retry functionality transactionPublisher may be null.
   static TxMonitorService createService(final ChainItemFormatter formatter,
                                         final RpcCaller rpcCaller,
                                         final EpochInfoService epochInfoService,
                                         final WebSocketManager webSocketManager,
                                         final Duration minSleepBetweenSigStatusPolling,
                                         final Duration webSocketConfirmationTimeout,
-                                        final TransactionProcessor transactionProcessor,
+                                        final TxPublisher transactionPublisher,
                                         final Duration retrySendDelay,
                                         final int minBlocksRemainingToResend) {
     return new TxCommitmentMonitorService(
@@ -32,9 +33,29 @@ public interface TxMonitorService extends Worker {
         webSocketManager,
         minSleepBetweenSigStatusPolling,
         webSocketConfirmationTimeout,
-        transactionProcessor,
+        transactionPublisher,
         retrySendDelay,
         minBlocksRemainingToResend
+    );
+  }
+
+  /// If you do not intend to use the retry functionality transactionPublisher may be null.
+  static TxMonitorService createService(final ChainItemFormatter formatter,
+                                        final RpcCaller rpcCaller,
+                                        final EpochInfoService epochInfoService,
+                                        final WebSocketManager webSocketManager,
+                                        final TxMonitorConfig monitorConfig,
+                                        final TxPublisher transactionPublisher) {
+    return createService(
+        formatter,
+        rpcCaller,
+        epochInfoService,
+        webSocketManager,
+        monitorConfig.minSleepBetweenSigStatusPolling(),
+        monitorConfig.webSocketConfirmationTimeout(),
+        transactionPublisher,
+        monitorConfig.retrySendDelay(),
+        monitorConfig.minBlocksRemainingToResend()
     );
   }
 

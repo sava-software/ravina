@@ -25,7 +25,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   private final WebSocketManager webSocketManager;
   private final TxExpirationMonitorService expirationMonitorService;
   private final long webSocketConfirmationTimeoutMillis;
-  private final TransactionProcessor transactionProcessor;
+  private final TxPublisher transactionPublisher;
   private final long retrySendDelayMillis;
   private final int minBlocksRemainingToResend;
 
@@ -35,7 +35,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                              final WebSocketManager webSocketManager,
                              final Duration minSleepBetweenSigStatusPolling,
                              final Duration webSocketConfirmationTimeout,
-                             final TransactionProcessor transactionProcessor,
+                             final TxPublisher transactionPublisher,
                              final Duration retrySendDelay,
                              final int minBlocksRemainingToResend) {
     super(
@@ -45,7 +45,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         minSleepBetweenSigStatusPolling
     );
     this.webSocketManager = webSocketManager;
-    this.transactionProcessor = transactionProcessor;
+    this.transactionPublisher = transactionPublisher;
     this.expirationMonitorService = new TxExpirationMonitorService(
         formatter,
         rpcCaller,
@@ -155,7 +155,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
               if (blocksRemaining > minBlocksRemainingToResend) {
                 final var previousSendContext = txContext.sendTxContext();
                 if ((System.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
-                  final var sendContext = transactionProcessor.sendSignedTx(previousSendContext.transaction(), txContext.blockHeight());
+                  final var sendContext = transactionPublisher.retry(previousSendContext);
                   final var nexContext = txContext.resent(sendContext);
                   pendingTransactions.remove(txContext);
                   pendingTransactions.add(nexContext);

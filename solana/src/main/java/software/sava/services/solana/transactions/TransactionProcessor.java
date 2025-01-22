@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 
-public interface TransactionProcessor {
+public interface TransactionProcessor extends TxPublisher {
 
   static TransactionProcessor createProcessor(final ExecutorService executor,
                                               final SigningService signingService,
@@ -133,8 +133,6 @@ public interface TransactionProcessor {
         blockHashFuture
     );
   }
-
-  SendTxContext sendSignedTx(final Transaction transaction, final long blockHeight);
 
   SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);
 
