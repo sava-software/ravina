@@ -17,7 +17,7 @@ final class ExponentialBackoffErrorHandler extends RootBackoff {
 
   @Override
   protected long calculateDelay(final long errorCount) {
-    if (errorCount >= maxErrorCount) {
+    if (Long.compareUnsigned(errorCount, maxErrorCount) >= 0) {
       return maxRetryDelay;
     } else if (errorCount < 2) {
       return initialRetryDelay;

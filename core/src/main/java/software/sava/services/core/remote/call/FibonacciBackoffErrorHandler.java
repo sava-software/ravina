@@ -15,7 +15,7 @@ final class FibonacciBackoffErrorHandler extends RootBackoff {
 
   @Override
   protected long calculateDelay(final long errorCount) {
-    if (errorCount > maxErrorCount) {
+    if (Long.compareUnsigned(errorCount, maxErrorCount) > 0) {
       return sequence[maxErrorCount];
     } else {
       return sequence[errorCount < 1 ? 0 : (int) errorCount - 1];

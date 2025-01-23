@@ -8,7 +8,9 @@ import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -27,8 +29,11 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private final long fetchSamplesDelayMillis;
   private final long fetchEpochInfoAfterEndDelayMillis;
   private final Backoff backoff;
-  private final CountDownLatch initialized;
+  private final ReentrantLock lock;
+  private final Condition initializedCondition;
+  private final Condition fetchEpochNow;
 
+  private volatile boolean initialized;
   private volatile Epoch epoch;
 
   EpochInfoServiceImpl(final int defaultMillisPerSlot,
@@ -46,10 +51,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     this.fetchSamplesDelayMillis = fetchSamplesDelayMillis;
     this.fetchEpochInfoAfterEndDelayMillis = fetchEpochInfoAfterEndDelayMillis;
     this.backoff = Backoff.fibonacci(1, 13);
-    this.initialized = new CountDownLatch(1);
+    this.lock = new ReentrantLock();
+    this.initializedCondition = lock.newCondition();
+    this.fetchEpochNow = lock.newCondition();
   }
 
-  private Epoch getEpochInfo(final Epoch earliestEpochInfo, final SlotPerformanceStats slotStats) throws InterruptedException {
+  private Epoch getAndSetEpochInfo(final Epoch earliestEpochInfo,
+                                   final Epoch previousEpochInfo,
+                                   final SlotPerformanceStats slotStats) throws InterruptedException {
     for (int errorCount = 0; ; ) {
       try {
         final long request = System.currentTimeMillis();
@@ -64,7 +73,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
             "rpcClient::getEpochInfo"
         ).get();
         final long addedMillis = (System.currentTimeMillis() - request) >> 1;
-        final var epoch = Epoch.create(earliestEpochInfo, epochInfo, defaultMillisPerSlot, slotStats, request + addedMillis);
+        final var epoch = Epoch.create(
+            earliestEpochInfo,
+            previousEpochInfo,
+            epochInfo,
+            defaultMillisPerSlot,
+            slotStats,
+            request + addedMillis
+        );
         this.epoch = epoch;
         return epoch;
       } catch (final RuntimeException ex) {
@@ -87,35 +103,50 @@ final class EpochInfoServiceImpl implements EpochInfoService {
 
   @Override
   public Epoch awaitInitialized() throws InterruptedException {
-    final var epoch = this.epoch;
-    if (epoch == null) {
-      initialized.await();
+    if (this.initialized) {
       return this.epoch;
-    } else {
-      return epoch;
+    }
+    lock.lock();
+    try {
+      while (!this.initialized) {
+        initializedCondition.await();
+      }
+      return this.epoch;
+    } finally {
+      lock.unlock();
     }
   }
 
-  private static Epoch logEpoch(final Epoch previous, final Epoch epoch) {
+  private static Epoch logEpoch(final Epoch previousSample, final Epoch latestSample) {
     final String log;
-    if (previous == null) {
-      log = epoch.logFormat();
-    } else if (Long.compareUnsigned(epoch.epoch(), previous.epoch()) > 0) {
-      log = "New " + epoch.logFormat();
+    if (previousSample == null) {
+      log = latestSample.logFormat();
+    } else if (Long.compareUnsigned(latestSample.epoch(), previousSample.epoch()) > 0) {
+      log = "New " + latestSample.logFormat();
     } else {
-      final long previousMillisRemaining = previous.millisRemaining();
-      final long delta = epoch.millisRemaining() - previousMillisRemaining;
+      final long previousMillisRemaining = previousSample.millisRemaining();
+      final long delta = latestSample.millisRemaining() - previousMillisRemaining;
       final double percentDelta = 100 * (delta / (double) previousMillisRemaining);
       log = String.format("""
               %s
               %d ms | %.1f%% difference%s estimating the duration until the end of the epoch.
               """,
-          epoch.logFormat(), Math.abs(delta), Math.abs(percentDelta),
+          latestSample.logFormat(), Math.abs(delta), Math.abs(percentDelta),
           delta < 0 ? " over" : delta == 0 ? "" : " under"
       );
     }
     logger.log(INFO, log);
-    return epoch;
+    return latestSample;
+  }
+
+  @Override
+  public void fetchEpochNow() {
+    lock.lock();
+    try {
+      fetchEpochNow.signal();
+    } finally {
+      lock.unlock();
+    }
   }
 
   @SuppressWarnings({"InfiniteLoopStatement", "BusyWait"})
@@ -126,40 +157,57 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       long now = System.currentTimeMillis();
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
       var slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
-      var earliestEpochInfo = getEpochInfo(null, slotStats);
+      var earliestEpochInfo = getAndSetEpochInfo(null, null, slotStats);
 
-      epoch = earliestEpochInfo;
-      initialized.countDown();
+      this.initialized = true;
+      lock.lock();
+      try {
+        initializedCondition.signalAll();
+      } finally {
+        lock.unlock();
+      }
 
-      var previous = logEpoch(null, epoch);
+      var previousSample = logEpoch(null, epoch);
+      var latestSample = previousSample;
+      long meanMillisPerSlot = latestSample.slotStats().mean();
 
+      boolean fetchEpochNow;
       for (long endsAt = epoch.endsAt(), sleep; ; ) {
-        now = System.currentTimeMillis();
-        sleep = Math.min(
-            fetchSamplesAfter - now,
-            (endsAt - now) + fetchEpochInfoAfterEndDelayMillis
-        );
-        Thread.sleep(Math.max(defaultMillisPerSlot, sleep));
+        lock.lock();
+        try {
+          now = System.currentTimeMillis();
+          sleep = Math.min(
+              fetchSamplesAfter - now,
+              (endsAt - now) + fetchEpochInfoAfterEndDelayMillis
+          );
+          fetchEpochNow = this.fetchEpochNow.await(Math.max(meanMillisPerSlot, sleep), TimeUnit.MILLISECONDS);
+        } finally {
+          lock.unlock();
+        }
 
         now = System.currentTimeMillis();
-        if (now >= fetchSamplesAfter) {
+        final boolean fetchSamples = now >= fetchSamplesAfter;
+        if (fetchSamples) {
           samples = getSamples();
           now = System.currentTimeMillis();
           fetchSamplesAfter = now + fetchSamplesDelayMillis;
           slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
-          epoch = getEpochInfo(earliestEpochInfo, slotStats);
-          previous = logEpoch(previous, epoch);
-          endsAt = epoch.endsAt();
-          if (epoch.epoch() > earliestEpochInfo.epoch()) {
-            earliestEpochInfo = epoch;
+        }
+        if (fetchEpochNow) {
+          sleep = meanMillisPerSlot - (System.currentTimeMillis() - latestSample.sampledAt());
+          if (sleep > 0) {
+            // Wait at least one slot between samples.
+            Thread.sleep(sleep);
           }
-        } else if (now > endsAt) {
-          epoch = getEpochInfo(earliestEpochInfo, slotStats);
-          previous = logEpoch(previous, epoch);
-          endsAt = epoch.endsAt();
-          if (epoch.epoch() > earliestEpochInfo.epoch()) {
-            earliestEpochInfo = epoch;
+        }
+        if (fetchEpochNow || fetchSamples || now > endsAt) {
+          latestSample = getAndSetEpochInfo(earliestEpochInfo, previousSample, slotStats);
+          previousSample = logEpoch(previousSample, latestSample);
+          endsAt = latestSample.endsAt();
+          if (latestSample.epoch() > earliestEpochInfo.epoch()) {
+            earliestEpochInfo = latestSample;
           }
+          meanMillisPerSlot = latestSample.slotStats().mean();
         }
       }
     } catch (final InterruptedException e) {

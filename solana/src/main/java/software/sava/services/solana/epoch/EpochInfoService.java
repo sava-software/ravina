@@ -25,6 +25,8 @@ public interface EpochInfoService extends Runnable {
 
   Epoch awaitInitialized() throws InterruptedException;
 
+  void fetchEpochNow();
+
   Epoch epochInfo();
 
   int defaultMillisPerSlot();
