@@ -29,6 +29,25 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
     }
   }
 
+  public static String commaSeparateInteger(final String integer) {
+    final int len = integer.length();
+    if (len <= 3) {
+      return integer;
+    }
+    final char[] src = integer.toCharArray();
+    final char[] sep = new char[len + (len / 3)];
+    for (int i = len - 1, j = sep.length - 1, c = 0; ; --j) {
+      sep[j] = src[i];
+      if (--i < 0) {
+        return j == 0 ? new String(sep) : new String(sep, 1, sep.length - 1);
+      }
+      if (++c == 3) {
+        sep[--j] = ',';
+        c = 0;
+      }
+    }
+  }
+
   public String formatSig(final String sig) {
     return String.format(sigFormat, sig);
   }

@@ -10,6 +10,7 @@ import java.time.ZoneId;
 import java.util.concurrent.TimeUnit;
 
 import static java.time.temporal.ChronoUnit.MINUTES;
+import static software.sava.services.solana.config.ChainItemFormatter.commaSeparateInteger;
 
 public record Epoch(long startedAt,
                     long endsAt,
@@ -167,7 +168,7 @@ public record Epoch(long startedAt,
     final var blockHeight = estimatedBlockHeight(estimatedSlot, sampleSkipRate);
     final long startedAgo = System.currentTimeMillis() - startedAt;
     return String.format(
-        "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d| %.1f%% | %.2f%% skip rate :: %s height",
+        "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%% :: %.2f%% skip rate | %s height",
         Long.toUnsignedString(epoch()),
         Duration.ofMillis(startedAgo).truncatedTo(MINUTES).toString().substring(2),
         Duration.ofMillis(millisRemaining).truncatedTo(MINUTES).toString().substring(2),
@@ -176,7 +177,8 @@ public record Epoch(long startedAt,
         epochsPerYear(median),
         estimatedSlot, slotsPerEpoch,
         percentProgress,
-        sampleSkipRate * 100.0, blockHeight
+        sampleSkipRate * 100.0,
+        commaSeparateInteger(blockHeight.toString())
     );
   }
 }
