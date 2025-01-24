@@ -165,7 +165,7 @@ public record Epoch(long startedAt,
     final long estimatedSlot = estimatedSlot(median);
     final long slotsPerEpoch = slotsPerEpoch();
     final double percentProgress = percentComplete(estimatedSlot);
-    final var blockHeight = estimatedBlockHeight(estimatedSlot, sampleSkipRate);
+    final var blockHeight = estimatedBlockHeightGivenSlotEstimate(estimatedSlot, sampleSkipRate);
     final long startedAgo = System.currentTimeMillis() - startedAt;
     return String.format(
         "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%% :: %.2f%% skip rate | %s height",
