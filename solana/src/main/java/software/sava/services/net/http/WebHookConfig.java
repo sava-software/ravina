@@ -10,11 +10,33 @@ import systems.comodal.jsoniter.ValueType;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
+
+  public enum Provider {
+
+    SLACK("{\"text\":\"```%s```\"}");
+
+    private final String defaultTemplate;
+
+    Provider(final String defaultTemplate) {
+      this.defaultTemplate = defaultTemplate;
+    }
+
+    public static Provider parse(final JsonIterator ji) {
+      return Provider.valueOf(ji.readString().toUpperCase(Locale.ENGLISH));
+    }
+
+    public String defaultTemplate() {
+      return defaultTemplate;
+    }
+  }
 
   private final String bodyFormat;
 
@@ -44,6 +66,23 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
     }
   }
 
+  public static List<WebHookConfig> parseConfigs(final JsonIterator ji,
+                                                 final String defaultFormat,
+                                                 final CapacityConfig defaultCapacity,
+                                                 final Backoff defaultBackoff) {
+    final var webHookConfigs = new ArrayList<WebHookConfig>();
+    while (ji.readArray()) {
+      final var webHookConfig = WebHookConfig.parseConfig(
+          ji,
+          defaultFormat,
+          defaultCapacity,
+          defaultBackoff
+      );
+      webHookConfigs.add(webHookConfig);
+    }
+    return webHookConfigs.isEmpty() ? List.of() : webHookConfigs;
+  }
+
   @Override
   public WebHookClient createClient(final HttpClient httpClient) {
     return WebHookClient.createClient(endpoint, httpClient, capacityMonitor.errorTracker(), bodyFormat);
@@ -52,6 +91,7 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
   private static final class Parser extends BaseParser {
 
     private String bodyFormat;
+    private Provider provider;
 
     Parser(final String defaultFormat,
            final CapacityConfig defaultCapacity,
@@ -62,6 +102,9 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
 
 
     private WebHookConfig create() {
+      if (bodyFormat == null) {
+        bodyFormat = Objects.requireNonNull(provider, "bodyFormat or provider must be configured.").defaultTemplate();
+      }
       final var uri = URI.create(endpoint);
       final var host = uri.getHost();
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor(host);
@@ -74,6 +117,8 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
         endpoint = ji.readString();
       } else if (fieldEquals("bodyFormat", buf, offset, len)) {
         bodyFormat = ji.readString();
+      } else if (fieldEquals("provider", buf, offset, len)) {
+        provider = Provider.parse(ji);
       } else {
         return super.test(buf, offset, len, ji);
       }
