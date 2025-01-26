@@ -1,5 +1,3 @@
-apply plugin: 'org.beryx.jlink'
-
 dependencies {
   implementation project(":core")
   implementation libs.bouncycastle
@@ -11,28 +9,4 @@ dependencies {
   implementation libs.sava.anchor.src.gen
   implementation libs.sava.anchor.programs
   implementation libs.sava.kms.core
-}
-
-tasks.register('runSolanaService', JavaExec) {
-  classpath = sourceSets.main.runtimeClasspath
-  mainClass = project.findProperty('serviceMainClass') as String
-  var args = project.findProperty('jvmArgs');
-  if (args != null) {
-    jvmArgs = List.of((args as String).split('\\s+'))
-  }
-}
-
-afterEvaluate {
-  jlink {
-    imageName.set(project.name)
-    options.addAll(List.of(
-        '--bind-services',
-        '--no-man-pages',
-        '--no-header-files',
-        '--strip-debug',
-        '--compress=1',
-        '--ignore-signing-information'
-    ))
-    enableCds()
-  }
 }
