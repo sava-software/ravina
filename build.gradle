@@ -79,6 +79,11 @@ subprojects {
     archiveClassifier.set('sources')
   }
 
+  java {
+    withJavadocJar()
+    withSourcesJar()
+  }
+
   tasks.withType(Javadoc).configureEach {
     options.addStringOption('Xdoclint:none', '-quiet')
   }
