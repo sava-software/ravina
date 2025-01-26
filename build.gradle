@@ -98,7 +98,7 @@ subprojects {
           url = "$VCS_URL"
           licenses {
             license {
-              name = 'GPL-3.0 license'
+              name = 'GNU General Public License v3.0'
               url = 'https://github.com/sava-software/services/blob/main/LICENSE'
             }
           }
