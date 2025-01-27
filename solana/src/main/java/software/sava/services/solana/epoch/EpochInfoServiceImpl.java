@@ -7,6 +7,7 @@ import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
@@ -84,6 +85,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         this.epoch = epoch;
         return epoch;
       } catch (final RuntimeException ex) {
+        if (Thread.interrupted()) {
+          throw new InterruptedException();
+        } else if (ex.getCause() instanceof IOException ioException) {
+          if ("closed".equals(ioException.getMessage())) {
+            logger.log(INFO, "Exiting epoch service because http client is closed.");
+            return null;
+          }
+        }
         final long sleep = backoff.delay(++errorCount, SECONDS);
         logger.log(System.Logger.Level.WARNING, String.format(
             "Failed %d times to get epoch info, sleeping for %d seconds",
@@ -149,7 +158,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     }
   }
 
-  @SuppressWarnings({"InfiniteLoopStatement", "BusyWait"})
+  @SuppressWarnings({"BusyWait"})
   @Override
   public void run() {
     try {
@@ -158,7 +167,9 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
       var slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
       var earliestEpochInfo = getAndSetEpochInfo(null, null, slotStats);
-
+      if (earliestEpochInfo == null) {
+        return;
+      }
       this.initialized = true;
       lock.lock();
       try {
@@ -202,6 +213,9 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         }
         if (fetchEpochNow || fetchSamples || now > endsAt) {
           latestSample = getAndSetEpochInfo(earliestEpochInfo, previousSample, slotStats);
+          if (latestSample == null) {
+            return;
+          }
           previousSample = logEpoch(previousSample, latestSample);
           endsAt = latestSample.endsAt();
           if (latestSample.epoch() > earliestEpochInfo.epoch()) {
@@ -211,7 +225,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         }
       }
     } catch (final InterruptedException e) {
-      // exit
+      logger.log(INFO, "Exiting epoch service.");
     }
   }
 
