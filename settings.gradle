@@ -1,4 +1,4 @@
-rootProject.name = 'sava-services'
+rootProject.name = 'ravina'
 
 include 'core'
 include 'jetty'
@@ -26,7 +26,7 @@ dependencyResolutionManagement {
   }
   versionCatalogs {
     libs {
-      from("software.sava:solana-version-catalog:0.4.120")
+      from("software.sava:solana-version-catalog:0.4.125")
     }
   }
 }

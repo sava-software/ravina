@@ -1,4 +1,4 @@
-module software.sava.core_services {
+module software.sava.ravina_core {
   requires systems.comodal.json_iterator;
 
   requires java.net.http;

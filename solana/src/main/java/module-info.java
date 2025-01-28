@@ -1,4 +1,4 @@
-module software.sava.solana_services {
+module software.sava.ravina_solana {
   requires java.net.http;
 
   requires systems.comodal.json_iterator;
@@ -8,7 +8,7 @@ module software.sava.solana_services {
   requires software.sava.solana_programs;
   requires software.sava.solana_web2;
   requires software.sava.anchor_programs;
-  requires software.sava.core_services;
+  requires software.sava.ravina_core;
   requires software.sava.kms_core;
   requires org.bouncycastle.provider;
 

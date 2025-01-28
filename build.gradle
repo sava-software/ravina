@@ -1,6 +1,6 @@
 ext {
   VERSION = project.findProperty('version')
-  VCS_URL = 'https://github.com/sava-software/services'
+  VCS_URL = 'https://github.com/sava-software/ravina'
 }
 
 final JLV = JavaLanguageVersion.of(project.findProperty('javaVersion') as Integer ?: 23)
@@ -94,17 +94,17 @@ subprojects {
         from components.java
 
         groupId = project.group
-        artifactId = project.name + '-services'
+        artifactId = 'ravina-' + project.name
         version = project.version
 
         pom {
-          name = project.name + '-services'
+          name = 'ravina-' + project.name
           description = "Components for robust Solana Services"
           url = "$VCS_URL"
           licenses {
             license {
               name = 'GNU General Public License v3.0'
-              url = 'https://github.com/sava-software/services/blob/main/LICENSE'
+              url = 'https://github.com/sava-software/ravina/blob/main/LICENSE'
             }
           }
           developers {
@@ -117,8 +117,8 @@ subprojects {
             }
           }
           scm {
-            connection = 'scm:git:git@github.com:sava-software/services.git'
-            developerConnection = 'scm:git:ssh@github.com:sava-software/services.git'
+            connection = 'scm:git:git@github.com:sava-software/ravina.git'
+            developerConnection = 'scm:git:ssh@github.com:sava-software/ravina.git'
             url = "$VCS_URL"
           }
         }
@@ -128,7 +128,7 @@ subprojects {
     repositories {
       maven {
         name = "GitHubPackages"
-        url = "https://maven.pkg.github.com/sava-software/services"
+        url = "https://maven.pkg.github.com/sava-software/ravina"
         credentials {
           username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user.write")
           password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.token.write")
