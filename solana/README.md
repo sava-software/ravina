@@ -6,7 +6,7 @@ Moved to https://github.com/glamsystems/look
 
 ## [WebSocketManager](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/websocket/WebSocketManager.java)
 
-Used manage the connection of a SolanaRpcWebsocket. Call `checkConnection` to drive re-connection. If errors are
+Used to manage the connection of a SolanaRpcWebsocket. Call `checkConnection` to drive re-connections. If errors are
 observed, the corresponding delay from the
 provided [Backoff](https://github.com/sava-software/ravina/blob/main/core/README.md#backoff) will be respected.
 
