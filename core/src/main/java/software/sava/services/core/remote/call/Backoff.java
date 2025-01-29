@@ -8,24 +8,25 @@ public interface Backoff {
     return new SingleBackoffErrorHandler(timeUnit, retryDelay);
   }
 
+  static Backoff single(final long retryDelaySeconds) {
+    return single(TimeUnit.SECONDS, retryDelaySeconds);
+  }
+
+
   static Backoff linear(final TimeUnit timeUnit,
                         final long initialRetryDelay,
                         final long maxRetryDelay) {
     return new LinearBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
+  static Backoff linear(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
+    return linear(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
+  }
+
   static Backoff exponential(final TimeUnit timeUnit,
                              final long initialRetryDelay,
                              final long maxRetryDelay) {
     return new ExponentialBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
-  }
-
-  static Backoff single(final long retryDelaySeconds) {
-    return single(TimeUnit.SECONDS, retryDelaySeconds);
-  }
-
-  static Backoff linear(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {
-    return linear(TimeUnit.SECONDS, initialRetryDelaySeconds, maxRetryDelaySeconds);
   }
 
   static Backoff exponential(final long initialRetryDelaySeconds, final long maxRetryDelaySeconds) {

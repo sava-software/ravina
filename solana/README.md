@@ -2,7 +2,33 @@
 
 Moved to https://github.com/glamsystems/look
 
-# Sava Solana Service Components
+# Service Components
+
+## [WebSocketManager](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/websocket/WebSocketManager.java)
+
+Used manage the connection of a SolanaRpcWebsocket. Call `checkConnection` to drive re-connection. If errors are
+observed, the corresponding delay from the
+provided [Backoff](https://github.com/sava-software/ravina/blob/main/core/README.md#backoff) will be respected.
+
+### Pseudo Usage
+
+```
+var backoff = Backoff.exponential(1, 32);
+var account = PublicKey.fromBase58Encoded("");
+
+var httpClient = HttpClient.newHttpClient();
+var webSocketManager = WebSocketManager.createManager(
+  httpClient,
+  URI.create("wss://url"),
+  backoff,
+  webSocket -> webSocket.accountSubscribe(account, System.out::println)
+);  
+    
+for (;;) {
+  webSocketManager.checkConnection();
+  Thread.sleep(1_000);
+}
+```
 
 ## [ChainItemFormatter](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/solana/config/ChainItemFormatter.java)
 
