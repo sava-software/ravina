@@ -19,6 +19,8 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
                                  Duration fetchSlotSamplesDelay,
                                  Duration fetchEpochInfoAfterEndDelay) {
 
+  public static final int DEFAULT_MILLIS_PER_SLOT = TARGET_MILLIS_PER_SLOT + 5;
+
   public static EpochServiceConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.NULL) {
       ji.skip();
@@ -32,19 +34,19 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
 
   public static EpochServiceConfig createDefault() {
     return new EpochServiceConfig(
-        420,
+        DEFAULT_MILLIS_PER_SLOT,
         TARGET_MILLIS_PER_SLOT,
         500,
-        ofMinutes(60),
-        ofMinutes(15),
+        ofMinutes(21),
+        ofMinutes(8),
         ofSeconds(1)
     );
   }
 
   private static final class Parser implements FieldBufferPredicate {
 
-    private int defaultMillisPerSlot = 420;
-    private int minMillisPerSlot = 400;
+    private int defaultMillisPerSlot = DEFAULT_MILLIS_PER_SLOT;
+    private int minMillisPerSlot = TARGET_MILLIS_PER_SLOT;
     private int maxMillisPerSlot = 500;
     private Duration slotSampleWindow;
     private Duration fetchSlotSamplesDelay;
@@ -55,10 +57,10 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
 
     private EpochServiceConfig createConfig() {
       if (slotSampleWindow == null) {
-        slotSampleWindow = ofMinutes(60);
+        slotSampleWindow = ofMinutes(21);
       }
       if (fetchSlotSamplesDelay == null) {
-        slotSampleWindow.dividedBy(4);
+        fetchSlotSamplesDelay = ofMinutes(8);
       }
       return new EpochServiceConfig(
           defaultMillisPerSlot,

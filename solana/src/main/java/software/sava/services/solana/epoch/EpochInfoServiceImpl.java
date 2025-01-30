@@ -3,12 +3,12 @@ package software.sava.services.solana.epoch;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.PerfSample;
 import software.sava.services.core.remote.call.Backoff;
-import software.sava.services.core.remote.call.Call;
-import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
+import software.sava.services.solana.remote.call.RpcCaller;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -22,10 +22,11 @@ final class EpochInfoServiceImpl implements EpochInfoService {
 
   static final int SECONDS_PER_SAMPLE = 60;
 
+  private final RpcCaller rpcCaller;
+  private final CallContext getEpochInfoCallContext;
   private final int defaultMillisPerSlot;
   private final int minMillisPerSlot;
   private final int maxMillisPerSlot;
-  private final LoadBalancer<SolanaRpcClient> rpcClients;
   private final int numSamples;
   private final long fetchSamplesDelayMillis;
   private final long fetchEpochInfoAfterEndDelayMillis;
@@ -37,17 +38,22 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private volatile boolean initialized;
   private volatile Epoch epoch;
 
-  EpochInfoServiceImpl(final int defaultMillisPerSlot,
+  EpochInfoServiceImpl(final RpcCaller rpcCaller,
+                       final int defaultMillisPerSlot,
                        final int minMillisPerSlot,
                        final int maxMillisPerSlot,
-                       final LoadBalancer<SolanaRpcClient> rpcClients,
                        final int numSamples,
                        final long fetchSamplesDelayMillis,
                        final long fetchEpochInfoAfterEndDelayMillis) {
+    this.rpcCaller = rpcCaller;
+    this.getEpochInfoCallContext = CallContext.createContext(
+        1, 0,
+        1,
+        true, 0, true
+    );
     this.defaultMillisPerSlot = defaultMillisPerSlot;
     this.minMillisPerSlot = minMillisPerSlot;
     this.maxMillisPerSlot = maxMillisPerSlot;
-    this.rpcClients = rpcClients;
     this.numSamples = numSamples;
     this.fetchSamplesDelayMillis = fetchSamplesDelayMillis;
     this.fetchEpochInfoAfterEndDelayMillis = fetchEpochInfoAfterEndDelayMillis;
@@ -59,21 +65,21 @@ final class EpochInfoServiceImpl implements EpochInfoService {
 
   private Epoch getAndSetEpochInfo(final Epoch earliestEpochInfo,
                                    final Epoch previousEpochInfo,
-                                   final SlotPerformanceStats slotStats) throws InterruptedException {
+                                   final CompletableFuture<List<PerfSample>> samplesFuture,
+                                   SlotPerformanceStats slotStats) throws InterruptedException {
     for (int errorCount = 0; ; ) {
       try {
         final long request = System.currentTimeMillis();
         // Avoid retries to try to have a more accurate round trip estimate.
-        final var epochInfo = Call.createCourteousCall(
-            rpcClients, SolanaRpcClient::getEpochInfo,
-            CallContext.createContext(
-                1, 0,
-                1,
-                true, 0, true
-            ),
+        final var epochInfo = rpcCaller.courteousGet(
+            SolanaRpcClient::getEpochInfo,
+            getEpochInfoCallContext,
             "rpcClient::getEpochInfo"
-        ).get();
+        );
         final long addedMillis = (System.currentTimeMillis() - request) >> 1;
+        if (slotStats == null && samplesFuture != null) {
+          slotStats = SlotPerformanceStats.calculateStats(samplesFuture.join(), minMillisPerSlot, maxMillisPerSlot);
+        }
         final var epoch = Epoch.create(
             earliestEpochInfo,
             previousEpochInfo,
@@ -95,19 +101,20 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         }
         final long sleep = backoff.delay(++errorCount, SECONDS);
         logger.log(System.Logger.Level.WARNING, String.format(
-            "Failed %d times to get epoch info, sleeping for %d seconds",
-            errorCount, sleep
-        ), ex);
+                "Failed %d times to get epoch info, sleeping for %d seconds",
+                errorCount, sleep
+            ), ex
+        );
         SECONDS.sleep(sleep);
       }
     }
   }
 
-  private List<PerfSample> getSamples() {
-    return Call.createCourteousCall(
-        rpcClients, rpcClient -> rpcClient.getRecentPerformanceSamples(numSamples),
+  private CompletableFuture<List<PerfSample>> getSamples() {
+    return rpcCaller.courteousCall(
+        rpcClient -> rpcClient.getRecentPerformanceSamples(numSamples),
         "rpcClient::getRecentPerformanceSamples"
-    ).get();
+    );
   }
 
   @Override
@@ -162,11 +169,10 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   @Override
   public void run() {
     try {
-      var samples = getSamples();
+      var samplesFuture = getSamples();
       long now = System.currentTimeMillis();
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
-      var slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
-      var earliestEpochInfo = getAndSetEpochInfo(null, null, slotStats);
+      var earliestEpochInfo = getAndSetEpochInfo(null, null, samplesFuture, null);
       if (earliestEpochInfo == null) {
         return;
       }
@@ -180,7 +186,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
 
       var previousSample = logEpoch(null, epoch);
       var latestSample = previousSample;
-      long meanMillisPerSlot = latestSample.slotStats().mean();
+      var slotStats = latestSample.slotStats();
+      long meanMillisPerSlot = slotStats.mean();
 
       boolean fetchEpochNow;
       for (long endsAt = epoch.endsAt(), sleep; ; ) {
@@ -199,7 +206,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         now = System.currentTimeMillis();
         final boolean fetchSamples = now >= fetchSamplesAfter;
         if (fetchSamples) {
-          samples = getSamples();
+          final var samples = getSamples().join();
           now = System.currentTimeMillis();
           fetchSamplesAfter = now + fetchSamplesDelayMillis;
           slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
@@ -212,7 +219,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           }
         }
         if (fetchEpochNow || fetchSamples || now > endsAt) {
-          latestSample = getAndSetEpochInfo(earliestEpochInfo, previousSample, slotStats);
+          latestSample = getAndSetEpochInfo(earliestEpochInfo, previousSample, null, slotStats);
           if (latestSample == null) {
             return;
           }

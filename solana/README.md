@@ -30,6 +30,39 @@ for (;;) {
 }
 ```
 
+## [EpochInfoService](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/EpochInfoService.java)
+
+Periodically polls for slot performance stats and epoch information to provide
+an [Epoch data record](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/Epoch.java). 
+
+The Epoch data record provides the following estimation features:
+* Duration remaining for a given time unit.
+* Percent complete.
+* Epochs per year.
+* The current slot index.
+* The current block height accounting for a skip rate.
+* [SlotPerformanceStats](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/SlotPerformanceStats.java)
+
+### [Configuration](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/EpochServiceConfig.java)
+
+* `defaultMillisPerSlot`: Used if performance samples are not available.
+* `minMillisPerSlot`: Performance samples will be capped >= this value.
+* `maxMillisPerSlot`: Performance samples will be capped <= this value.
+* `slotSampleWindow`: The recent time window to draw performance samples.
+* `fetchSlotSamplesDelay`: Poll new performance samples and epoch information delay.
+* `fetchEpochInfoAfterEndDelay`: Also fetch new performance samples and epoch information after each epoch rollover.
+
+```json
+{
+  "defaultMillisPerSlot": 405,
+  "minMillisPerSlot": 400,
+  "maxMillisPerSlot": 500,
+  "slotSampleWindow": "13M",
+  "fetchSlotSamplesDelay": "8M",
+  "fetchEpochInfoAfterEndDelay": "0.5S"
+}
+```
+
 ## [ChainItemFormatter](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/solana/config/ChainItemFormatter.java)
 
 Used to provide more convenient logging of accounts and transaction hashes.
