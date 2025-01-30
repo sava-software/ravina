@@ -1,4 +1,4 @@
-# Sava Core Services
+# Core Service Components
 
 Provides a collection of components to build durable networked services.
 

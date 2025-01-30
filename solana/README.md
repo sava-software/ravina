@@ -1,41 +1,14 @@
-# Address Lookup Table Service
+# Solana Services & Service Components
 
-Moved to https://github.com/glamsystems/look
+# Services
 
-# Service Components
-
-## [WebSocketManager](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/websocket/WebSocketManager.java)
-
-Used to manage the connection of a SolanaRpcWebsocket. Call `checkConnection` to drive re-connections. If errors are
-observed, the corresponding delay from the
-provided [Backoff](https://github.com/sava-software/ravina/blob/main/core/README.md#backoff) will be respected.
-
-### Pseudo Usage
-
-```
-var backoff = Backoff.exponential(1, 32);
-var account = PublicKey.fromBase58Encoded("");
-
-var httpClient = HttpClient.newHttpClient();
-var webSocketManager = WebSocketManager.createManager(
-  httpClient,
-  URI.create("wss://url"),
-  backoff,
-  webSocket -> webSocket.accountSubscribe(account, System.out::println)
-);  
-    
-for (;;) {
-  webSocketManager.checkConnection();
-  Thread.sleep(1_000);
-}
-```
-
-## [EpochInfoService](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/EpochInfoService.java)
+## [Epoch Info Service](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/EpochInfoService.java)
 
 Periodically polls for slot performance stats and epoch information to provide
-an [Epoch data record](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/Epoch.java). 
+an [Epoch data record](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/epoch/Epoch.java).
 
 The Epoch data record provides the following estimation features:
+
 * Duration remaining for a given time unit.
 * Percent complete.
 * Epochs per year.
@@ -63,7 +36,35 @@ The Epoch data record provides the following estimation features:
 }
 ```
 
-## [ChainItemFormatter](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/solana/config/ChainItemFormatter.java)
+# Service Components
+
+## [Web Socket Manager](https://github.com/sava-software/ravina/blob/main/solana/src/main/java/software/sava/services/solana/websocket/WebSocketManager.java)
+
+Used to manage the connection of a SolanaRpcWebsocket. Call `checkConnection` to drive re-connections. If errors are
+observed, the corresponding delay from the
+provided [Backoff](https://github.com/sava-software/ravina/blob/main/core/README.md#backoff) will be respected.
+
+### Pseudo Usage
+
+```
+var backoff = Backoff.exponential(1, 32);
+var account = PublicKey.fromBase58Encoded("");
+
+var httpClient = HttpClient.newHttpClient();
+var webSocketManager = WebSocketManager.createManager(
+  httpClient,
+  URI.create("wss://url"),
+  backoff,
+  webSocket -> webSocket.accountSubscribe(account, System.out::println)
+);  
+    
+for (;;) {
+  webSocketManager.checkConnection();
+  Thread.sleep(1_000);
+}
+```
+
+## [Chain Item Formatter](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/solana/config/ChainItemFormatter.java)
 
 Used to provide more convenient logging of accounts and transaction hashes.
 
@@ -76,7 +77,7 @@ Used to provide more convenient logging of accounts and transaction hashes.
 }
 ```
 
-### [WebHookClient](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/net/http/WebHookClient.java)
+### [WebHook Client](https://github.com/sava-software/services/blob/main/solana/src/main/java/software/sava/services/net/http/WebHookClient.java)
 
 Generic client to POST JSON messages.
 
