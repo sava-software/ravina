@@ -1,48 +1,33 @@
-# Ravina
+# Ravina [![Build](https://github.com/sava-software/ravina/actions/workflows/gradle.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/gradle.yml) [![Release](https://github.com/sava-software/ravina/actions/workflows/release.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/release.yml)
 
-Ravina provides components to ease the development of both generic and Solana based services.
+Components to ease the development of both generic and Solana based services.
 
-## [Core](core/README.md)
+## Documentation
 
-Collection of components for building durable networked services.
+User documentation lives at [sava.software](https://sava.software/).
 
-## [Solana](solana/README.md)
+* [Dependency Configuration](https://sava.software/quickstart)
+* [Ravina](https://sava.software/libraries/ravina)
 
-Collection of services and service components for building Solana specific services.
+## Contribution
 
-## Dependency Configuration
+Unit tests are needed and welcomed. Otherwise, please open a discussion, issue, or send an email before working on a
+pull request.
 
-### GitHub Access Token
+## Build
 
 [Generate a classic token](https://github.com/settings/tokens) with the `read:packages` scope needed to access
 dependencies hosted on GitHub Package Repository.
 
-### Gradle Build
+Create a `gradle.properties` file in the sava project directory root or under `$HOME/.gradle/`.
 
-```groovy
-repositories {
-  maven {
-    url = "https://maven.pkg.github.com/sava-software/ravina"
-    credentials {
-      username = GITHUB_USERNAME
-      password = GITHUB_PERSONAL_ACCESS_TOKEN
-    }
-  }
-}
+### gradle.properties
 
-dependencies {
-  implementation "software.sava:ravina-core:$VERSION"
-  implementation "software.sava:ravina-solana:$VERSION"
-}
+```properties
+gpr.user=GITHUB_USERNAME
+gpr.token=GITHUB_TOKEN
 ```
 
-### Requirements
-
-- The latest generally available JDK. This project will continue to move to the latest and will not maintain
-  versions released against previous JDK's.
-
-### Contribution
-
-Unit tests are needed and welcomed. Otherwise, please open
-a [discussion](https://github.com/sava-software/sava/discussions), issue, or send an email before working on a pull
-request.
+```shell
+./gradlew check
+```

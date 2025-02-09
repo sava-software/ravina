@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
@@ -19,7 +18,7 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
     } else if (b == null) {
       return -1;
     }
-    final int compare = Long.compare(a.errorCount(), b.errorCount());
+    final int compare = Long.compareUnsigned(a.errorCount(), b.errorCount());
     if (compare == 0) {
       return Long.compare(a.sampleMedian(), b.sampleMedian());
     } else {
@@ -29,18 +28,16 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
 
   private static final VarHandle AA = arrayElementVarHandle(BalancedItem[].class);
 
-  private volatile BalancedItem<T>[] items;
+  private final BalancedItem<T>[] items;
   private final ReentrantLock sortItems;
-  private final AtomicReferenceArray<BalancedItem<T>> noSkip;
+  private final BalancedItem<T>[] noSkip;
   private final AtomicInteger i;
-  private final int minTrimmedLength;
 
   SortedLoadBalancer(final BalancedItem<T>[] items) {
     this.items = items;
     this.sortItems = new ReentrantLock(false);
-    this.noSkip = new AtomicReferenceArray<>(items);
+    this.noSkip = Arrays.copyOf(items, items.length);
     this.i = new AtomicInteger(-1);
-    this.minTrimmedLength = items.length >> 1;
   }
 
   @SuppressWarnings("unchecked")
@@ -63,31 +60,7 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
   public void sort() {
     sortItems.lock();
     try {
-      final var items = this.items;
-      Arrays.sort(items, MEDIAN_COMPARATOR);
-      if (items.length > minTrimmedLength) {
-        final int last = items.length - 1;
-        final var item = items[last];
-        final long sampleMedian = item.sampleMedian();
-        if (sampleMedian != Long.MAX_VALUE) {
-          final long errorCount = item.errorCount();
-          if (errorCount > 64
-              || (errorCount >= 34 && sampleMedian >= 2_000)
-              || (errorCount >= 21 && sampleMedian >= 5_000)
-              || (errorCount >= 5 && sampleMedian >= 8_000)) {
-            this.items = Arrays.copyOfRange(items, 0, last);
-            for (int i = last; i >= 0; --i) {
-              if (item == noSkip.get(i)) {
-                noSkip.set(i, null);
-              }
-            }
-            return;
-          }
-        }
-      }
-      this.items = items;
-    } catch (final Throwable e) {
-      throw new RuntimeException(e);
+      Arrays.sort(this.items, MEDIAN_COMPARATOR);
     } finally {
       sortItems.unlock();
     }
@@ -117,14 +90,14 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
   public BalancedItem<T> nextNoSkip() {
     for (BalancedItem<T> item; ; ) {
       final int i = this.i.incrementAndGet();
-      if (i >= noSkip.length()) {
-        if (this.i.compareAndSet(noSkip.length(), 0)) {
-          item = noSkip.get(0);
+      if (i >= noSkip.length) {
+        if (this.i.compareAndSet(i, 0)) {
+          item = noSkip[0];
         } else {
           continue;
         }
       } else {
-        item = noSkip.get(i);
+        item = noSkip[i];
       }
       if (item != null) {
         return item;

@@ -21,6 +21,10 @@ public record CallWeights(int getProgramAccounts,
     }
   }
 
+  public static CallWeights createDefault() {
+    return new CallWeights(2, 5, 10);
+  }
+
   private static final class Builder implements FieldBufferPredicate {
 
     private int getProgramAccounts = 2;

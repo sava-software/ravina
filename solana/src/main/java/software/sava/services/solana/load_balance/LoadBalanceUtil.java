@@ -11,9 +11,8 @@ public final class LoadBalanceUtil {
 
   public static LoadBalancer<SolanaRpcClient> createRPCLoadBalancer(final LoadBalancerConfig loadBalancerConfig,
                                                                     final HttpClient httpClient) {
-    final var items = loadBalancerConfig
-        .createItems((rpcConfig, capacityMonitor, errorHandler) -> {
-          final var endpoint = rpcConfig.endpoint();
+    final var items = loadBalancerConfig.createItems(
+        (endpoint, capacityMonitor, errorHandler) -> {
           final var client = SolanaRpcClient.createClient(
               endpoint,
               httpClient,

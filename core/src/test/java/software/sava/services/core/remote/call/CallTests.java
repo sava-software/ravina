@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,14 +57,14 @@ final class CallTests {
     @Override
     protected void logResponse(final Long response) {
       if (response == 400) {
-        assertTrue(capacityState.capacity() <= 1,
-            response + ": " + capacityState);
+        assertTrue(capacityState.capacity() <= 1, response + ": " + capacityState);
       } else if (response == 401) {
-        assertEquals(398, capacityState.capacity(),
-            response + ": " + capacityState);
+        assertEquals(398, capacityState.capacity(), response + ": " + capacityState);
       } else if (response == 429) {
-        assertTrue(capacityState.capacity() > -100 && capacityState.capacity() < 0,
-            response + ": " + capacityState);
+        assertTrue(
+            capacityState.capacity() > -100 && capacityState.capacity() < 0,
+            response + ": " + capacityState
+        );
       }
     }
   }
@@ -83,8 +84,9 @@ final class CallTests {
     private static final boolean VIRTUAL_SERVER;
 
     static {
+      final int availableProcessors = Runtime.getRuntime().availableProcessors();
       final var val = System.getenv("VIRTUAL_SERVER");
-      VIRTUAL_SERVER = val != null && Boolean.parseBoolean(val.strip());
+      VIRTUAL_SERVER = availableProcessors == 1 || (val != null && Boolean.parseBoolean(val.strip()));
     }
 
     @Override
@@ -109,9 +111,10 @@ final class CallTests {
         {
           "minCapacity": -400,
           "maxCapacity": 400,
-          "resetDuration": "PT1S"
+          "resetDuration": "PT0.1S"
         }"""));
-    final var backoff = Backoff.fibonacci(1, 21);
+    assertNotNull(capacityConfig);
+    final var backoff = Backoff.fibonacci(MILLISECONDS, 100, 2_100);
     final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE);
 
     final var loadBalancer = LoadBalancer.createBalancer(BalancedItem.createItem(
@@ -119,6 +122,7 @@ final class CallTests {
         monitor,
         backoff
     ));
+
     final var call = Call.createCourteousCall(
         loadBalancer, count -> {
           final long _count = count.incrementAndGet();
@@ -136,29 +140,32 @@ final class CallTests {
     int s = 0;
     final long[] samples = new long[900];
     Arrays.fill(samples, -1);
+    long start, duration, callCount;
     for (int i = 1; i <= samples.length; ++i) {
-      final long start = System.currentTimeMillis();
-      final var callCount = call.get();
-      final long duration = System.currentTimeMillis() - start;
+      start = System.nanoTime();
+      callCount = call.get();
+      duration = System.nanoTime() - start;
 
       if (i == 400) {
         final var log = String.format(
-            "[iteration=%d] [callCount=%d] [duration=%dms]%n",
-            i, callCount, duration);
+            "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
+            i, callCount, duration
+        );
         assertEquals(402, callCount, log);
-        assertTrue(duration >= 3_000, log);
-        assertTrue(duration < 3_300, log);
+        assertTrue(duration >= 250_000_000, log);
+        assertTrue(duration < 300_000_000, log);
       } else if (i == 427) {
         final var log = String.format(
-            "[iteration=%d] [callCount=%d] [duration=%dms]%n",
-            i, callCount, duration);
+            "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
+            i, callCount, duration
+        );
         assertEquals(430, callCount, log);
-        assertTrue(duration >= 1_000, log);
-        assertTrue(duration < 1_300, log);
+        assertTrue(duration >= 90_000_000, log);
+        assertTrue(duration < 100_000_000, log);
       } else {
-        if (duration > 34) {
+        if (duration > 10_000_000) {
           fail(String.format(
-              "[iteration=%d] [callCount=%d] [duration=%dms]%n",
+              "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
               i, callCount, duration
           ));
         }
@@ -166,10 +173,9 @@ final class CallTests {
       }
     }
     final long median = samples[samples.length >> 1];
-    assertEquals(0, median, Long.toString(median));
-    final var stats = Arrays.stream(samples).filter(sample -> sample >= 0)
-        .summaryStatistics();
-    assertTrue(stats.getAverage() < 3, stats.toString());
+    assertTrue(median < 10_000, Long.toString(median));
+    final var stats = Arrays.stream(samples).summaryStatistics();
+    assertTrue(stats.getAverage() < 300_000, stats.toString());
   }
 
   @Test

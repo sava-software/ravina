@@ -59,7 +59,10 @@ public record UriCapacityConfig(URI endpoint,
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("backoff", buf, offset, len)) {
-        backoff = BackoffConfig.parseConfig(ji).createBackoff();
+        final var backoffConfig = BackoffConfig.parseConfig(ji);
+        if (backoffConfig != null) {
+          backoff = backoffConfig.createBackoff();
+        }
       } else {
         ji.skip();
       }

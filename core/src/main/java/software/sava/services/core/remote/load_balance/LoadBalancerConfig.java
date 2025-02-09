@@ -29,7 +29,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
           defaultCapacityConfig
       );
       final var errorHandler = requireNonNullElse(resourceConfig.backoff(), defaultBackoff);
-      final var item = createItem.createItem(resourceConfig, monitor, errorHandler);
+      final var item = createItem.createItem(endpoint, monitor, errorHandler);
       items.add(item);
     }
     return items;
@@ -83,7 +83,10 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       if (fieldEquals("defaultCapacity", buf, offset, len)) {
         defaultCapacityConfig = CapacityConfig.parse(ji);
       } else if (fieldEquals("defaultBackoff", buf, offset, len)) {
-        defaultBackoff = BackoffConfig.parseConfig(ji).createBackoff();
+        final var backoffConfig = BackoffConfig.parseConfig(ji);
+        if (backoffConfig != null) {
+          defaultBackoff = backoffConfig.createBackoff();
+        }
       } else if (fieldEquals("endpoints", buf, offset, len)) {
         final var rpcConfigs = new ArrayList<UriCapacityConfig>();
         while (ji.readArray()) {
