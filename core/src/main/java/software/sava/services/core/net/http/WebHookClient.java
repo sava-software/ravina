@@ -1,4 +1,4 @@
-package software.sava.services.net.http;
+package software.sava.services.core.net.http;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -6,7 +6,7 @@ import java.net.http.HttpResponse;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
 
-import static software.sava.services.net.http.WebHookClientImpl.DEFAULT_TIMEOUT;
+import static software.sava.services.core.net.http.WebHookClientImpl.DEFAULT_TIMEOUT;
 
 public interface WebHookClient {
 

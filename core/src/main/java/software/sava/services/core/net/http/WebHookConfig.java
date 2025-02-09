@@ -1,4 +1,4 @@
-package software.sava.services.net.http;
+package software.sava.services.core.net.http;
 
 import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;

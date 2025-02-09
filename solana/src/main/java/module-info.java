@@ -12,7 +12,6 @@ module software.sava.ravina_solana {
   requires software.sava.kms_core;
   requires org.bouncycastle.provider;
 
-  exports software.sava.services.net.http;
   exports software.sava.services.solana.alt;
   exports software.sava.services.solana.config;
   exports software.sava.services.solana.epoch;
