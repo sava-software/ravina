@@ -15,7 +15,6 @@ import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
-import software.sava.solana.web2.helius.client.http.HeliusClient;
 
 import java.util.Arrays;
 import java.util.List;
@@ -24,7 +23,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.*;
 
 record TransactionProcessorRecord(ExecutorService executor,
@@ -36,7 +34,7 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   ChainItemFormatter formatter,
                                   LoadBalancer<SolanaRpcClient> rpcClients,
                                   LoadBalancer<SolanaRpcClient> sendClients,
-                                  LoadBalancer<HeliusClient> heliusClients,
+                                  LoadBalancer<FeeProvider> feeProviders,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
@@ -232,15 +230,17 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SendTxContext publish(final Transaction transaction, final String base64Encoded, final long blockHeight) {
+  public SendTxContext publish(final Transaction transaction,
+                               final String base64Encoded,
+                               final Commitment preflightCommitment,
+                               final long blockHeight) {
     sendClients.sort();
     final var rpcClient = sendClients.withContext();
-    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(CONFIRMED, base64Encoded, 0);
+    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
     final long publishedAt = System.currentTimeMillis();
     rpcClient.capacityState().claimRequest();
     return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
   }
-
 
   @Override
   public SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight) {
@@ -271,7 +271,6 @@ record TransactionProcessorRecord(ExecutorService executor,
       );
     }
 
-
     final var simulationFuture = Call.createCourteousCall(
         rpcClients,
         rpcClient -> rpcClient.simulateTransaction(commitment, base64EncodedTx, true, true),
@@ -279,9 +278,9 @@ record TransactionProcessorRecord(ExecutorService executor,
     ).async(executor);
 
     final var feeEstimateFuture = Call.createCourteousCall(
-        heliusClients,
-        heliusClient -> heliusClient.getRecommendedTransactionPriorityFeeEstimate(base64EncodedTx),
-        "heliusClient::getRecommendedTransactionPriorityFeeEstimate"
+        feeProviders,
+        feeProvider -> feeProvider.microLamportPriorityFee(simulateTx, base64EncodedTx),
+        "feeProvider::microLamportPriorityFee"
     ).async(executor);
 
     return new SimulationFutures(

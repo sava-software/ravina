@@ -21,7 +21,7 @@ import java.util.function.Function;
 
 final class LookupTableCacheMap implements LookupTableCache {
 
-  private static final BiFunction<Entry, Entry, Entry> MERGE_ENTRY = (e1, e2) -> e2.fetchedAt > e1.fetchedAt ? e2 : e1;
+  private static final BiFunction<Entry, Entry, Entry> MERGE_ENTRY = (e1, e2) -> Long.compareUnsigned(e2.slot, e1.slot) > 0 ? e2 : e1;
 
   private final ExecutorService executorService;
   private final LoadBalancer<SolanaRpcClient> rpcClients;
@@ -43,14 +43,14 @@ final class LookupTableCacheMap implements LookupTableCache {
     this.handleResponse = (accountInfo) -> {
       final var lookupTable = accountInfo.data();
       if (lookupTable != null && lookupTable.isActive()) {
-        return cacheTable(lookupTable);
+        return mergeTable(accountInfo.context().slot(), lookupTable);
       } else {
         return null;
       }
     };
   }
 
-  private record Entry(AddressLookupTable table, long fetchedAt) {
+  private record Entry(long slot, AddressLookupTable table, long fetchedAt) {
   }
 
   @Override
@@ -73,17 +73,20 @@ final class LookupTableCacheMap implements LookupTableCache {
     }
   }
 
-  private AddressLookupTable cacheTable(final AddressLookupTable lookupTable, final long fetchedAt) {
-    return lookupTableCache.merge(lookupTable.address(), new Entry(lookupTable, fetchedAt), MERGE_ENTRY).table;
-  }
-
-  private AddressLookupTable cacheTable(final AddressLookupTable lookupTable) {
-    return cacheTable(lookupTable, System.currentTimeMillis());
+  @Override
+  public AddressLookupTable mergeTable(final long slot, final AddressLookupTable lookupTable, final long fetchedAt) {
+    return lookupTableCache.merge(lookupTable.address(), new Entry(slot, lookupTable, fetchedAt), MERGE_ENTRY).table;
   }
 
   @Override
-  public AddressLookupTable putTable(final AddressLookupTable lookupTable) {
-    return cacheTable(lookupTable);
+  public AddressLookupTable mergeTableIfPresent(final long slot,
+                                                final AddressLookupTable lookupTable,
+                                                final long fetchedAt) {
+    if (lookupTableCache.containsKey(lookupTable.address())) {
+      return mergeTable(slot, lookupTable, fetchedAt);
+    } else {
+      return null;
+    }
   }
 
   private Call<AccountInfo<AddressLookupTable>> createFetchLookupTableCall(final PublicKey lookupTableKey) {
@@ -102,9 +105,10 @@ final class LookupTableCacheMap implements LookupTableCache {
   }
 
   private AddressLookupTable fetchLookupTable(final PublicKey lookupTableKey) {
-    final var lookupTable = createFetchLookupTableCall(lookupTableKey).get().data();
+    final var accountInfo = createFetchLookupTableCall(lookupTableKey).get();
+    final var lookupTable = accountInfo.data();
     if (lookupTable != null && lookupTable.isActive()) {
-      return cacheTable(lookupTable);
+      return mergeTable(accountInfo.context().slot(), lookupTable);
     } else {
       return null;
     }
@@ -171,7 +175,10 @@ final class LookupTableCacheMap implements LookupTableCache {
           for (final var lookupTableAccount : lookupTableAccounts) {
             final var lookupTable = lookupTableAccount.data();
             if (lookupTable != null && lookupTable.isActive()) {
-              lookupTableMetas[c++] = LookupTableAccountMeta.createMeta(cacheTable(lookupTable, fetchedAt), defaultMaxAccounts);
+              lookupTableMetas[c++] = LookupTableAccountMeta.createMeta(
+                  mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt),
+                  defaultMaxAccounts
+              );
             }
           }
         }
@@ -217,7 +224,7 @@ final class LookupTableCacheMap implements LookupTableCache {
       for (final var lookupTableAccount : lookupTableAccounts) {
         final var lookupTable = lookupTableAccount.data();
         if (lookupTable != null && lookupTable.isActive()) {
-          cacheTable(lookupTable, fetchedAt);
+          mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt);
         } else { // Defensive removal
           lookupTableCache.remove(lookupTableAccount.pubKey());
         }

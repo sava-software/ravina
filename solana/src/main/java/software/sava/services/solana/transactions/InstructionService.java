@@ -32,6 +32,7 @@ public interface InstructionService {
                                         final Commitment awaitCommitmentOnError,
                                         final boolean verifyExpired,
                                         final boolean retrySend,
+                                        final int maxRetriesAfterExpired,
                                         final String logContext) throws InterruptedException;
 
   TransactionResult processInstructions(final double cuBudgetMultiplier,
@@ -40,6 +41,7 @@ public interface InstructionService {
                                         final Commitment awaitCommitmentOnError,
                                         final boolean verifyExpired,
                                         final boolean retrySend,
+                                        final int maxRetriesAfterExpired,
                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                         final String logContext) throws InterruptedException;
 
@@ -47,6 +49,7 @@ public interface InstructionService {
                                                 final List<Instruction> instructions,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
@@ -55,6 +58,7 @@ public interface InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         logContext
     );
   }
@@ -63,6 +67,7 @@ public interface InstructionService {
                                                 final List<Instruction> instructions,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
@@ -72,6 +77,7 @@ public interface InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
@@ -80,12 +86,14 @@ public interface InstructionService {
   default TransactionResult processInstructions(final List<Instruction> instructions,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
         1.0,
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         logContext
     );
   }
@@ -93,6 +101,7 @@ public interface InstructionService {
   default TransactionResult processInstructions(final List<Instruction> instructions,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
@@ -100,6 +109,7 @@ public interface InstructionService {
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
@@ -107,18 +117,21 @@ public interface InstructionService {
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
         Commitment.FINALIZED,
         Commitment.FINALIZED,
+        maxRetriesAfterExpired,
         logContext
     );
   }
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
@@ -126,19 +139,22 @@ public interface InstructionService {
         instructions,
         Commitment.FINALIZED,
         Commitment.FINALIZED,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
-    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, logContext);
+    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, maxRetriesAfterExpired, logContext);
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
-    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, transactionFactory, logContext);
+    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, maxRetriesAfterExpired, transactionFactory, logContext);
   }
 }

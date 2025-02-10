@@ -40,6 +40,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                          final Commitment awaitCommitmentOnError,
                                          final boolean verifyExpired,
                                          final boolean retrySend,
+                                         final int maxRetriesAfterExpired,
                                          final Function<List<Instruction>, Transaction> transactionFactory,
                                          final String logContext) throws InterruptedException {
     final var transactionResult = processInstructions(
@@ -49,6 +50,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         awaitCommitmentOnError,
         verifyExpired,
         retrySend,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
@@ -76,6 +78,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
@@ -93,6 +96,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           awaitCommitmentOnError,
           verifyExpired,
           retrySend,
+          maxRetriesAfterExpired,
           transactionFactory,
           logContext
       );
@@ -119,6 +123,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
                                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
@@ -139,6 +144,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           awaitCommitmentOnError,
           verifyExpired,
           retrySend,
+          maxRetriesAfterExpired,
           transactionFactory,
           logContext
       );
@@ -166,12 +172,14 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
                                                     final String logContext) throws InterruptedException {
     return batchProcess(
         cuBudgetMultiplier,
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         transactionProcessor.legacyTransactionFactory(),
         logContext
     );
@@ -184,6 +192,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
@@ -191,6 +200,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         accountsMap,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         transactionProcessor.legacyTransactionFactory(),
         logContext,
         batchFactory

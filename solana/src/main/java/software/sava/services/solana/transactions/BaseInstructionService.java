@@ -17,6 +17,7 @@ import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
+import static software.sava.services.solana.transactions.TransactionResult.EXPIRED;
 import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.MAX_COMPUTE_BUDGET;
 
 public class BaseInstructionService implements InstructionService {
@@ -89,6 +90,7 @@ public class BaseInstructionService implements InstructionService {
                                                      final Commitment awaitCommitmentOnError,
                                                      final boolean verifyExpired,
                                                      final boolean retrySend,
+                                                     final int maxRetriesAfterExpired,
                                                      final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
@@ -97,6 +99,7 @@ public class BaseInstructionService implements InstructionService {
         awaitCommitmentOnError,
         verifyExpired,
         retrySend,
+        maxRetriesAfterExpired,
         transactionProcessor.legacyTransactionFactory(),
         logContext
     );
@@ -109,9 +112,10 @@ public class BaseInstructionService implements InstructionService {
                                                      final Commitment awaitCommitmentOnError,
                                                      final boolean verifyExpired,
                                                      final boolean retrySend,
+                                                     final int maxRetriesAfterExpired,
                                                      final Function<List<Instruction>, Transaction> transactionFactory,
                                                      final String logContext) throws InterruptedException {
-    for (; ; ) {
+    for (int retries = 0; ; ) {
       final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
       final int base64Length = simulationFutures.base64Length();
       if (simulationFutures.exceedsSizeLimit()) {
@@ -128,10 +132,11 @@ public class BaseInstructionService implements InstructionService {
       final var simulationError = simulationResult.error();
       if (simulationError != null) {
         logger.log(INFO, String.format("""
-                Failed to simulate %d %s instructions because %s.
-                """,
-            instructions.size(), logContext, simulationError
-        ));
+                    Failed to simulate %d %s instructions because %s.
+                    """,
+                instructions.size(), logContext, simulationError
+            )
+        );
         return TransactionResult.createResult(
             instructions,
             true,
@@ -158,11 +163,12 @@ public class BaseInstructionService implements InstructionService {
       final var sig = sendContext.sig();
       final var formattedSig = transactionProcessor.formatter().formatSig(sig);
       logger.log(INFO, String.format("""
-              Published %d %s instructions:
-              %s
-              """,
-          instructions.size(), logContext, formattedSig
-      ));
+                  Published %d %s instructions:
+                  %s
+                  """,
+              instructions.size(), logContext, formattedSig
+          )
+      );
 
       final var txResult = txMonitorService.validateResponseAndAwaitCommitmentViaWebSocket(
           sendContext,
@@ -184,12 +190,24 @@ public class BaseInstructionService implements InstructionService {
             retrySend
         ).join();
         if (sigStatus == null) {
+          if (++retries >= maxRetriesAfterExpired) {
+            return TransactionResult.createResult(
+                instructions,
+                cuBudget, cuPrice,
+                sendContext.transaction(),
+                base64Length,
+                EXPIRED,
+                sig,
+                formattedSig
+            );
+          }
           logger.log(INFO, String.format("""
-                  %s transaction expired, retrying:
-                  %s
-                  """,
-              logContext, formattedSig
-          ));
+                      %s transaction expired, retrying:
+                      %s
+                      """,
+                  logContext, formattedSig
+              )
+          );
           continue; // block hash expired, retry batch.
         }
         error = sigStatus.error();
@@ -198,11 +216,12 @@ public class BaseInstructionService implements InstructionService {
       final var transaction = sendContext.transaction();
       if (error != null) {
         logger.log(INFO, String.format("""
-                Failed to execute %d %s instructions because %s:
-                %s
-                """,
-            instructions.size(), logContext, error, formattedSig
-        ));
+                    Failed to execute %d %s instructions because %s:
+                    %s
+                    """,
+                instructions.size(), logContext, error, formattedSig
+            )
+        );
         return TransactionResult.createResult(
             instructions,
             cuBudget, cuPrice,
@@ -214,11 +233,12 @@ public class BaseInstructionService implements InstructionService {
         );
       } else {
         logger.log(INFO, String.format("""
-                %s %d %s instructions:
-                %s
-                """,
-            awaitCommitment, instructions.size(), logContext, formattedSig
-        ));
+                    %s %d %s instructions:
+                    %s
+                    """,
+                awaitCommitment, instructions.size(), logContext, formattedSig
+            )
+        );
         return TransactionResult.createResult(
             instructions,
             cuBudget, cuPrice,

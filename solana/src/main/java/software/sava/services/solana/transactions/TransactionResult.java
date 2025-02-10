@@ -18,6 +18,7 @@ public record TransactionResult(List<Instruction> instructions,
 
   public static final TransactionError FAILED_TO_RETRIEVE_BLOCK_HASH = new TransactionError.Unknown("FAILED_RETRIEVE_BLOCK_HASH");
   public static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
+  public static final TransactionError EXPIRED = new TransactionError.Unknown("EXPIRED");
 
   static TransactionResult createResult(final List<Instruction> instructions,
                                         final boolean simulationFailed,

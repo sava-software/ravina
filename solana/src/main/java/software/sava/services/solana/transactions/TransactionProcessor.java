@@ -33,7 +33,7 @@ public interface TransactionProcessor extends TxPublisher {
                                               final ChainItemFormatter formatter,
                                               final LoadBalancer<SolanaRpcClient> rpcClients,
                                               final LoadBalancer<SolanaRpcClient> sendClients,
-                                              final LoadBalancer<HeliusClient> heliusClients,
+                                              final LoadBalancer<FeeProvider> heliusClients,
                                               final CallWeights callWeights,
                                               final WebSocketManager webSocketManager) {
     return new TransactionProcessorRecord(
@@ -132,6 +132,15 @@ public interface TransactionProcessor extends TxPublisher {
         SimulationFutures.cuBudget(simulationResult),
         blockHashFuture
     );
+  }
+
+  SendTxContext publish(final Transaction transaction,
+                        final String base64Encoded,
+                        final Commitment preflightCommitment,
+                        final long blockHeight);
+
+  default SendTxContext publish(final Transaction transaction, final String base64Encoded, final long blockHeight) {
+    return publish(transaction, base64Encoded, CONFIRMED, blockHeight);
   }
 
   SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);

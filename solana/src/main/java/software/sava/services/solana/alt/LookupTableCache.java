@@ -38,11 +38,23 @@ public interface LookupTableCache {
 
   AddressLookupTable getTable(final PublicKey lookupTableKey);
 
-  AddressLookupTable putTable(final AddressLookupTable lookupTable);
+  AddressLookupTable mergeTable(final long slot, final AddressLookupTable lookupTable, final long fetchedAt);
+
+  default AddressLookupTable mergeTable(final long slot, final AddressLookupTable lookupTable) {
+    return mergeTable(slot, lookupTable, System.currentTimeMillis());
+  }
 
   AddressLookupTable getOrFetchTable(final PublicKey lookupTableKey);
 
   LookupTableAccountMeta[] getOrFetchTables(final List<PublicKey> lookupTableKeys);
+
+  AddressLookupTable mergeTableIfPresent(final long slot,
+                                         final AddressLookupTable lookupTable,
+                                         final long fetchedAt);
+
+  default AddressLookupTable mergeTableIfPresent(final long slot, final AddressLookupTable lookupTable) {
+    return mergeTableIfPresent(slot, lookupTable, System.currentTimeMillis());
+  }
 
   CompletableFuture<AddressLookupTable> getOrFetchTableAsync(final PublicKey lookupTableKey);
 

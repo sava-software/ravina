@@ -57,6 +57,7 @@ public interface BatchInstructionService extends InstructionService {
                                        final Commitment awaitCommitmentOnError,
                                        final boolean verifyExpired,
                                        final boolean retrySend,
+                                       final int maxRetriesAfterExpired,
                                        final Function<List<Instruction>, Transaction> transactionFactory,
                                        final String logContext) throws InterruptedException;
 
@@ -66,6 +67,7 @@ public interface BatchInstructionService extends InstructionService {
                                        final Commitment awaitCommitmentOnError,
                                        final boolean verifyExpired,
                                        final boolean retrySend,
+                                       final int maxRetriesAfterExpired,
                                        final Function<List<Instruction>, Transaction> transactionFactory,
                                        final String logContext,
                                        final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
@@ -76,6 +78,7 @@ public interface BatchInstructionService extends InstructionService {
                                        final Commitment awaitCommitmentOnError,
                                        final boolean verifyExpired,
                                        final boolean retrySend,
+                                       final int maxRetriesAfterExpired,
                                        final String logContext) throws InterruptedException;
 
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
@@ -84,6 +87,7 @@ public interface BatchInstructionService extends InstructionService {
                                        final Commitment awaitCommitmentOnError,
                                        final boolean verifyExpired,
                                        final boolean retrySend,
+                                       final int maxRetriesAfterExpired,
                                        final String logContext,
                                        final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
 
@@ -91,6 +95,7 @@ public interface BatchInstructionService extends InstructionService {
                                                final List<Instruction> instructions,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
         cuBudgetMultiplier,
@@ -99,6 +104,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         logContext
     );
   }
@@ -107,6 +113,7 @@ public interface BatchInstructionService extends InstructionService {
                                                final List<Instruction> instructions,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final Function<List<Instruction>, Transaction> transactionFactory,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
@@ -116,6 +123,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
@@ -125,6 +133,7 @@ public interface BatchInstructionService extends InstructionService {
                                                final Map<PublicKey, ?> accountsMap,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext,
                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
@@ -134,6 +143,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         logContext,
         batchFactory
     );
@@ -143,6 +153,7 @@ public interface BatchInstructionService extends InstructionService {
                                                final Map<PublicKey, ?> accountsMap,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final Function<List<Instruction>, Transaction> transactionFactory,
                                                final String logContext,
                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
@@ -153,6 +164,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitmentOnError,
         true,
         false,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext,
         batchFactory
@@ -162,12 +174,14 @@ public interface BatchInstructionService extends InstructionService {
   default List<TransactionResult> batchProcess(final List<Instruction> instructions,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
         1.0,
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         logContext
     );
   }
@@ -175,6 +189,7 @@ public interface BatchInstructionService extends InstructionService {
   default List<TransactionResult> batchProcess(final List<Instruction> instructions,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final Function<List<Instruction>, Transaction> transactionFactory,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
@@ -182,6 +197,7 @@ public interface BatchInstructionService extends InstructionService {
         instructions,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext
     );
@@ -190,6 +206,7 @@ public interface BatchInstructionService extends InstructionService {
   default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext,
                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
@@ -197,6 +214,7 @@ public interface BatchInstructionService extends InstructionService {
         accountsMap,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         logContext,
         batchFactory
     );
@@ -205,6 +223,7 @@ public interface BatchInstructionService extends InstructionService {
   default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
                                                final Commitment awaitCommitment,
                                                final Commitment awaitCommitmentOnError,
+                                               final int maxRetriesAfterExpired,
                                                final Function<List<Instruction>, Transaction> transactionFactory,
                                                final String logContext,
                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
@@ -213,6 +232,7 @@ public interface BatchInstructionService extends InstructionService {
         accountsMap,
         awaitCommitment,
         awaitCommitmentOnError,
+        maxRetriesAfterExpired,
         transactionFactory,
         logContext,
         batchFactory
@@ -220,22 +240,26 @@ public interface BatchInstructionService extends InstructionService {
   }
 
   default List<TransactionResult> batchProcess(final List<Instruction> instructions,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext) throws InterruptedException {
     return batchProcess(
         instructions,
         FINALIZED,
         FINALIZED,
+        maxRetriesAfterExpired,
         logContext
     );
   }
 
   default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
+                                               final int maxRetriesAfterExpired,
                                                final String logContext,
                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
         accountsMap,
         FINALIZED,
         FINALIZED,
+        maxRetriesAfterExpired,
         logContext,
         batchFactory
     );
