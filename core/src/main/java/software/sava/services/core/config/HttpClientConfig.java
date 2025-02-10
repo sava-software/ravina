@@ -2,6 +2,7 @@ package software.sava.services.core.config;
 
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.ClientCaller;
+import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 
 import java.net.URI;
@@ -21,4 +22,6 @@ public interface HttpClientConfig<C> {
   ClientCaller<C> createCaller(final C client);
 
   ClientCaller<C> createCaller(final HttpClient httpClient);
+
+  LoadBalancer<C> createSingletonLoadBalancer(final HttpClient httpClient);
 }

@@ -3,6 +3,8 @@ package software.sava.services.core.config;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.remote.call.ClientCaller;
+import software.sava.services.core.remote.load_balance.BalancedItem;
+import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.FieldBufferPredicate;
@@ -53,6 +55,17 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
     return createCaller(createClient(httpClient));
   }
 
+  @Override
+  public final LoadBalancer<C> createSingletonLoadBalancer(final HttpClient httpClient) {
+    final var client = createClient(httpClient);
+    final var balancedItem = BalancedItem.createItem(
+        client,
+        capacityMonitor,
+        backoff
+    );
+    return LoadBalancer.createBalancer(balancedItem);
+  }
+
   protected static class BaseParser implements FieldBufferPredicate {
 
     protected String endpoint;
@@ -79,7 +92,8 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
       } else {
         throw new IllegalStateException(String.format(
             "Unknown %s field [%s]",
-            getClass().getSimpleName(), new String(buf, offset, len)));
+            getClass().getSimpleName(), new String(buf, offset, len)
+        ));
       }
       return true;
     }

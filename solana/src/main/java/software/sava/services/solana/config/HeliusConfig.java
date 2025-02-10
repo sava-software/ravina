@@ -2,8 +2,6 @@ package software.sava.services.solana.config;
 
 import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;
-import software.sava.services.core.remote.load_balance.BalancedItem;
-import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.solana.web2.helius.client.http.HeliusClient;
@@ -45,16 +43,6 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
   @Override
   public HeliusClient createClient(final HttpClient httpClient) {
     return HeliusClient.createHttpClient(endpoint(), httpClient, capacityMonitor.errorTracker());
-  }
-
-  public LoadBalancer<HeliusClient> createHeliusClient(final HttpClient httpClient) {
-    final var client = createClient(httpClient);
-    final var balancedItem = BalancedItem.createItem(
-        client,
-        capacityMonitor,
-        backoff
-    );
-    return LoadBalancer.createBalancer(balancedItem);
   }
 
   private static final class Parser extends BaseParser {

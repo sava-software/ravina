@@ -13,7 +13,6 @@ import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
-import software.sava.solana.web2.helius.client.http.HeliusClient;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -33,7 +32,7 @@ public interface TransactionProcessor extends TxPublisher {
                                               final ChainItemFormatter formatter,
                                               final LoadBalancer<SolanaRpcClient> rpcClients,
                                               final LoadBalancer<SolanaRpcClient> sendClients,
-                                              final LoadBalancer<FeeProvider> heliusClients,
+                                              final LoadBalancer<? extends FeeProvider> feeProviders,
                                               final CallWeights callWeights,
                                               final WebSocketManager webSocketManager) {
     return new TransactionProcessorRecord(
@@ -46,7 +45,7 @@ public interface TransactionProcessor extends TxPublisher {
         formatter,
         rpcClients,
         sendClients,
-        heliusClients,
+        feeProviders,
         callWeights,
         webSocketManager
     );

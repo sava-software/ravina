@@ -34,7 +34,7 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   ChainItemFormatter formatter,
                                   LoadBalancer<SolanaRpcClient> rpcClients,
                                   LoadBalancer<SolanaRpcClient> sendClients,
-                                  LoadBalancer<FeeProvider> feeProviders,
+                                  LoadBalancer<? extends FeeProvider> feeProviders,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
