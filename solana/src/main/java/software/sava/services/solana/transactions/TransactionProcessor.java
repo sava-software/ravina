@@ -14,6 +14,7 @@ import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -102,9 +103,12 @@ public interface TransactionProcessor extends TxPublisher {
 
   void setSignature(final Transaction transaction, final byte[] sig);
 
-  Transaction createTransaction(final SimulationFutures simulationFutures, final int cuBudget);
+  Transaction createTransaction(final SimulationFutures simulationFutures,
+                                final BigDecimal maxLamportPriorityFee,
+                                final int cuBudget);
 
   Transaction createTransaction(final SimulationFutures simulationFutures,
+                                final BigDecimal maxLamportPriorityFee,
                                 final TxSimulation simulationResult);
 
   long setBlockHash(final Transaction transaction, final TxSimulation simulationResult);
@@ -118,15 +122,18 @@ public interface TransactionProcessor extends TxPublisher {
   void signTransaction(final Transaction transaction);
 
   Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
+                                       final BigDecimal maxLamportPriorityFee,
                                        final TxSimulation simulationResult,
                                        final int cuBudget,
                                        final CompletableFuture<LatestBlockHash> blockHashFuture);
 
   default Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
+                                               final BigDecimal maxLamportPriorityFee,
                                                final TxSimulation simulationResult,
                                                final CompletableFuture<LatestBlockHash> blockHashFuture) {
     return createAndSignTransaction(
         simulationFutures,
+        maxLamportPriorityFee,
         simulationResult,
         SimulationFutures.cuBudget(simulationResult),
         blockHashFuture

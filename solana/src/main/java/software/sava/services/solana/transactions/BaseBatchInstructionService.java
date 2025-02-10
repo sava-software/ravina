@@ -8,6 +8,7 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   private TransactionResult processBatch(final double cuBudgetMultiplier,
                                          final List<Instruction> batch,
+                                         final BigDecimal maxLamportPriorityFee,
                                          final Commitment awaitCommitment,
                                          final Commitment awaitCommitmentOnError,
                                          final boolean verifyExpired,
@@ -46,6 +48,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var transactionResult = processInstructions(
         cuBudgetMultiplier,
         batch,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         verifyExpired,
@@ -74,6 +77,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final List<Instruction> instructions,
+                                                    final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
@@ -92,6 +96,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       final var transactionResult = processBatch(
           cuBudgetMultiplier,
           batch,
+          maxLamportPriorityFee,
           awaitCommitment,
           awaitCommitmentOnError,
           verifyExpired,
@@ -119,6 +124,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final Map<PublicKey, ?> accountsMap,
+                                                    final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
@@ -140,6 +146,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       final var transactionResult = processBatch(
           cuBudgetMultiplier,
           batch,
+          maxLamportPriorityFee,
           awaitCommitment,
           awaitCommitmentOnError,
           verifyExpired,
@@ -168,6 +175,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final List<Instruction> instructions,
+                                                    final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
@@ -177,6 +185,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     return batchProcess(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         maxRetriesAfterExpired,
@@ -188,6 +197,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final Map<PublicKey, ?> accountsMap,
+                                                    final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
                                                     final boolean verifyExpired,
@@ -198,6 +208,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     return batchProcess(
         cuBudgetMultiplier,
         accountsMap,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         maxRetriesAfterExpired,

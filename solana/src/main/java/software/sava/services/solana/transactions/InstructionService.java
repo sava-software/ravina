@@ -7,6 +7,7 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.function.Function;
 
@@ -28,6 +29,7 @@ public interface InstructionService {
 
   TransactionResult processInstructions(double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
+                                        final BigDecimal maxLamportPriorityFee,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
                                         final boolean verifyExpired,
@@ -37,6 +39,7 @@ public interface InstructionService {
 
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
+                                        final BigDecimal maxLamportPriorityFee,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
                                         final boolean verifyExpired,
@@ -47,6 +50,7 @@ public interface InstructionService {
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
                                                 final int maxRetriesAfterExpired,
@@ -54,6 +58,7 @@ public interface InstructionService {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         true,
@@ -65,6 +70,7 @@ public interface InstructionService {
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
                                                 final int maxRetriesAfterExpired,
@@ -73,6 +79,7 @@ public interface InstructionService {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         true,
@@ -84,6 +91,7 @@ public interface InstructionService {
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
                                                 final int maxRetriesAfterExpired,
@@ -91,6 +99,7 @@ public interface InstructionService {
     return processInstructions(
         1.0,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         maxRetriesAfterExpired,
@@ -99,6 +108,7 @@ public interface InstructionService {
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
                                                 final int maxRetriesAfterExpired,
@@ -107,6 +117,7 @@ public interface InstructionService {
     return processInstructions(
         1.0,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         maxRetriesAfterExpired,
@@ -116,12 +127,14 @@ public interface InstructionService {
   }
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final List<Instruction> instructions,
                                                 final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         Commitment.FINALIZED,
         Commitment.FINALIZED,
         maxRetriesAfterExpired,
@@ -131,12 +144,14 @@ public interface InstructionService {
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         Commitment.FINALIZED,
         Commitment.FINALIZED,
         maxRetriesAfterExpired,
@@ -146,15 +161,32 @@ public interface InstructionService {
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final int maxRetriesAfterExpired,
                                                 final String logContext) throws InterruptedException {
-    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, maxRetriesAfterExpired, logContext);
+    return processInstructions(
+        instructions,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        logContext
+    );
   }
 
   default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final int maxRetriesAfterExpired,
                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) throws InterruptedException {
-    return processInstructions(instructions, Commitment.FINALIZED, Commitment.FINALIZED, maxRetriesAfterExpired, transactionFactory, logContext);
+    return processInstructions(
+        instructions,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
   }
 }

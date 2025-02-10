@@ -10,6 +10,7 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.solana.programs.clients.NativeProgramClient;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.function.Function;
 
@@ -64,8 +65,9 @@ public class BaseInstructionService implements InstructionService {
 
   protected final SendTxContext sendTransaction(final SimulationFutures simulationFutures,
                                                 final TxSimulation simulationResult,
+                                                final BigDecimal maxLamportPriorityFee,
                                                 final int cuBudget) {
-    final var transaction = transactionProcessor.createTransaction(simulationFutures, cuBudget);
+    final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
     if (Long.compareUnsigned(blockHeight, 0) <= 0) {
       try {
@@ -86,6 +88,7 @@ public class BaseInstructionService implements InstructionService {
   @Override
   public final TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                      final List<Instruction> instructions,
+                                                     final BigDecimal maxLamportPriorityFee,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
                                                      final boolean verifyExpired,
@@ -95,6 +98,7 @@ public class BaseInstructionService implements InstructionService {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
         verifyExpired,
@@ -108,6 +112,7 @@ public class BaseInstructionService implements InstructionService {
   @Override
   public final TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                      final List<Instruction> instructions,
+                                                     final BigDecimal maxLamportPriorityFee,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
                                                      final boolean verifyExpired,
@@ -148,7 +153,7 @@ public class BaseInstructionService implements InstructionService {
       }
 
       final int cuBudget = SimulationFutures.cuBudget(cuBudgetMultiplier, simulationResult);
-      final var sendContext = sendTransaction(simulationFutures, simulationResult, cuBudget);
+      final var sendContext = sendTransaction(simulationFutures, simulationResult, maxLamportPriorityFee, cuBudget);
       final long cuPrice = simulationFutures.cuPrice();
       if (sendContext == null) {
         return TransactionResult.createResult(

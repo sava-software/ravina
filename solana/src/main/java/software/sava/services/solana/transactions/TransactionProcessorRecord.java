@@ -16,6 +16,7 @@ import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
+import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -148,13 +149,17 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public Transaction createTransaction(final SimulationFutures simulationFutures, final int cuBudget) {
-    return simulationFutures.createTransaction(solanaAccounts, cuBudget);
+  public Transaction createTransaction(final SimulationFutures simulationFutures,
+                                       final BigDecimal maxLamportPriorityFee,
+                                       final int cuBudget) {
+    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, cuBudget);
   }
 
   @Override
-  public Transaction createTransaction(final SimulationFutures simulationFutures, final TxSimulation simulationResult) {
-    return simulationFutures.createTransaction(solanaAccounts, simulationResult);
+  public Transaction createTransaction(final SimulationFutures simulationFutures,
+                                       final BigDecimal maxLamportPriorityFee,
+                                       final TxSimulation simulationResult) {
+    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, simulationResult);
   }
 
   @Override
@@ -220,10 +225,11 @@ record TransactionProcessorRecord(ExecutorService executor,
 
   @Override
   public Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
+                                              final BigDecimal maxLamportPriorityFee,
                                               final TxSimulation simulationResult,
                                               final int cuBudget,
                                               final CompletableFuture<LatestBlockHash> blockHashFuture) {
-    final var transaction = createTransaction(simulationFutures, cuBudget);
+    final var transaction = createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
     setBlockHash(transaction, simulationResult, blockHashFuture);
     signTransaction(transaction);
     return transaction;
@@ -254,7 +260,7 @@ record TransactionProcessorRecord(ExecutorService executor,
                                                final Function<List<Instruction>, Transaction> transactionFactory) {
     final var simulateTx = Transaction.createTx(feePayer, instructions).prependInstructions(
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
-        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 12345)
+        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 0)
     );
 
     final var base64EncodedTx = simulateTx.base64EncodeToString();

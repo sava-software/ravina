@@ -3,11 +3,13 @@ package software.sava.services.solana.transactions;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.core.util.LamportDecimal;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.solana.programs.compute_budget.ComputeBudgetProgram;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -34,19 +36,33 @@ public record SimulationFutures(Commitment commitment,
     );
   }
 
+  public static long capCuPrice(final BigDecimal maxLamportPriorityFee, final int cuBudget, final long cuPrice) {
+    final var bigCuBudget = BigDecimal.valueOf(cuBudget);
+    final var lamportFee = BigDecimal.valueOf(cuPrice).multiply(bigCuBudget).movePointLeft(6);
+    return lamportFee.compareTo(maxLamportPriorityFee) > 0
+        ? maxLamportPriorityFee.movePointRight(6).divide(bigCuBudget, 0, RoundingMode.DOWN).longValueExact()
+        : cuPrice;
+  }
+
   public long cuPrice() {
     return feeEstimateFuture.join().longValue();
   }
 
-  public Transaction createTransaction(final SolanaAccounts solanaAccounts, final TxSimulation simulationResult) {
-    return createTransaction(solanaAccounts, cuBudget(simulationResult));
+  public Transaction createTransaction(final SolanaAccounts solanaAccounts,
+                                       final BigDecimal maxLamportPriorityFee,
+                                       final TxSimulation simulationResult) {
+    return createTransaction(solanaAccounts, maxLamportPriorityFee, cuBudget(simulationResult));
   }
 
-  public Transaction createTransaction(final SolanaAccounts solanaAccounts, final int cuBudget) {
-    return transactionFactory.apply(instructions).prependInstructions(
-        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), cuBudget),
-        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), cuPrice())
-    );
+  public Transaction createTransaction(final SolanaAccounts solanaAccounts,
+                                       final BigDecimal maxLamportPriorityFee,
+                                       final int cuBudget) {
+    final var transaction = transactionFactory.apply(instructions);
+    final var cuBudgetProgram = solanaAccounts.invokedComputeBudgetProgram();
+    final var setComputeUnitLimit = setComputeUnitLimit(cuBudgetProgram, cuBudget);
+
+    final long cappedCuPrice = capCuPrice(maxLamportPriorityFee, cuBudget, cuPrice());
+    return transaction.prependInstructions(setComputeUnitLimit, setComputeUnitPrice(cuBudgetProgram, cappedCuPrice));
   }
 
   public boolean exceedsSizeLimit() {
