@@ -164,23 +164,17 @@ record TransactionProcessorRecord(ExecutorService executor,
 
   @Override
   public long setBlockHash(final Transaction transaction, final TxSimulation simulationResult) {
-    final String recentBlockHash;
     final var replacementBlockHash = simulationResult.replacementBlockHash();
-    final long blockHeight;
-    if (replacementBlockHash != null) {
-      final var blockHash = replacementBlockHash.blockhash();
-      if (blockHash != null) {
-        recentBlockHash = blockHash;
-        blockHeight = replacementBlockHash.lastValidBlockHeight();
-      } else {
-        return -1;
-      }
+    if (replacementBlockHash == null) {
+      return -1;
+    }
+    final var blockHash = replacementBlockHash.blockhash();
+    if (blockHash != null) {
+      transaction.setRecentBlockHash(blockHash);
+      return replacementBlockHash.lastValidBlockHeight();
     } else {
       return -1;
     }
-    final byte[] blockHashBytes = Base58.decode(recentBlockHash);
-    transaction.setRecentBlockHash(blockHashBytes);
-    return blockHeight;
   }
 
   @Override

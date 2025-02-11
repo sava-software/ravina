@@ -71,11 +71,13 @@ public class BaseInstructionService implements InstructionService {
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
     if (Long.compareUnsigned(blockHeight, 0) <= 0) {
       try {
-        final var blockHash = rpcCaller.courteousGet(
-            rpcClient -> rpcClient.getLatestBlockHash(FINALIZED),
+        final var blockHashFuture = rpcCaller.courteousCall(
+            rpcClient -> rpcClient.getLatestBlockHash(CONFIRMED),
             CallContext.createContext(1, 0, 1, true, 0, true),
             "rpcClient::getLatestBlockHash"
         );
+        logger.log(WARNING, "Simulation did not include a replacement block hash.");
+        final var blockHash = blockHashFuture.join();
         blockHeight = transactionProcessor.setBlockHash(transaction, blockHash);
       } catch (final RuntimeException ex) {
         logger.log(WARNING, "Failed to retrieve block hash for transaction.", ex);
