@@ -83,10 +83,13 @@ public interface TxMonitorService extends Worker {
     );
   }
 
-  CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment, final Commitment awaitCommitmentOnError, final String txSig);
+  CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
+                                                             final Commitment awaitCommitmentOnError,
+                                                             final String txSig);
 
   CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
-                                                             final Commitment awaitCommitmentOnError, final String txSig,
+                                                             final Commitment awaitCommitmentOnError,
+                                                             final String txSig,
                                                              final long confirmedTimeout,
                                                              final TimeUnit timeUnit);
 

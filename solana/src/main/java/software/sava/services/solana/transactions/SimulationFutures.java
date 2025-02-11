@@ -3,7 +3,6 @@ package software.sava.services.solana.transactions;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
-import software.sava.core.util.LamportDecimal;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.solana.programs.compute_budget.ComputeBudgetProgram;
@@ -39,9 +38,21 @@ public record SimulationFutures(Commitment commitment,
   public static long capCuPrice(final BigDecimal maxLamportPriorityFee, final int cuBudget, final long cuPrice) {
     final var bigCuBudget = BigDecimal.valueOf(cuBudget);
     final var lamportFee = BigDecimal.valueOf(cuPrice).multiply(bigCuBudget).movePointLeft(6);
-    return lamportFee.compareTo(maxLamportPriorityFee) > 0
-        ? maxLamportPriorityFee.movePointRight(6).divide(bigCuBudget, 0, RoundingMode.DOWN).longValueExact()
-        : cuPrice;
+    if (lamportFee.compareTo(maxLamportPriorityFee) > 0) {
+      final long cappedCuPrice = maxLamportPriorityFee.movePointRight(6)
+          .divide(bigCuBudget, 0, RoundingMode.DOWN)
+          .longValueExact();
+      if (cappedCuPrice > cuPrice) {
+        throw new IllegalStateException(String.format(
+            "Failed to reduce cu price. [maxLamportPriorityFee=%s] [cuBudget=%d] [cuPrice=%d]",
+            maxLamportPriorityFee.toPlainString(), cuBudget, cuPrice
+        ));
+      } else {
+        return cappedCuPrice;
+      }
+    } else {
+      return cuPrice;
+    }
   }
 
   public long cuPrice() {
