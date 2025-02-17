@@ -58,8 +58,9 @@ record TransactionProcessorRecord(ExecutorService executor,
             .filter(meta -> !lookupTableKeys.contains(meta.lookupTable().address()))
             .toList();
         throw new IllegalStateException("Failed to find lookup table(s) " + missingTableKeys);
+      } else {
+        return instructions -> Transaction.createTx(feePayer, instructions, lookupTableMetas);
       }
-      return instructions -> Transaction.createTx(feePayer, instructions, lookupTableMetas);
     }
   }
 
@@ -252,7 +253,7 @@ record TransactionProcessorRecord(ExecutorService executor,
   public SimulationFutures simulateAndEstimate(final Commitment commitment,
                                                final List<Instruction> instructions,
                                                final Function<List<Instruction>, Transaction> transactionFactory) {
-    final var simulateTx = Transaction.createTx(feePayer, instructions).prependInstructions(
+    final var simulateTx = transactionFactory.apply(instructions).prependInstructions(
         setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
         setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 0)
     );
