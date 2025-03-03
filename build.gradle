@@ -59,6 +59,13 @@ subprojects {
         password = GPR_TOKEN
       }
     }
+    maven {
+      url = "https://maven.pkg.github.com/glamsystems/ix-proxy"
+      credentials {
+        username = GPR_USER
+        password = GPR_TOKEN
+      }
+    }
     mavenCentral()
   }
 
