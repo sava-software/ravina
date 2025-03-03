@@ -167,14 +167,14 @@ record TransactionProcessorRecord(ExecutorService executor,
   public long setBlockHash(final Transaction transaction, final TxSimulation simulationResult) {
     final var replacementBlockHash = simulationResult.replacementBlockHash();
     if (replacementBlockHash == null) {
-      return -1;
+      return 0;
     }
     final var blockHash = replacementBlockHash.blockhash();
     if (blockHash != null) {
       transaction.setRecentBlockHash(blockHash);
       return replacementBlockHash.lastValidBlockHeight();
     } else {
-      return -1;
+      return 0;
     }
   }
 
