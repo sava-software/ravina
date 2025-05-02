@@ -1,10 +1,6 @@
 package software.sava.services.core.remote.call;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ConditionEvaluationResult;
-import org.junit.jupiter.api.extension.ExecutionCondition;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.extension.ExtensionContext;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -15,8 +11,6 @@ import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 import systems.comodal.jsoniter.JsonIterator;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -25,8 +19,21 @@ import java.util.concurrent.atomic.AtomicLong;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 final class CallTests {
+
+  private static final boolean VIRTUAL_SERVER;
+
+  static {
+    final int availableProcessors = Runtime.getRuntime().availableProcessors();
+    if (availableProcessors <= 1) {
+      VIRTUAL_SERVER = true;
+    } else {
+      final var val = System.getenv("VIRTUAL_SERVER");
+      VIRTUAL_SERVER = val != null && Boolean.parseBoolean(val.strip());
+    }
+  }
 
   private static final class LongErrorTracker extends RootErrorTracker<Long> {
 
@@ -79,33 +86,10 @@ final class CallTests {
     }
   }
 
-  public static class SkipOnVirtualServersCondition implements ExecutionCondition {
-
-    private static final boolean VIRTUAL_SERVER;
-
-    static {
-      final int availableProcessors = Runtime.getRuntime().availableProcessors();
-      final var val = System.getenv("VIRTUAL_SERVER");
-      VIRTUAL_SERVER = availableProcessors == 1 || (val != null && Boolean.parseBoolean(val.strip()));
-    }
-
-    @Override
-    public ConditionEvaluationResult evaluateExecutionCondition(final ExtensionContext context) {
-      return VIRTUAL_SERVER
-          ? ConditionEvaluationResult.disabled("Virtual server.")
-          : ConditionEvaluationResult.enabled("Not a virtual server.");
-    }
-  }
-
-  @Retention(RetentionPolicy.RUNTIME)
-  @ExtendWith(SkipOnVirtualServersCondition.class)
-  public @interface SkipOnVirtualServers {
-
-  }
-
-  @SkipOnVirtualServers
   @Test
   void testCourteous() {
+    assumeFalse(VIRTUAL_SERVER, "Skip because too much contention on virtual servers");
+
     final var serviceName = "testCall";
     final var capacityConfig = CapacityConfig.parse(JsonIterator.parse("""
         {
@@ -213,7 +197,6 @@ final class CallTests {
     assertEquals(21000, backoff.delay(7, TimeUnit.MILLISECONDS));
     assertEquals(21000, backoff.delay(8, TimeUnit.MILLISECONDS));
     assertEquals(21000, backoff.delay(Long.MAX_VALUE, TimeUnit.MILLISECONDS));
-
 
     backoff = Backoff.linear(TimeUnit.NANOSECONDS, SECONDS.toNanos(1), SECONDS.toNanos(7));
     assertEquals(1000, backoff.delay(0, TimeUnit.MILLISECONDS));
