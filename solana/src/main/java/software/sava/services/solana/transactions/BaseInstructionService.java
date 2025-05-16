@@ -17,7 +17,6 @@ import java.util.function.Function;
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
-import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.services.solana.transactions.TransactionResult.EXPIRED;
 import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.MAX_COMPUTE_BUDGET;
 
@@ -126,13 +125,10 @@ public class BaseInstructionService implements InstructionService {
       final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
       final int base64Length = simulationFutures.base64Length();
       if (simulationFutures.exceedsSizeLimit()) {
-        return TransactionResult.createResult(
+        return TransactionResult.createSizeExceededResult(
             instructions,
-            true,
-            MAX_COMPUTE_BUDGET, 0,
             simulationFutures.transaction(),
-            base64Length,
-            TransactionResult.SIZE_LIMIT_EXCEEDED
+            base64Length
         );
       }
       final var simulationResult = simulationFutures.simulationFuture().join();
@@ -148,9 +144,8 @@ public class BaseInstructionService implements InstructionService {
             instructions,
             true,
             MAX_COMPUTE_BUDGET, 0,
-            simulationFutures.transaction(),
-            base64Length,
-            simulationError
+            simulationFutures.transaction(), base64Length,
+            simulationResult, simulationError
         );
       }
 
@@ -164,6 +159,7 @@ public class BaseInstructionService implements InstructionService {
             cuBudget, cuPrice,
             simulationFutures.transaction(),
             base64Length,
+            simulationResult,
             TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH
         );
       }
@@ -203,6 +199,7 @@ public class BaseInstructionService implements InstructionService {
                 cuBudget, cuPrice,
                 sendContext.transaction(),
                 base64Length,
+                simulationResult,
                 EXPIRED,
                 sig,
                 formattedSig
@@ -234,6 +231,7 @@ public class BaseInstructionService implements InstructionService {
             cuBudget, cuPrice,
             transaction,
             base64Length,
+            simulationResult,
             error,
             sig,
             formattedSig
@@ -251,6 +249,7 @@ public class BaseInstructionService implements InstructionService {
             cuBudget, cuPrice,
             transaction,
             base64Length,
+            simulationResult,
             sig,
             formattedSig
         );

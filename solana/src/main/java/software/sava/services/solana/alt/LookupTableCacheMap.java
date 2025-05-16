@@ -168,17 +168,19 @@ final class LookupTableCacheMap implements LookupTableCache {
           }
 
           final var lookupTableAccounts = Call.createCourteousCall(
-              rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-              "rpcClient::getMultipleAccounts"
+              rpcClients, rpcClient -> rpcClient.getAccounts(fetchKeys),
+              "rpcClient::getTableAccounts"
           ).get();
           final long fetchedAt = System.currentTimeMillis();
           for (final var lookupTableAccount : lookupTableAccounts) {
-            final var lookupTable = lookupTableAccount.data();
-            if (lookupTable != null && lookupTable.isActive()) {
-              lookupTableMetas[c++] = LookupTableAccountMeta.createMeta(
-                  mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt),
-                  defaultMaxAccounts
-              );
+            if (lookupTableAccount != null) {
+              final var lookupTable = tableFactory.apply(lookupTableAccount.pubKey(), lookupTableAccount.data());
+              if (lookupTable != null && lookupTable.isActive()) {
+                lookupTableMetas[c++] = LookupTableAccountMeta.createMeta(
+                    mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt),
+                    defaultMaxAccounts
+                );
+              }
             }
           }
         }
@@ -217,16 +219,18 @@ final class LookupTableCacheMap implements LookupTableCache {
   private void refreshTables(final List<PublicKey> fetchKeys) {
     if (!fetchKeys.isEmpty()) {
       final var lookupTableAccounts = Call.createCourteousCall(
-          rpcClients, rpcClient -> rpcClient.getMultipleAccounts(fetchKeys, tableFactory),
-          "rpcClient::getMultipleAccounts"
+          rpcClients, rpcClient -> rpcClient.getAccounts(fetchKeys),
+          "rpcClient::getTableAccounts"
       ).get();
       final long fetchedAt = System.currentTimeMillis();
       for (final var lookupTableAccount : lookupTableAccounts) {
-        final var lookupTable = lookupTableAccount.data();
-        if (lookupTable != null && lookupTable.isActive()) {
-          mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt);
-        } else { // Defensive removal
-          lookupTableCache.remove(lookupTableAccount.pubKey());
+        if (lookupTableAccount != null) {
+          final var lookupTable = tableFactory.apply(lookupTableAccount.pubKey(), lookupTableAccount.data());
+          if (lookupTable != null && lookupTable.isActive()) {
+            mergeTable(lookupTableAccount.context().slot(), lookupTable, fetchedAt);
+          } else { // Defensive removal
+            lookupTableCache.remove(lookupTableAccount.pubKey());
+          }
         }
       }
     }
