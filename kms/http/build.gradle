@@ -1,0 +1,7 @@
+dependencies {
+  implementation project(":kms-core")
+  implementation libs.sava.json.iterator
+  implementation libs.sava.core
+  implementation libs.sava.rpc
+  implementation libs.sava.ravina.core
+}

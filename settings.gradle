@@ -3,13 +3,19 @@ rootProject.name = 'ravina'
 include 'core'
 include 'jetty'
 include 'solana'
-//include 'spring/solana'
-//project(':spring/solana').name = 'solana_spring'
+
+include 'kms/core'
+project(':kms/core').setName('kms-core')
+include 'kms/http'
+project(':kms/http').setName('kms-http')
+include 'kms/google'
+project(':kms/google').setName('kms-google')
 
 def gprUser = providers.gradleProperty("gpr.user")
 def gprToken = providers.gradleProperty("gpr.token")
 
 dependencyResolutionManagement {
+
   repositories {
     maven {
       name = "GithubPackages"
@@ -24,9 +30,10 @@ dependencyResolutionManagement {
       }
     }
   }
+
   versionCatalogs {
     libs {
-      from("software.sava:solana-version-catalog:0.7.4")
+      from("software.sava:solana-version-catalog:0.7.5")
     }
   }
 }
