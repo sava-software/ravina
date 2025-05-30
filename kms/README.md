@@ -4,10 +4,9 @@ KMS clients for the purpose of isolating ed25519 private key signing.
 
 ## Documentation
 
-User documentation lives at [sava.software](https://sava.software/).
+User documentation lives at [sava.software](https://sava.software/libraries/ravina/kms).
 
 * [Dependency Configuration](https://sava.software/quickstart)
-* [KMS](https://sava.software/libraries/kms)
 
 ## Contribution
 
