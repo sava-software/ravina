@@ -1,5 +1,6 @@
 dependencies {
   implementation project(":core")
+  implementation project(":kms-core")
   implementation libs.bouncycastle
   implementation libs.sava.json.iterator
   implementation libs.sava.core
@@ -8,5 +9,4 @@ dependencies {
   implementation libs.sava.solana.programs
   implementation libs.sava.anchor.src.gen
   implementation libs.sava.anchor.programs
-  implementation libs.sava.kms.core
 }
