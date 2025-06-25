@@ -37,8 +37,354 @@ public interface InstructionService {
                                         final int maxRetriesAfterExpired,
                                         final String logContext) throws InterruptedException;
 
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final boolean verifyExpired,
+                                                final boolean retrySend,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final List<Instruction> instructions,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        true,
+        false,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        1.0,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  default TransactionResult processInstructions(final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        Commitment.FINALIZED,
+        Commitment.FINALIZED,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
+                                        final Function<Transaction, Transaction> beforeSend,
+                                        final BigDecimal maxLamportPriorityFee,
+                                        final Commitment awaitCommitment,
+                                        final Commitment awaitCommitmentOnError,
+                                        final boolean verifyExpired,
+                                        final boolean retrySend,
+                                        final int maxRetriesAfterExpired,
+                                        final String logContext) throws InterruptedException;
+
+  TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                        final List<Instruction> instructions,
+                                        final Function<Transaction, Transaction> beforeSend,
                                         final BigDecimal maxLamportPriorityFee,
                                         final Commitment awaitCommitment,
                                         final Commitment awaitCommitmentOnError,
@@ -47,146 +393,4 @@ public interface InstructionService {
                                         final int maxRetriesAfterExpired,
                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                         final String logContext) throws InterruptedException;
-
-  default TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final int maxRetriesAfterExpired,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        true,
-        false,
-        maxRetriesAfterExpired,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        true,
-        false,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final int maxRetriesAfterExpired,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        1.0,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        maxRetriesAfterExpired,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        1.0,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final List<Instruction> instructions,
-                                                final int maxRetriesAfterExpired,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        Commitment.FINALIZED,
-        Commitment.FINALIZED,
-        maxRetriesAfterExpired,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        Commitment.FINALIZED,
-        Commitment.FINALIZED,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final int maxRetriesAfterExpired,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        instructions,
-        maxLamportPriorityFee,
-        Commitment.FINALIZED,
-        Commitment.FINALIZED,
-        maxRetriesAfterExpired,
-        logContext
-    );
-  }
-
-  default TransactionResult processInstructions(final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
-                                                final String logContext) throws InterruptedException {
-    return processInstructions(
-        instructions,
-        maxLamportPriorityFee,
-        Commitment.FINALIZED,
-        Commitment.FINALIZED,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
 }

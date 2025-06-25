@@ -23,6 +23,7 @@ import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.
 public class BaseInstructionService implements InstructionService {
 
   protected static final System.Logger logger = System.getLogger(BaseInstructionService.class.getName());
+  static final Function<Transaction, Transaction> NO_OP = transaction -> transaction;
 
   protected final RpcCaller rpcCaller;
   protected final TransactionProcessor transactionProcessor;
@@ -62,7 +63,8 @@ public class BaseInstructionService implements InstructionService {
     return txMonitorService;
   }
 
-  protected final SendTxContext sendTransaction(final SimulationFutures simulationFutures,
+  protected final SendTxContext sendTransaction(final Function<Transaction, Transaction> beforeSend,
+                                                final SimulationFutures simulationFutures,
                                                 final TxSimulation simulationResult,
                                                 final BigDecimal maxLamportPriorityFee,
                                                 final int cuBudget) {
@@ -83,7 +85,7 @@ public class BaseInstructionService implements InstructionService {
         return null;
       }
     }
-    return transactionProcessor.signAndSendTx(transaction, blockHeight);
+    return transactionProcessor.signAndSendTx(beforeSend.apply(transaction), blockHeight);
   }
 
   @Override
@@ -99,6 +101,33 @@ public class BaseInstructionService implements InstructionService {
     return processInstructions(
         cuBudgetMultiplier,
         instructions,
+        NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+
+  @Override
+  public final TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                     final List<Instruction> instructions,
+                                                     final Function<Transaction, Transaction> beforeSend,
+                                                     final BigDecimal maxLamportPriorityFee,
+                                                     final Commitment awaitCommitment,
+                                                     final Commitment awaitCommitmentOnError,
+                                                     final boolean verifyExpired,
+                                                     final boolean retrySend,
+                                                     final int maxRetriesAfterExpired,
+                                                     final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        beforeSend,
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
@@ -113,6 +142,7 @@ public class BaseInstructionService implements InstructionService {
   @Override
   public final TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                      final List<Instruction> instructions,
+                                                     final Function<Transaction, Transaction> beforeSend,
                                                      final BigDecimal maxLamportPriorityFee,
                                                      final Commitment awaitCommitment,
                                                      final Commitment awaitCommitmentOnError,
@@ -150,7 +180,13 @@ public class BaseInstructionService implements InstructionService {
       }
 
       final int cuBudget = SimulationFutures.cuBudget(cuBudgetMultiplier, simulationResult);
-      final var sendContext = sendTransaction(simulationFutures, simulationResult, maxLamportPriorityFee, cuBudget);
+      final var sendContext = sendTransaction(
+          beforeSend,
+          simulationFutures,
+          simulationResult,
+          maxLamportPriorityFee,
+          cuBudget
+      );
       final long cuPrice = simulationFutures.cuPrice();
       if (sendContext == null) {
         return TransactionResult.createResult(
