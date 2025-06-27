@@ -1,0 +1,29 @@
+pluginManagement {
+  repositories {
+    gradlePluginPortal()
+    maven {
+      name = "savaGithubPackages"
+      url = uri("https://maven.pkg.github.com/sava-software/sava-build")
+      credentials(PasswordCredentials::class)
+    }
+  }
+}
+
+plugins {
+  id("software.sava.build") version "0.1.20"
+}
+
+rootProject.name = "ravina"
+
+//include(":ravina-kms-google")
+//project(":ravina-kms-google").projectDir = file("ravina-kms/google")
+
+javaModules {
+  directory(".") {
+    group = "software.sava"
+    plugin("software.sava.build.java-module")
+
+    module("ravina-kms/core") { artifact = "ravina-kms-core" }
+    module("ravina-kms/http") { artifact = "ravina-kms-http" }
+  }
+}
