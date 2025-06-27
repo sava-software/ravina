@@ -8,6 +8,23 @@ on:
     types: [ opened, synchronize ]
 
 jobs:
-  build:
-    uses: sava-software/sava-build/.github/workflows/build.yml@main
-    secrets: inherit
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - id: setup
+        uses: sava-software/sava-build@main
+        with:
+          default-java-version: ${{ vars.JAVA_VERSION }}
+          jdk-src: ${{ vars.JDK_SRC }}
+          gradle-java-version: ${{ vars.GRADLE_JAVA_VERSION }}
+
+      - name: Gradle Check
+        run: |
+          printf "\norg.gradle.java.installations.paths=%s" "$JAVA_HOME" >> gradle.properties
+          java --version
+          ./gradlew --stacktrace --no-daemon -PjavaVersion=${{ steps.setup.outputs.java-version }} check
+        env:
+          VIRTUAL_SERVER: true
+          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
+          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}

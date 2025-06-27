@@ -6,9 +6,40 @@ on:
       - '\d+\.\d+\.\d+'
 
 jobs:
-  publish:
-    uses: sava-software/sava-build/.github/workflows/publish.yml@main
-    secrets: inherit
+  check:
+    runs-on: ubuntu-latest
+
     permissions:
       contents: read
       packages: write
+
+    steps:
+      - id: setup
+        uses: sava-software/sava-build@main
+        with:
+          default-java-version: ${{ vars.JAVA_VERSION }}
+          jdk-src: ${{ vars.JDK_SRC }}
+          gradle-java-version: ${{ vars.GRADLE_JAVA_VERSION }}
+
+      - name: Checkout Anchor Source Generator
+        uses: actions/checkout@v4
+        with:
+          repository: sava-software/anchor-src-gen
+          token: ${{ secrets.GH_READ_PROJECTS }}
+          path: anchor-src-gen
+
+      - name: Gradke Check
+        run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} check
+        env:
+          VIRTUAL_SERVER: true
+          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
+          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Github Packages
+        run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishToGitHubPackages
+        env:
+          VIRTUAL_SERVER: true
+          GPG_PUBLISH_SECRET: ${{ secrets.GPG_PUBLISH_SECRET }}
+          GPG_PUBLISH_PHRASE: ${{ secrets.GPG_PUBLISH_PHRASE }}
+          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
+          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}

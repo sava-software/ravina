@@ -1,5 +1,4 @@
-# Ravina [![Build](https://github.com/sava-software/ravina/actions/workflows/gradle.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/gradle.yml) [![Release](https://github.com/sava-software/ravina/actions/workflows/release.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/release.yml)
-
+# Ravina [![Gradle Check](https://github.com/sava-software/ravina/actions/workflows/build.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/build.yml) [![Publish Release](https://github.com/sava-software/ravina/actions/workflows/publish.yml/badge.svg)](https://github.com/sava-software/ravina/actions/workflows/publish.yml)
 Components to ease the development of both generic and Solana based services.
 
 ## Documentation
