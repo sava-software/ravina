@@ -10,13 +10,12 @@ pluginManagement {
 }
 
 plugins {
-  id("software.sava.build") version "0.1.20"
+  id("software.sava.build") version "0.1.24"
+  // https://github.com/gradlex-org/extra-java-module-info/releases
+  id("org.gradlex.extra-java-module-info") version "1.12" apply false
 }
 
 rootProject.name = "ravina"
-
-//include(":ravina-kms-google")
-//project(":ravina-kms-google").projectDir = file("ravina-kms/google")
 
 javaModules {
   directory(".") {
@@ -25,5 +24,6 @@ javaModules {
 
     module("ravina-kms/core") { artifact = "ravina-kms-core" }
     module("ravina-kms/http") { artifact = "ravina-kms-http" }
+    module("ravina-kms/google") { artifact = "ravina-kms-google" }
   }
 }

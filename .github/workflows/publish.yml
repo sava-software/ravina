@@ -28,7 +28,7 @@ jobs:
           token: ${{ secrets.GH_READ_PROJECTS }}
           path: anchor-src-gen
 
-      - name: Gradke Check
+      - name: Gradle Check
         run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} check
         env:
           VIRTUAL_SERVER: true
@@ -36,7 +36,7 @@ jobs:
           ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Github Packages
-        run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishToGitHubPackages
+        run: ./gradlew --stacktrace -Psign=true -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishToGitHubPackages
         env:
           VIRTUAL_SERVER: true
           GPG_PUBLISH_SECRET: ${{ secrets.GPG_PUBLISH_SECRET }}
