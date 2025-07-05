@@ -7,12 +7,11 @@ pluginManagement {
       credentials(PasswordCredentials::class)
     }
   }
+//  includeBuild("../sava-build")
 }
 
 plugins {
-  id("software.sava.build") version "0.1.24"
-  // https://github.com/gradlex-org/extra-java-module-info/releases
-  id("org.gradlex.extra-java-module-info") version "1.12" apply false
+  id("software.sava.build") version "0.1.26"
 }
 
 rootProject.name = "ravina"
