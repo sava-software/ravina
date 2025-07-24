@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.SolanaAccounts;
+import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.core.encoding.Base58;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
@@ -12,12 +13,14 @@ import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.solana.alt.LookupTableCache;
+import software.sava.services.solana.alt.ScoredTableMeta;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -40,7 +43,8 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
 
   @Override
-  public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
+  public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
+                                                                     final int maxTables) {
     final int numTables = lookupTableKeys.size();
     if (numTables == 0) {
       return legacyTransactionFactory;
@@ -57,9 +61,29 @@ record TransactionProcessorRecord(ExecutorService executor,
         final var missingTableKeys = Arrays.stream(lookupTableMetas)
             .filter(meta -> !lookupTableKeys.contains(meta.lookupTable().address()))
             .toList();
-        throw new IllegalStateException("Failed to find lookup table(s) " + missingTableKeys);
+        throw new IllegalStateException("Failed to find lookup table(s): " + missingTableKeys);
       } else {
-        return instructions -> Transaction.createTx(feePayer, instructions, lookupTableMetas);
+        return instructions -> {
+          final var accounts = HashSet.<PublicKey>newHashSet(64);
+          final var invokedOrSigner = HashSet.<PublicKey>newHashSet(1 + instructions.size());
+          invokedOrSigner.add(feePayer);
+          for (final var ix : instructions) {
+            invokedOrSigner.add(ix.programId().publicKey());
+            for (final var accountMeta : ix.accounts()) {
+              accounts.add(accountMeta.publicKey());
+            }
+          }
+          accounts.removeAll(invokedOrSigner);
+          final var scoredTables = ScoredTableMeta.scoreTables(maxTables, accounts, lookupTableMetas);
+          final int numScoredTables = scoredTables.size();
+          if (numScoredTables == 0) {
+            return legacyTransactionFactory.apply(instructions);
+          } else if (numScoredTables == 1) {
+            return Transaction.createTx(feePayer, instructions, scoredTables.getFirst().lookupTable());
+          } else {
+            return Transaction.createTx(feePayer, instructions, scoredTables.toArray(LookupTableAccountMeta[]::new));
+          }
+        };
       }
     }
   }

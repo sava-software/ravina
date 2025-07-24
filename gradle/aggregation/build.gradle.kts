@@ -8,7 +8,7 @@ dependencies {
   nmcpAggregation(project(":ravina-jetty"))
   nmcpAggregation(project(":ravina-kms-core"))
   nmcpAggregation(project(":ravina-kms-http"))
-  // nmcpAggregation(project(":ravina-kms-google"))
+  nmcpAggregation(project(":ravina-kms-google"))
 }
 
 tasks.register("publishToGitHubPackages") {
@@ -18,7 +18,7 @@ tasks.register("publishToGitHubPackages") {
     ":ravina-solana:publishMavenJavaPublicationToSavaGithubPackagesRepository",
     ":ravina-jetty:publishMavenJavaPublicationToSavaGithubPackagesRepository",
     ":ravina-kms-core:publishMavenJavaPublicationToSavaGithubPackagesRepository",
-    ":ravina-kms-http:publishMavenJavaPublicationToSavaGithubPackagesRepository"
-    // ":ravina-kms-google:publishMavenJavaPublicationToSavaGithubPackagesRepository"
+    ":ravina-kms-http:publishMavenJavaPublicationToSavaGithubPackagesRepository",
+    ":ravina-kms-google:publishMavenJavaPublicationToSavaGithubPackagesRepository"
   )
 }

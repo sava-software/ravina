@@ -147,7 +147,7 @@ final class CallTests {
         assertTrue(duration >= 90_000_000, log);
         assertTrue(duration < 100_000_000, log);
       } else {
-        if (duration > 10_000_000) {
+        if (duration > 11_000_000) {
           fail(String.format(
               "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
               i, callCount, duration

@@ -83,7 +83,12 @@ public interface TransactionProcessor extends TxPublisher {
 
   Function<List<Instruction>, Transaction> legacyTransactionFactory();
 
-  Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys);
+  Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
+                                                              final int maxTables);
+
+  default Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
+    return transactionFactory(lookupTableKeys, 5);
+  }
 
   LookupTableCache lookupTableCache();
 

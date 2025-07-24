@@ -7,7 +7,7 @@ pluginManagement {
       credentials(PasswordCredentials::class)
     }
   }
-//  includeBuild("../sava-build")
+  // includeBuild("../sava-build")
 }
 
 plugins {
