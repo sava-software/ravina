@@ -69,11 +69,15 @@ record TransactionProcessorRecord(ExecutorService executor,
           invokedOrSigner.add(feePayer);
           for (final var ix : instructions) {
             invokedOrSigner.add(ix.programId().publicKey());
+          }
+          for (final var ix : instructions) {
             for (final var accountMeta : ix.accounts()) {
-              accounts.add(accountMeta.publicKey());
+              final var key = accountMeta.publicKey();
+              if (!invokedOrSigner.contains(key)) {
+                accounts.add(key);
+              }
             }
           }
-          accounts.removeAll(invokedOrSigner);
           final var scoredTables = ScoredTableMeta.scoreTables(maxTables, accounts, lookupTableMetas);
           final int numScoredTables = scoredTables.size();
           if (numScoredTables == 0) {

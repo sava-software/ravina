@@ -79,7 +79,9 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
   }
 
   @Override
-  public SigningService createService(final ExecutorService executorService, final Backoff backoff, final JsonIterator ji) {
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final JsonIterator ji) {
     return createService(executorService, backoff, ji, GoogleKMSErrorTrackerFactory.INSTANCE);
   }
 
