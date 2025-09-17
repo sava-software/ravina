@@ -25,7 +25,7 @@ final class GoogleKMSClient extends BaseKMSClient {
                   final CryptoKeyVersionName keyVersionName,
                   final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
                   final Predicate<Throwable> errorTracker) {
-    super(executorService, backoff, capacityMonitor,  errorTracker);
+    super(executorService, backoff, capacityMonitor, errorTracker);
     this.kmsClient = kmsClient;
     this.keyVersionName = keyVersionName;
   }
@@ -41,37 +41,39 @@ final class GoogleKMSClient extends BaseKMSClient {
   @Override
   public CompletableFuture<PublicKey> publicKey() {
     return CompletableFuture.supplyAsync(() -> {
-      try {
-        final var pemPublicKey = kmsClient.getPublicKey(keyVersionName);
-        return parsePublicKeyFromPem(pemPublicKey.getPem());
-      } catch (final RuntimeException ex) {
-        if (errorTracker != null) {
-          errorTracker.test(ex);
-        }
-        throw ex;
-      }
-    }, executorService);
+          try {
+            final var pemPublicKey = kmsClient.getPublicKey(keyVersionName);
+            return parsePublicKeyFromPem(pemPublicKey.getPem());
+          } catch (final RuntimeException ex) {
+            if (errorTracker != null) {
+              errorTracker.test(ex);
+            }
+            throw ex;
+          }
+        }, executorService
+    );
   }
 
   private CompletableFuture<byte[]> sign(final ByteString msg) {
     return CompletableFuture.supplyAsync(() -> {
-      try {
-        final var signRequest = AsymmetricSignRequest.newBuilder()
-            .setName(keyVersionName.toString())
-            .setData(msg)
-            .build();
-        if (capacityState != null) {
-          capacityState.claimRequest();
-        }
-        final var result = kmsClient.asymmetricSign(signRequest);
-        return result.getSignature().toByteArray();
-      } catch (final RuntimeException ex) {
-        if (errorTracker != null) {
-          errorTracker.test(ex);
-        }
-        throw ex;
-      }
-    }, executorService);
+          try {
+            final var signRequest = AsymmetricSignRequest.newBuilder()
+                .setName(keyVersionName.toString())
+                .setData(msg)
+                .build();
+            if (capacityState != null) {
+              capacityState.claimRequest();
+            }
+            final var result = kmsClient.asymmetricSign(signRequest);
+            return result.getSignature().toByteArray();
+          } catch (final RuntimeException ex) {
+            if (errorTracker != null) {
+              errorTracker.test(ex);
+            }
+            throw ex;
+          }
+        }, executorService
+    );
   }
 
   @Override
