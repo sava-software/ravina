@@ -21,13 +21,6 @@ jobs:
           jdk-src: ${{ vars.JDK_SRC }}
           gradle-java-version: ${{ vars.GRADLE_JAVA_VERSION }}
 
-      - name: Checkout Anchor Source Generator
-        uses: actions/checkout@v4
-        with:
-          repository: sava-software/anchor-src-gen
-          token: ${{ secrets.GH_READ_PROJECTS }}
-          path: anchor-src-gen
-
       - name: Gradle Check
         run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} check
         env:

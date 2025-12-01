@@ -2,10 +2,10 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
-import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,13 +15,13 @@ public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,
                                           final TransactionProcessor transactionProcessor,
-                                          final NativeProgramClient nativeProgramClient,
+                                          final SPLClient splClient,
                                           final EpochInfoService epochInfoService,
                                           final TxMonitorService txMonitorService) {
     return new BaseInstructionService(
         rpcCaller,
         transactionProcessor,
-        nativeProgramClient,
+        splClient,
         epochInfoService,
         txMonitorService
     );

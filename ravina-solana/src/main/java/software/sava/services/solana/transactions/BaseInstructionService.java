@@ -2,13 +2,13 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
-import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -27,18 +27,18 @@ public class BaseInstructionService implements InstructionService {
 
   protected final RpcCaller rpcCaller;
   protected final TransactionProcessor transactionProcessor;
-  protected final NativeProgramClient nativeProgramClient;
+  protected final SPLClient splClient;
   protected final EpochInfoService epochInfoService;
   protected final TxMonitorService txMonitorService;
 
   protected BaseInstructionService(final RpcCaller rpcCaller,
                                    final TransactionProcessor transactionProcessor,
-                                   final NativeProgramClient nativeProgramClient,
+                                   final SPLClient splClient,
                                    final EpochInfoService epochInfoService,
                                    final TxMonitorService txMonitorService) {
     this.rpcCaller = rpcCaller;
     this.transactionProcessor = transactionProcessor;
-    this.nativeProgramClient = nativeProgramClient;
+    this.splClient = splClient;
     this.epochInfoService = epochInfoService;
     this.txMonitorService = txMonitorService;
   }
@@ -51,8 +51,8 @@ public class BaseInstructionService implements InstructionService {
     return transactionProcessor;
   }
 
-  public final NativeProgramClient nativeProgramClient() {
-    return nativeProgramClient;
+  public final SPLClient splClient() {
+    return splClient;
   }
 
   public final EpochInfoService epochInfoService() {

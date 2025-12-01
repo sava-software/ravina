@@ -3,10 +3,10 @@ package software.sava.services.solana.transactions;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
-import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -19,7 +19,7 @@ public interface BatchInstructionService extends InstructionService {
 
   static BatchInstructionService createService(final RpcCaller rpcCaller,
                                                final TransactionProcessor transactionProcessor,
-                                               final NativeProgramClient nativeProgramClient,
+                                               final SPLClient splClient,
                                                final EpochInfoService epochInfoService,
                                                final TxMonitorService txMonitorService,
                                                final int batchSize,
@@ -27,7 +27,7 @@ public interface BatchInstructionService extends InstructionService {
     return new BaseBatchInstructionService(
         rpcCaller,
         transactionProcessor,
-        nativeProgramClient,
+        splClient,
         epochInfoService,
         txMonitorService,
         batchSize,
@@ -37,14 +37,14 @@ public interface BatchInstructionService extends InstructionService {
 
   static BatchInstructionService createService(final RpcCaller rpcCaller,
                                                final TransactionProcessor transactionProcessor,
-                                               final NativeProgramClient nativeProgramClient,
+                                               final SPLClient splClient,
                                                final EpochInfoService epochInfoService,
                                                final TxMonitorService txMonitorService,
                                                final int batchSize) {
     return createService(
         rpcCaller,
         transactionProcessor,
-        nativeProgramClient,
+        splClient,
         epochInfoService,
         txMonitorService,
         batchSize,

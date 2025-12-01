@@ -3,10 +3,10 @@ package software.sava.services.solana.transactions;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
-import software.sava.solana.programs.clients.NativeProgramClient;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -25,12 +25,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   protected BaseBatchInstructionService(final RpcCaller rpcCaller,
                                         final TransactionProcessor transactionProcessor,
-                                        final NativeProgramClient nativeProgramClient,
+                                        final SPLClient splClient,
                                         final EpochInfoService epochInfoService,
                                         final TxMonitorService txMonitorService,
                                         final int batchSize,
                                         final int reduceSize) {
-    super(rpcCaller, transactionProcessor, nativeProgramClient, epochInfoService, txMonitorService);
+    super(rpcCaller, transactionProcessor, splClient, epochInfoService, txMonitorService);
     this.reduceSize = reduceSize;
     this.batchSize = batchSize;
   }
@@ -59,13 +59,14 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     );
     if (transactionResult.exceedsSizeLimit()) {
       logger.log(WARNING, String.format("""
-              Reducing %s batch size from %d, because transaction exceeds size limit. [length=%d] [base64Length=%d]
-              """,
-          logContext,
-          batchSize,
-          transactionResult.transaction().size(),
-          transactionResult.base64Length()
-      ));
+                  Reducing %s batch size from %d, because transaction exceeds size limit. [length=%d] [base64Length=%d]
+                  """,
+              logContext,
+              batchSize,
+              transactionResult.transaction().size(),
+              transactionResult.base64Length()
+          )
+      );
       batchSize -= reduceSize;
       return null;
     } else {
