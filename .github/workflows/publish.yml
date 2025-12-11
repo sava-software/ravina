@@ -1,9 +1,9 @@
 name: Publish Release
 
 on:
-  create:
+  push:
     tags:
-      - '\d+\.\d+\.\d+'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 jobs:
   check:
@@ -25,6 +25,16 @@ jobs:
         run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} check
         env:
           VIRTUAL_SERVER: true
+          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
+          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Maven Central
+        run: ./gradlew --stacktrace -Psign=true -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishAggregationToCentralPortal
+        env:
+          GPG_PUBLISH_SECRET: ${{ secrets.GPG_PUBLISH_SECRET }}
+          GPG_PUBLISH_PHRASE: ${{ secrets.GPG_PUBLISH_PHRASE }}
+          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
+          MAVEN_CENTRAL_SECRET: ${{ secrets.MAVEN_CENTRAL_SECRET }}
           ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
           ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
 
