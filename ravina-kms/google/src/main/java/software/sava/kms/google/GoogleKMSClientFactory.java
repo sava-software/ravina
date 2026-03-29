@@ -4,6 +4,7 @@ import com.google.cloud.kms.v1.CryptoKeyVersionName;
 import com.google.cloud.kms.v1.KeyManagementServiceClient;
 import software.sava.kms.core.signing.SigningService;
 import software.sava.kms.core.signing.SigningServiceFactory;
+import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -13,6 +14,7 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Predicate;
 
@@ -83,6 +85,61 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
                                       final Backoff backoff,
                                       final JsonIterator ji) {
     return createService(executorService, backoff, ji, GoogleKMSErrorTrackerFactory.INSTANCE);
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties,
+                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+    final var p = PropertiesParser.propertyPrefix(prefix);
+    this.builder = CryptoKeyVersionName.newBuilder();
+    final var project = PropertiesParser.getProperty(properties, p, "project");
+    if (project != null) {
+      builder.setProject(project);
+    }
+    final var location = PropertiesParser.getProperty(properties, p, "location");
+    if (location != null) {
+      builder.setLocation(location);
+    }
+    final var keyRing = PropertiesParser.getProperty(properties, p, "keyRing");
+    if (keyRing != null) {
+      builder.setKeyRing(keyRing);
+    }
+    final var cryptoKey = PropertiesParser.getProperty(properties, p, "cryptoKey");
+    if (cryptoKey != null) {
+      builder.setCryptoKey(cryptoKey);
+    }
+    final var cryptoKeyVersion = PropertiesParser.getProperty(properties, p, "cryptoKeyVersion");
+    if (cryptoKeyVersion != null) {
+      builder.setCryptoKeyVersion(cryptoKeyVersion);
+    }
+    final var capacityPrefix = p + "capacity.";
+    if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
+      this.capacityConfig = CapacityConfig.parse(capacityPrefix, properties);
+    }
+    final var capacityMonitor = capacityConfig.createMonitor("Google KMS", errorTrackerFactory);
+    try {
+      return new GoogleKMSClient(
+          executorService,
+          backoff,
+          KeyManagementServiceClient.create(),
+          builder.build(),
+          capacityMonitor,
+          capacityMonitor.errorTracker()
+      );
+    } catch (final IOException e) {
+      throw new UncheckedIOException(e);
+    }
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties) {
+    return createService(executorService, backoff, prefix, properties, GoogleKMSErrorTrackerFactory.INSTANCE);
   }
 
   @Override

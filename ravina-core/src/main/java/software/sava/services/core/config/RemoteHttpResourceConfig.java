@@ -10,6 +10,7 @@ import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpResponse;
+import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -17,6 +18,23 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                                        URI endpoint,
                                        Backoff backoff) {
+
+  public static RemoteHttpResourceConfig parseConfig(final String prefix,
+                                                     final Properties properties,
+                                                     final String defaultServiceName,
+                                                     final String defaultEndpoint,
+                                                     final Backoff defaultBackoff) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.create(defaultServiceName, defaultEndpoint, defaultBackoff);
+  }
+
+  public static RemoteHttpResourceConfig parseConfig(final Properties properties,
+                                                     final String defaultServiceName,
+                                                     final String defaultEndpoint,
+                                                     final Backoff defaultBackoff) {
+    return parseConfig("", properties, defaultServiceName, defaultEndpoint, defaultBackoff);
+  }
 
   public static RemoteHttpResourceConfig parseConfig(final JsonIterator ji,
                                                      final String defaultServiceName,
@@ -32,7 +50,7 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
     }
   }
 
-  private static final class Parser implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private String name;
     private String endpoint;
@@ -48,6 +66,26 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
           URI.create(requireNonNullElse(endpoint, defaultEndpoint)),
           requireNonNullElse(backoff, defaultBackoff)
       );
+    }
+
+    private void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var nameStr = getProperty(properties, p, "name");
+      if (nameStr != null) {
+        this.name = nameStr;
+      }
+      final var endpointStr = getProperty(properties, p, "endpoint");
+      if (endpointStr != null) {
+        this.endpoint = endpointStr;
+      }
+      final var capacityPrefix = p + "capacity.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
+        this.capacityConfig = CapacityConfig.parse(capacityPrefix, properties);
+      }
+      final var backoffPrefix = p + "backoff.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(backoffPrefix))) {
+        this.backoff = BackoffConfig.parse(backoffPrefix, properties).createBackoff();
+      }
     }
 
     @Override

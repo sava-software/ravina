@@ -1,10 +1,12 @@
 package software.sava.kms.core.signing;
 
+import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.BackoffConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 
+import java.util.Properties;
 import java.util.ServiceLoader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +29,47 @@ public record SigningServiceConfig(Backoff backoff, SigningService signingServic
 
   public static SigningServiceConfig parseConfig(final JsonIterator ji) {
     return parseConfig(Executors.newVirtualThreadPerTaskExecutor(), ji);
+  }
+
+  public static SigningServiceConfig parseConfig(final ExecutorService executorService,
+                                                 final Properties properties) {
+    return parseConfig(executorService, "", null, properties);
+  }
+
+  public static SigningServiceConfig parseConfig(final ExecutorService executorService,
+                                                 final String prefix,
+                                                 final Properties properties) {
+    return parseConfig(executorService, prefix, null, properties);
+  }
+
+  public static SigningServiceConfig parseConfig(final ExecutorService executorService,
+                                                 final String prefix,
+                                                 final Backoff defaultBackOff,
+                                                 final Properties properties) {
+    final var p = PropertiesParser.propertyPrefix(prefix);
+    final var backoffPrefix = p + "backoff.";
+    Backoff backoff;
+    if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(backoffPrefix))) {
+      backoff = BackoffConfig.parse(backoffPrefix, properties).createBackoff();
+    } else {
+      backoff = defaultBackOff == null
+          ? Backoff.exponential(1, 32)
+          : defaultBackOff;
+    }
+    final var factoryClass = PropertiesParser.getProperty(properties, p, "factoryClass");
+    if (factoryClass == null) {
+      throw new IllegalStateException("Must configure a signing service factory class.");
+    }
+    final var configPrefix = p + "config.";
+    final var serviceFactory = ServiceLoader.load(SigningServiceFactory.class).stream()
+        .filter(service -> service.type().getName().equals(factoryClass))
+        .findFirst().orElseThrow().get();
+    final var signingService = serviceFactory.createService(executorService, backoff, configPrefix, properties);
+    return new SigningServiceConfig(backoff, signingService);
+  }
+
+  public static SigningServiceConfig parseConfig(final Properties properties) {
+    return parseConfig(Executors.newVirtualThreadPerTaskExecutor(), properties);
   }
 
   private static final class Parser implements FieldBufferPredicate {

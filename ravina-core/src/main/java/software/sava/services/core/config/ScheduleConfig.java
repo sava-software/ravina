@@ -6,6 +6,7 @@ import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Properties;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,16 @@ public record ScheduleConfig(long initialDelay,
         : Duration.of(period, timeUnit.toChronoUnit());
   }
 
+  public static ScheduleConfig parseConfig(final Properties properties) {
+    return parseConfig("", properties);
+  }
+
+  public static ScheduleConfig parseConfig(final String prefix, final Properties properties) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.create();
+  }
+
   public static ScheduleConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.NULL) {
       ji.skip();
@@ -42,12 +53,23 @@ public record ScheduleConfig(long initialDelay,
     }
   }
 
-  private static final class Parser implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private long initialDelay;
     private long delay;
     private long period;
     private TimeUnit timeUnit;
+
+    void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      parseLong(properties, p, "initialDelay").ifPresent(v -> this.initialDelay = v);
+      parseLong(properties, p, "delay").ifPresent(v -> this.delay = v);
+      parseLong(properties, p, "period").ifPresent(v -> this.period = v);
+      final var timeUnitStr = getProperty(properties, p, "timeUnit");
+      if (timeUnitStr != null) {
+        this.timeUnit = TimeUnit.valueOf(timeUnitStr.toUpperCase(Locale.ENGLISH));
+      }
+    }
 
     private ScheduleConfig create() {
       if (delay <= 0 && period <= 0) {

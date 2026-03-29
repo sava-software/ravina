@@ -45,14 +45,18 @@ public final class ServiceConfigUtil {
     return loadConfig(serviceConfigFile, parser);
   }
 
-  public static Duration parseDuration(final JsonIterator ji) {
-    final var duration = ji.readString();
+  public static Duration parseDuration(final String duration) {
     if (duration == null || duration.isBlank()) {
       return null;
     }
-    return duration.startsWith("PT")
-        ? Duration.parse(duration)
-        : Duration.parse("PT" + duration);
+    final var stripped = duration.strip();
+    return stripped.startsWith("PT")
+        ? Duration.parse(stripped)
+        : Duration.parse("PT" + stripped);
+  }
+
+  public static Duration parseDuration(final JsonIterator ji) {
+    return parseDuration(ji.readString());
   }
 
   private ServiceConfigUtil() {

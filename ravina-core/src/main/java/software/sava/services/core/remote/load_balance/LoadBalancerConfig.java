@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.load_balance;
 
+import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -10,6 +11,7 @@ import systems.comodal.jsoniter.ValueType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.function.BiFunction;
 
 import static java.util.Objects.requireNonNullElse;
@@ -44,6 +46,25 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
     return items;
   }
 
+  public static LoadBalancerConfig parse(final Properties properties) {
+    return parse(properties, null, null);
+  }
+
+  public static LoadBalancerConfig parse(final Properties properties,
+                                         final CapacityConfig defaultCapacityConfig,
+                                         final Backoff defaultBackoff) {
+    return parse("", properties, defaultCapacityConfig, defaultBackoff);
+  }
+
+  public static LoadBalancerConfig parse(final String prefix,
+                                         final Properties properties,
+                                         final CapacityConfig defaultCapacityConfig,
+                                         final Backoff defaultBackoff) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.create(defaultCapacityConfig, defaultBackoff);
+  }
+
   public static LoadBalancerConfig parse(final JsonIterator ji) {
     return parse(ji, null, null);
   }
@@ -55,19 +76,19 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
       ji.skip();
       return null;
     } else {
-      final var parser = new Builder();
+      final var parser = new Parser();
       ji.testObject(parser);
       return parser.create(defaultCapacityConfig, defaultBackoff);
     }
   }
 
-  private static final class Builder implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private CapacityConfig defaultCapacityConfig;
     private Backoff defaultBackoff;
     private List<UriCapacityConfig> resourceConfigs;
 
-    private Builder() {
+    private Parser() {
     }
 
     private LoadBalancerConfig create(final CapacityConfig defaultCapacityConfig, final Backoff defaultBackoff) {
@@ -76,6 +97,31 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
           requireNonNullElse(this.defaultBackoff, defaultBackoff),
           resourceConfigs
       );
+    }
+
+    private void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var defaultCapacityPrefix = p + "defaultCapacity.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(defaultCapacityPrefix))) {
+        this.defaultCapacityConfig = CapacityConfig.parse(defaultCapacityPrefix, properties);
+      }
+      final var defaultBackoffPrefix = p + "defaultBackoff.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(defaultBackoffPrefix))) {
+        final var backoffConfig = BackoffConfig.parse(defaultBackoffPrefix, properties);
+        this.defaultBackoff = backoffConfig.createBackoff();
+      }
+      final var endpointsPrefix = p + "endpoints.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(endpointsPrefix))) {
+        final var rpcConfigs = new ArrayList<UriCapacityConfig>();
+        for (int i = 0; ; i++) {
+          final var itemPrefix = endpointsPrefix + i + ".";
+          if (properties.stringPropertyNames().stream().noneMatch(k -> k.startsWith(itemPrefix))) {
+            break;
+          }
+          rpcConfigs.add(UriCapacityConfig.parseConfig(itemPrefix, properties));
+        }
+        this.resourceConfigs = rpcConfigs;
+      }
     }
 
     @Override

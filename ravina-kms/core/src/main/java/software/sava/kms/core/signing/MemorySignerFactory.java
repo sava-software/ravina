@@ -5,6 +5,7 @@ import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 import systems.comodal.jsoniter.JsonIterator;
 
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 
 public final class MemorySignerFactory implements SigningServiceFactory {
@@ -22,6 +23,24 @@ public final class MemorySignerFactory implements SigningServiceFactory {
   public SigningService createService(final ExecutorService executorService,
                                       final Backoff backoff,
                                       final JsonIterator ji) {
-    return createService(executorService, backoff,ji, null);
+    return createService(executorService, backoff, ji, null);
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties,
+                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+    final var signer = PrivateKeyEncoding.fromProperties(prefix, properties);
+    return new MemorySigner(signer);
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties) {
+    return createService(executorService, backoff, prefix, properties, null);
   }
 }

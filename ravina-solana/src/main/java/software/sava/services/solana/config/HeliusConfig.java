@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
 import java.util.Objects;
+import java.util.Properties;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -21,6 +22,16 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
                       final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                       final Backoff backoff) {
     super(endpoint, capacityMonitor, backoff);
+  }
+
+  public static HeliusConfig parse(final Properties properties) {
+    return parse("", properties);
+  }
+
+  public static HeliusConfig parse(final String prefix, final Properties properties) {
+    final var parser = new Parser(null, null);
+    parser.parseProperties(prefix, properties);
+    return parser.create();
   }
 
   public static HeliusConfig parseConfig(final JsonIterator ji) {
@@ -51,6 +62,17 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
       super(null, defaultCapacity, defaultBackoff);
     }
 
+    @Override
+    protected void parseProperties(final String prefix, final Properties properties) {
+      super.parseProperties(prefix, properties);
+      if (endpoint == null) {
+        final var p = propertyPrefix(prefix);
+        final var url = getProperty(properties, p, "url");
+        if (url != null) {
+          this.endpoint = url;
+        }
+      }
+    }
 
     private HeliusConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Helius");

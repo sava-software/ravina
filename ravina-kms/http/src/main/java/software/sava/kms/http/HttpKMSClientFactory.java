@@ -2,6 +2,7 @@ package software.sava.kms.http;
 
 import software.sava.kms.core.signing.SigningService;
 import software.sava.kms.core.signing.SigningServiceFactory;
+import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -11,6 +12,7 @@ import systems.comodal.jsoniter.JsonIterator;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Predicate;
 
@@ -75,6 +77,41 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
   @Override
   public SigningService createService(final ExecutorService executorService, final Backoff backoff, final JsonIterator ji) {
     return createService(executorService, backoff, ji, HttpKMSErrorTrackerFactory.INSTANCE);
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties,
+                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+    final var p = PropertiesParser.propertyPrefix(prefix);
+    final var endpointStr = PropertiesParser.getProperty(properties, p, "endpoint");
+    if (endpointStr != null) {
+      this.endpoint = URI.create(endpointStr);
+    }
+    final var capacityPrefix = p + "capacity.";
+    if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
+      this.capacityConfig = CapacityConfig.parse(capacityPrefix, properties);
+    }
+    final var httpClient = HttpClient.newBuilder().executor(executorService).build();
+    final var capacityMonitor = capacityConfig.createMonitor("HTTP KMS", errorTrackerFactory);
+    return new HttpKMSClient(
+        executorService,
+        backoff,
+        capacityMonitor,
+        capacityMonitor.errorTracker(),
+        httpClient,
+        endpoint
+    );
+  }
+
+  @Override
+  public SigningService createService(final ExecutorService executorService,
+                                      final Backoff backoff,
+                                      final String prefix,
+                                      final Properties properties) {
+    return createService(executorService, backoff, prefix, properties, HttpKMSErrorTrackerFactory.INSTANCE);
   }
 
   @Override

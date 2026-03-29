@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.Arrays;
+import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -67,7 +68,7 @@ record NetConfigRecord(String host,
     return createSSLContext("TLS");
   }
 
-  static final class Builder implements FieldBufferPredicate {
+  static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private String host;
     private int port;
@@ -75,7 +76,28 @@ record NetConfigRecord(String host,
     private Path keyStorePath;
     private char[] password;
 
-    Builder() {
+    Parser() {
+    }
+
+    void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var host = getProperty(properties, p, "host");
+      if (host != null) {
+        this.host = host;
+      }
+      parseInt(properties, p, "port").ifPresent(v -> this.port = v);
+      final var keyStoreType = getProperty(properties, p, "keyStoreType");
+      if (keyStoreType != null) {
+        this.keyStoreType = keyStoreType;
+      }
+      final var keyStorePath = getProperty(properties, p, "keyStorePath");
+      if (keyStorePath != null) {
+        this.keyStorePath = Path.of(keyStorePath).toAbsolutePath();
+      }
+      final var password = getProperty(properties, p, "password");
+      if (password != null) {
+        this.password = password.toCharArray();
+      }
     }
 
     NetConfig create() {

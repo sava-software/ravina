@@ -2,9 +2,12 @@ package software.sava.services.solana.config;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.rpc.json.http.response.TxStatus;
+import software.sava.services.core.config.PropertiesParser;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
+
+import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -16,6 +19,16 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
 
   public static ChainItemFormatter createDefault() {
     return new ChainItemFormatter(DEFAULT_SIG_FORMAT, DEFAULT_ADDRESS_FORMAT);
+  }
+
+  public static ChainItemFormatter parseConfig(final Properties properties) {
+    return parseConfig("", properties);
+  }
+
+  public static ChainItemFormatter parseConfig(final String prefix, final Properties properties) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.create();
   }
 
   public static ChainItemFormatter parseFormatter(final JsonIterator ji) {
@@ -81,7 +94,7 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
     );
   }
 
-  private static final class Parser implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private String sigFormat;
     private String addressFormat;
@@ -91,6 +104,18 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
           requireNonNullElse(sigFormat, DEFAULT_SIG_FORMAT),
           requireNonNullElse(addressFormat, DEFAULT_ADDRESS_FORMAT)
       );
+    }
+
+    void parseProperties(final String prefix, final Properties properties) {
+      final var _prefix = propertyPrefix(prefix);
+      final var sig = getProperty(properties, _prefix, "sig");
+      if (sig != null) {
+        this.sigFormat = sig;
+      }
+      final var address = getProperty(properties, _prefix, "address");
+      if (address != null) {
+        this.addressFormat = address;
+      }
     }
 
     @Override

@@ -1,14 +1,16 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.config.PropertiesParser;
+import software.sava.services.core.config.ServiceConfigUtil;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Locale.ENGLISH;
-import static software.sava.services.core.config.ServiceConfigUtil.parseDuration;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record BackoffConfig(BackoffStrategy strategy,
@@ -25,6 +27,16 @@ public record BackoffConfig(BackoffStrategy strategy,
     };
   }
 
+  public static BackoffConfig parse(final Properties properties) {
+    return parse("", properties);
+  }
+
+  public static BackoffConfig parse(final String prefix, final Properties properties) {
+    final var parser = new Builder();
+    parser.parseProperties(prefix, properties);
+    return parser.create();
+  }
+
   public static BackoffConfig parseConfig(final JsonIterator ji) {
     if (ji.whatIsNext() == ValueType.NULL) {
       ji.skip();
@@ -36,13 +48,23 @@ public record BackoffConfig(BackoffStrategy strategy,
     }
   }
 
-  private static final class Builder implements FieldBufferPredicate {
+  private static final class Builder extends PropertiesParser implements FieldBufferPredicate {
 
     private BackoffStrategy strategy = BackoffStrategy.exponential;
     private Duration initialRetryDelay;
     private Duration maxRetryDelay;
 
     private Builder() {
+    }
+
+    void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var strategyStr = getProperty(properties, p, "strategy");
+      if (strategyStr != null) {
+        this.strategy = BackoffStrategy.valueOf(strategyStr.toLowerCase(ENGLISH));
+      }
+      this.initialRetryDelay = parseDuration(properties, p, "initialRetryDelay");
+      this.maxRetryDelay = parseDuration(properties, p, "maxRetryDelay");
     }
 
     private BackoffConfig create() {
@@ -58,11 +80,11 @@ public record BackoffConfig(BackoffStrategy strategy,
       if (fieldEquals("strategy", buf, offset, len)) {
         strategy = BackoffStrategy.valueOf(ji.readString().toLowerCase(ENGLISH));
       } else if (fieldEquals("initialRetryDelay", buf, offset, len)) {
-        initialRetryDelay = parseDuration(ji);
+        initialRetryDelay = ServiceConfigUtil.parseDuration(ji);
       } else if (fieldEquals("initialRetryDelaySeconds", buf, offset, len)) {
         initialRetryDelay = Duration.ofSeconds(ji.readInt());
       } else if (fieldEquals("maxRetryDelay", buf, offset, len)) {
-        maxRetryDelay = parseDuration(ji);
+        maxRetryDelay = ServiceConfigUtil.parseDuration(ji);
       } else if (fieldEquals("maxRetryDelaySeconds", buf, offset, len)) {
         maxRetryDelay = Duration.ofSeconds(ji.readInt());
       } else {

@@ -10,10 +10,7 @@ import systems.comodal.jsoniter.ValueType;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
+import java.util.*;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -46,6 +43,42 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
                        final Backoff backoff) {
     super(endpoint, capacityMonitor, backoff);
     this.bodyFormat = bodyFormat;
+  }
+
+  public static WebHookConfig parse(final Properties properties) {
+    return parse("", properties);
+  }
+
+  public static WebHookConfig parse(final String prefix, final Properties properties) {
+    final var parser = new Parser(null, null, null);
+    parser.parseProperties(prefix, properties);
+    return parser.create();
+  }
+
+  public static List<WebHookConfig> parseConfigs(final Properties properties,
+                                                 final String defaultFormat,
+                                                 final CapacityConfig defaultCapacity,
+                                                 final Backoff defaultBackoff) {
+    return parseConfigs("", properties, defaultFormat, defaultCapacity, defaultBackoff);
+  }
+
+  public static List<WebHookConfig> parseConfigs(final String prefix,
+                                                 final Properties properties,
+                                                 final String defaultFormat,
+                                                 final CapacityConfig defaultCapacity,
+                                                 final Backoff defaultBackoff) {
+    final var webHookConfigs = new ArrayList<WebHookConfig>();
+    final var p = prefix == null || prefix.isEmpty() ? "" : prefix.endsWith(".") ? prefix : prefix + ".";
+    for (int i = 0; ; i++) {
+      final var itemPrefix = p + i + ".";
+      if (properties.stringPropertyNames().stream().noneMatch(k -> k.startsWith(itemPrefix))) {
+        break;
+      }
+      final var parser = new Parser(defaultFormat, defaultCapacity, defaultBackoff);
+      parser.parseProperties(itemPrefix, properties);
+      webHookConfigs.add(parser.create());
+    }
+    return webHookConfigs.isEmpty() ? List.of() : webHookConfigs;
   }
 
   public static WebHookConfig parseConfig(final JsonIterator ji) {
@@ -100,6 +133,19 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
       this.bodyFormat = defaultFormat;
     }
 
+    @Override
+    protected void parseProperties(final String prefix, final Properties properties) {
+      super.parseProperties(prefix, properties);
+      final var p = propertyPrefix(prefix);
+      final var bodyFormatStr = getProperty(properties, p, "bodyFormat");
+      if (bodyFormatStr != null) {
+        this.bodyFormat = bodyFormatStr;
+      }
+      final var providerStr = getProperty(properties, p, "provider");
+      if (providerStr != null) {
+        this.provider = Provider.valueOf(providerStr.toUpperCase(Locale.ENGLISH));
+      }
+    }
 
     private WebHookConfig create() {
       if (bodyFormat == null) {

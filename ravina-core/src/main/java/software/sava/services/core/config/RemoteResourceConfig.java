@@ -7,11 +7,27 @@ import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
+import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
+
+  public static RemoteResourceConfig parseConfig(final Properties properties,
+                                                 final String defaultEndpoint,
+                                                 final Backoff defaultBackoff) {
+    return parseConfig("", properties, defaultEndpoint, defaultBackoff);
+  }
+
+  public static RemoteResourceConfig parseConfig(final String prefix,
+                                                 final Properties properties,
+                                                 final String defaultEndpoint,
+                                                 final Backoff defaultBackoff) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.create(defaultEndpoint, defaultBackoff);
+  }
 
   public static RemoteResourceConfig parseConfig(final JsonIterator ji,
                                                  final String defaultEndpoint,
@@ -26,10 +42,22 @@ public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
     }
   }
 
-  private static final class Parser implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private String endpoint;
     private Backoff backoff;
+
+    private void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var endpoint = getProperty(properties, p, "endpoint");
+      if (endpoint != null) {
+        this.endpoint = endpoint;
+      }
+      final var backoffConfig = BackoffConfig.parse(p + "backoff", properties);
+      if (backoffConfig != null) {
+        this.backoff = backoffConfig.createBackoff();
+      }
+    }
 
     private RemoteResourceConfig create(final String defaultEndpoint, final Backoff defaultBackoff) {
       return new RemoteResourceConfig(

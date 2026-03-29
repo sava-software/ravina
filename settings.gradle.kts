@@ -17,7 +17,7 @@ pluginManagement {
 }
 
 plugins {
-  id("software.sava.build") version "21.3.2"
+  id("software.sava.build") version "21.3.8"
 }
 
 apply(plugin = "software.sava.build.feature-jdk-provisioning")

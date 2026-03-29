@@ -1,14 +1,16 @@
 package software.sava.services.solana.epoch;
 
+import software.sava.services.core.config.PropertiesParser;
+import software.sava.services.core.config.ServiceConfigUtil;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
+import java.util.Properties;
 
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
-import static software.sava.services.core.config.ServiceConfigUtil.parseDuration;
 import static software.sava.services.solana.epoch.SlotPerformanceStats.TARGET_MILLIS_PER_SLOT;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -30,6 +32,16 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
     }
   }
 
+  public static EpochServiceConfig parseConfig(final Properties properties) {
+    return parseConfig("", properties);
+  }
+
+  public static EpochServiceConfig parseConfig(final String prefix, final Properties properties) {
+    final var parser = new Parser();
+    parser.parseProperties(prefix, properties);
+    return parser.createConfig();
+  }
+
   public static EpochServiceConfig createDefault() {
     return new EpochServiceConfig(
         TARGET_MILLIS_PER_SLOT + 10,
@@ -41,7 +53,7 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
     );
   }
 
-  private static final class Parser implements FieldBufferPredicate {
+  private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
     private int defaultMillisPerSlot = TARGET_MILLIS_PER_SLOT + 10;
     private int minMillisPerSlot = TARGET_MILLIS_PER_SLOT - 10;
@@ -51,6 +63,25 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
     private Duration fetchEpochInfoAfterEndDelay;
 
     private Parser() {
+    }
+
+    void parseProperties(final String prefix, final Properties properties) {
+      final var _prefix = propertyPrefix(prefix);
+      parseInt(properties, _prefix, "defaultMillisPerSlot").ifPresent(v -> this.defaultMillisPerSlot = v);
+      parseInt(properties, _prefix, "minMillisPerSlot").ifPresent(v -> this.minMillisPerSlot = v);
+      parseInt(properties, _prefix, "maxMillisPerSlot").ifPresent(v -> this.maxMillisPerSlot = v);
+      final var slotSampleWindow = parseDuration(properties, _prefix, "slotSampleWindow");
+      if (slotSampleWindow != null) {
+        this.slotSampleWindow = slotSampleWindow;
+      }
+      final var fetchSlotSamplesDelay = parseDuration(properties, _prefix, "fetchSlotSamplesDelay");
+      if (fetchSlotSamplesDelay != null) {
+        this.fetchSlotSamplesDelay = fetchSlotSamplesDelay;
+      }
+      final var fetchEpochInfoAfterEndDelay = parseDuration(properties, _prefix, "fetchEpochInfoAfterEndDelay");
+      if (fetchEpochInfoAfterEndDelay != null) {
+        this.fetchEpochInfoAfterEndDelay = fetchEpochInfoAfterEndDelay;
+      }
     }
 
     private EpochServiceConfig createConfig() {
@@ -81,11 +112,11 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
       } else if (fieldEquals("maxMillisPerSlot", buf, offset, len)) {
         maxMillisPerSlot = ji.readInt();
       } else if (fieldEquals("slotSampleWindow", buf, offset, len)) {
-        slotSampleWindow = parseDuration(ji);
+        slotSampleWindow = ServiceConfigUtil.parseDuration(ji);
       } else if (fieldEquals("fetchSlotSamplesDelay", buf, offset, len)) {
-        fetchSlotSamplesDelay = parseDuration(ji);
+        fetchSlotSamplesDelay = ServiceConfigUtil.parseDuration(ji);
       } else if (fieldEquals("fetchEpochInfoAfterEndDelay", buf, offset, len)) {
-        fetchEpochInfoAfterEndDelay = parseDuration(ji);
+        fetchEpochInfoAfterEndDelay = ServiceConfigUtil.parseDuration(ji);
       } else {
         throw new IllegalStateException("Unknown EpochServiceConfig field " + new String(buf, offset, len));
       }

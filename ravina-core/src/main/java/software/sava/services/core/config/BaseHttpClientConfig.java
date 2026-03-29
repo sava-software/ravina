@@ -13,6 +13,7 @@ import systems.comodal.jsoniter.JsonIterator;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpResponse;
+import java.util.Properties;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -66,7 +67,7 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
     return LoadBalancer.createBalancer(balancedItem);
   }
 
-  protected static class BaseParser implements FieldBufferPredicate {
+  protected static class BaseParser extends PropertiesParser implements FieldBufferPredicate {
 
     protected String endpoint;
     protected CapacityConfig capacityConfig;
@@ -78,6 +79,22 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
       this.endpoint = defaultEndpoint;
       this.capacityConfig = defaultCapacity;
       this.backoff = defaultBackoff;
+    }
+
+    protected void parseProperties(final String prefix, final Properties properties) {
+      final var p = propertyPrefix(prefix);
+      final var endpointStr = getProperty(properties, p, "endpoint");
+      if (endpointStr != null) {
+        this.endpoint = endpointStr;
+      }
+      final var capacityPrefix = p + "capacity.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
+        this.capacityConfig = CapacityConfig.parse(capacityPrefix, properties);
+      }
+      final var backoffPrefix = p + "backoff.";
+      if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(backoffPrefix))) {
+        this.backoff = BackoffConfig.parse(backoffPrefix, properties).createBackoff();
+      }
     }
 
     @Override
