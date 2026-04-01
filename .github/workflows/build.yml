@@ -23,7 +23,7 @@ jobs:
         run: |
           printf "\norg.gradle.java.installations.paths=%s" "$JAVA_HOME" >> gradle.properties
           java --version
-          ./gradlew --stacktrace --no-daemon -PjavaVersion=${{ steps.setup.outputs.java-version }} check
+          ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} check
         env:
           VIRTUAL_SERVER: true
           ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}

@@ -87,7 +87,6 @@ final class CallTests {
     }
   }
 
-  @Disabled
   @Test
   void testCourteous() {
     assumeFalse(VIRTUAL_SERVER, "Skip because too much contention on virtual servers");
