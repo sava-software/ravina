@@ -5,44 +5,14 @@ on:
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
 
-jobs:
-  check:
-    runs-on: ubuntu-latest
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
+jobs:
+  publish:
+    uses: sava-software/sava-build/.github/workflows/publish.yml@main
+    secrets: inherit
     permissions:
       contents: read
       packages: write
-
-    steps:
-      - id: setup
-        uses: sava-software/sava-build@main
-        with:
-          default-java-version: ${{ vars.JAVA_VERSION }}
-          jdk-src: ${{ vars.JDK_SRC }}
-          gradle-java-version: ${{ vars.GRADLE_JAVA_VERSION }}
-
-      - name: Gradle Check
-        run: ./gradlew --stacktrace -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} check
-        env:
-          VIRTUAL_SERVER: true
-          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
-          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Maven Central
-        run: ./gradlew --stacktrace -Psign=true -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishAggregationToCentralPortal
-        env:
-          GPG_PUBLISH_SECRET: ${{ secrets.GPG_PUBLISH_SECRET }}
-          GPG_PUBLISH_PHRASE: ${{ secrets.GPG_PUBLISH_PHRASE }}
-          MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
-          MAVEN_CENTRAL_SECRET: ${{ secrets.MAVEN_CENTRAL_SECRET }}
-          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
-          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Github Packages
-        run: ./gradlew --stacktrace -Psign=true -PjavaVersion=${{ steps.setup.outputs.java-version }} -Pversion=${{ github.ref_name }} :aggregation:publishToGitHubPackages
-        env:
-          VIRTUAL_SERVER: true
-          GPG_PUBLISH_SECRET: ${{ secrets.GPG_PUBLISH_SECRET }}
-          GPG_PUBLISH_PHRASE: ${{ secrets.GPG_PUBLISH_PHRASE }}
-          ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ env.GITHUB_ACTOR }}
-          ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.GITHUB_TOKEN }}
