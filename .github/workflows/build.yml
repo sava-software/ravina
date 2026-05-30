@@ -9,6 +9,9 @@ concurrency:
   group: build-${{ github.ref_name }}
   cancel-in-progress: true
 
+env:
+  VIRTUAL_SERVER: true
+
 jobs:
   build:
     uses: sava-software/sava-build/.github/workflows/build.yml@main

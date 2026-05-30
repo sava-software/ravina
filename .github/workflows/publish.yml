@@ -9,6 +9,9 @@ concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  VIRTUAL_SERVER: true
+
 jobs:
   publish:
     uses: sava-software/sava-build/.github/workflows/publish.yml@main
