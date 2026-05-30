@@ -1,6 +1,7 @@
 package software.sava.services.core.remote.call;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -19,21 +20,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 final class CallTests {
-
-  private static final boolean VIRTUAL_SERVER;
-
-  static {
-    final int availableProcessors = Runtime.getRuntime().availableProcessors();
-    if (availableProcessors <= 1) {
-      VIRTUAL_SERVER = true;
-    } else {
-      final var val = System.getenv("VIRTUAL_SERVER");
-      VIRTUAL_SERVER = val != null && Boolean.parseBoolean(val.strip());
-    }
-  }
 
   private static final class LongErrorTracker extends RootErrorTracker<Long> {
 
@@ -87,9 +75,9 @@ final class CallTests {
   }
 
   @Test
+  @DisabledIfEnvironmentVariable(named = "GITHUB_ACTIONS", matches = "true",
+      disabledReason = "Too much CPU contention on GitHub Actions runners")
   void testCourteous() {
-    assumeFalse(VIRTUAL_SERVER, "Skip because too much contention on virtual servers");
-
     final var serviceName = "testCall";
     final var capacityConfig = CapacityConfig.parse(JsonIterator.parse("""
         {
