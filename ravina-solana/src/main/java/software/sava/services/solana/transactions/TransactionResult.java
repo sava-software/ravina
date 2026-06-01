@@ -7,7 +7,7 @@ import software.sava.rpc.json.http.response.TxSimulation;
 
 import java.util.List;
 
-import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.MAX_COMPUTE_BUDGET;
+import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
 
 public record TransactionResult(List<Instruction> instructions,
                                 boolean simulationFailed,

@@ -27,7 +27,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.*;
+import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
+import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitLimit;
+import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitPrice;
 
 record TransactionProcessorRecord(ExecutorService executor,
                                   SigningService signingService,

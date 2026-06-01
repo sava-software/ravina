@@ -6,7 +6,6 @@ module software.sava.ravina_solana {
   requires transitive software.sava.core;
   requires transitive software.sava.rpc;
   requires transitive software.sava.solana_web2;
-  requires software.sava.solana_programs;
   requires transitive software.sava.idl.clients.spl;
   requires transitive software.sava.ravina_core;
   requires transitive software.sava.kms_core;

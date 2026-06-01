@@ -5,7 +5,6 @@ import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxSimulation;
-import software.sava.solana.programs.compute_budget.ComputeBudgetProgram;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -13,8 +12,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
-import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.setComputeUnitLimit;
-import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.setComputeUnitPrice;
+import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
+import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitLimit;
+import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitPrice;
 
 public record SimulationFutures(Commitment commitment,
                                 List<Instruction> instructions,
@@ -30,7 +30,7 @@ public record SimulationFutures(Commitment commitment,
 
   public static int cuBudget(final double cuBudgetMultiplier, final TxSimulation simulationResult) {
     return Math.min(
-        ComputeBudgetProgram.MAX_COMPUTE_BUDGET,
+        MAX_COMPUTE_BUDGET,
         (int) Math.round(cuBudgetMultiplier * cuBudget(simulationResult))
     );
   }
@@ -70,10 +70,12 @@ public record SimulationFutures(Commitment commitment,
                                        final int cuBudget) {
     final var transaction = transactionFactory.apply(instructions);
     final var cuBudgetProgram = solanaAccounts.invokedComputeBudgetProgram();
-    final var setComputeUnitLimit = setComputeUnitLimit(cuBudgetProgram, cuBudget);
 
     final long cappedCuPrice = capCuPrice(maxLamportPriorityFee, cuBudget, cuPrice());
-    return transaction.prependInstructions(setComputeUnitLimit, setComputeUnitPrice(cuBudgetProgram, cappedCuPrice));
+    return transaction.prependInstructions(
+        setComputeUnitLimit(cuBudgetProgram, cuBudget),
+        setComputeUnitPrice(cuBudgetProgram, cappedCuPrice)
+    );
   }
 
   public boolean exceedsSizeLimit() {

@@ -16,9 +16,9 @@ import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.services.solana.transactions.TransactionResult.EXPIRED;
-import static software.sava.solana.programs.compute_budget.ComputeBudgetProgram.MAX_COMPUTE_BUDGET;
 
 public class BaseInstructionService implements InstructionService {
 
