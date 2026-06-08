@@ -1,15 +1,21 @@
+rootProject.name = "ravina"
+
 pluginManagement {
   repositories {
     gradlePluginPortal()
     mavenCentral()
-    if (
-      providers.gradleProperty("savaGithubPackagesUsername").isPresent &&
-      providers.gradleProperty("savaGithubPackagesPassword").isPresent
-    ) {
+    val gprUser = providers.gradleProperty("savaGithubPackagesUsername")
+      .orNull?.takeIf { it.isNotBlank() }
+    val gprToken = providers.gradleProperty("savaGithubPackagesPassword")
+      .orNull?.takeIf { it.isNotBlank() }
+    if (gprUser != null && gprToken != null) {
       maven {
         name = "savaGithubPackages"
         url = uri("https://maven.pkg.github.com/sava-software/sava-build")
-        credentials(PasswordCredentials::class)
+        credentials {
+          username = gprUser
+          password = gprToken
+        }
       }
     }
 //  includeBuild("../sava-build")
@@ -17,12 +23,10 @@ pluginManagement {
 }
 
 plugins {
-  id("software.sava.build") version "21.3.13"
+  id("software.sava.build") version "21.3.15"
 }
 
 apply(plugin = "software.sava.build.feature-jdk-provisioning")
-
-rootProject.name = "ravina"
 
 javaModules {
   directory(".") {
