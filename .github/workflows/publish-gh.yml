@@ -1,4 +1,4 @@
-name: Publish Release
+name: Publish Release GitHub Packages
 
 on:
   push:
@@ -11,8 +11,11 @@ concurrency:
 
 jobs:
   publish:
-    uses: sava-software/sava-build/.github/workflows/publish.yml@main
+    uses: sava-software/sava-build/.github/workflows/publish-gh.yml@main
     secrets: inherit
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
