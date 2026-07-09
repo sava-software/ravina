@@ -4,12 +4,12 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.core.tx.TxBuilder;
 import software.sava.kms.core.signing.SigningService;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
@@ -27,7 +27,6 @@ public interface TransactionProcessor extends TxPublisher {
 
   static TransactionProcessor createProcessor(final ExecutorService executor,
                                               final SigningService signingService,
-                                              final LookupTableCache lookupTableCache,
                                               final PublicKey feePayer,
                                               final SolanaAccounts solanaAccounts,
                                               final ChainItemFormatter formatter,
@@ -40,8 +39,10 @@ public interface TransactionProcessor extends TxPublisher {
         executor,
         signingService,
         feePayer,
-        lookupTableCache,
-        instructions -> Transaction.createTx(feePayer, instructions),
+        instructions -> TxBuilder.createBuilder()
+            .feePayer(feePayer)
+            .addInstructions(instructions)
+            .createTransaction(),
         solanaAccounts,
         formatter,
         rpcClients,
@@ -81,16 +82,8 @@ public interface TransactionProcessor extends TxPublisher {
 
   ChainItemFormatter formatter();
 
-  Function<List<Instruction>, Transaction> legacyTransactionFactory();
-
-  Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
-                                                              final int maxTables);
-
-  default Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys) {
-    return transactionFactory(lookupTableKeys, 5);
-  }
-
-  LookupTableCache lookupTableCache();
+  /// Builds SIMD-0385 v1 transactions from the fee payer and the given instructions.
+  Function<List<Instruction>, Transaction> transactionFactory();
 
   WebSocketManager webSocketManager();
 
@@ -110,7 +103,8 @@ public interface TransactionProcessor extends TxPublisher {
 
   Transaction createTransaction(final SimulationFutures simulationFutures,
                                 final BigDecimal maxLamportPriorityFee,
-                                final int cuBudget);
+                                final int cuBudget,
+                                final int loadedAccountsDataSize);
 
   Transaction createTransaction(final SimulationFutures simulationFutures,
                                 final BigDecimal maxLamportPriorityFee,
@@ -161,7 +155,7 @@ public interface TransactionProcessor extends TxPublisher {
                                         final Function<List<Instruction>, Transaction> transactionFactory);
 
   default SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
-    return simulateAndEstimate(commitment, instructions, legacyTransactionFactory());
+    return simulateAndEstimate(commitment, instructions, transactionFactory());
   }
 
   default SimulationFutures simulateAndEstimate(final List<Instruction> instructions,
@@ -170,6 +164,6 @@ public interface TransactionProcessor extends TxPublisher {
   }
 
   default SimulationFutures simulateAndEstimate(final List<Instruction> instructions) {
-    return simulateAndEstimate(CONFIRMED, instructions, legacyTransactionFactory());
+    return simulateAndEstimate(CONFIRMED, instructions, transactionFactory());
   }
 }

@@ -2,7 +2,6 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.SolanaAccounts;
-import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.core.encoding.Base58;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
@@ -12,30 +11,21 @@ import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.solana.alt.LookupTableCache;
-import software.sava.services.solana.alt.ScoredTableMeta;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
-import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitLimit;
-import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitPrice;
-
 record TransactionProcessorRecord(ExecutorService executor,
                                   SigningService signingService,
                                   PublicKey feePayer,
-                                  LookupTableCache lookupTableCache,
-                                  Function<List<Instruction>, Transaction> legacyTransactionFactory,
+                                  Function<List<Instruction>, Transaction> transactionFactory,
                                   SolanaAccounts solanaAccounts,
                                   ChainItemFormatter formatter,
                                   LoadBalancer<SolanaRpcClient> rpcClients,
@@ -43,56 +33,6 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   LoadBalancer<? extends FeeProvider> feeProviders,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager) implements TransactionProcessor {
-
-  @Override
-  public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
-                                                                     final int maxTables) {
-    final int numTables = lookupTableKeys.size();
-    if (numTables == 0) {
-      return legacyTransactionFactory;
-    } else if (numTables == 1) {
-      final var lookupTableKey = lookupTableKeys.getFirst();
-      final var lookupTable = lookupTableCache.getOrFetchTable(lookupTableKey);
-      if (lookupTable == null) {
-        throw new IllegalStateException("Failed to find lookup table " + lookupTableKey);
-      }
-      return instructions -> Transaction.createTx(feePayer, instructions, lookupTable);
-    } else {
-      final var lookupTableMetas = lookupTableCache.getOrFetchTables(lookupTableKeys);
-      if (lookupTableMetas.length < lookupTableKeys.size()) {
-        final var missingTableKeys = Arrays.stream(lookupTableMetas)
-            .filter(meta -> !lookupTableKeys.contains(meta.lookupTable().address()))
-            .toList();
-        throw new IllegalStateException("Failed to find lookup table(s): " + missingTableKeys);
-      } else {
-        return instructions -> {
-          final var accounts = HashSet.<PublicKey>newHashSet(64);
-          final var invokedOrSigner = HashSet.<PublicKey>newHashSet(1 + instructions.size());
-          invokedOrSigner.add(feePayer);
-          for (final var ix : instructions) {
-            invokedOrSigner.add(ix.programId().publicKey());
-          }
-          for (final var ix : instructions) {
-            for (final var accountMeta : ix.accounts()) {
-              final var key = accountMeta.publicKey();
-              if (!invokedOrSigner.contains(key)) {
-                accounts.add(key);
-              }
-            }
-          }
-          final var scoredTables = ScoredTableMeta.scoreTables(maxTables, accounts, lookupTableMetas);
-          final int numScoredTables = scoredTables.size();
-          if (numScoredTables == 0) {
-            return legacyTransactionFactory.apply(instructions);
-          } else if (numScoredTables == 1) {
-            return Transaction.createTx(feePayer, instructions, scoredTables.getFirst().lookupTable());
-          } else {
-            return Transaction.createTx(feePayer, instructions, scoredTables.toArray(LookupTableAccountMeta[]::new));
-          }
-        };
-      }
-    }
-  }
 
   @Override
   public String formatTxMeta(final String sig, final TxMeta txMeta) {
@@ -156,11 +96,28 @@ record TransactionProcessorRecord(ExecutorService executor,
     );
   }
 
-  private static final int MESSAGE_OFFSET = 1 + Transaction.SIGNATURE_LENGTH;
+  // Legacy transactions serialize the signature count and signatures before the message.
+  private static final int LEGACY_MESSAGE_OFFSET = 1 + Transaction.SIGNATURE_LENGTH;
+
+  // The v1 version byte is the only leading byte with the sign bit set, legacy and v0
+  // transactions lead with a single byte compact u16 signature count.
+  private static boolean isV1(final byte[] serialized) {
+    return serialized[0] < 0;
+  }
+
+  // The v1 message spans the start of the serialized data up to the appended signatures.
+  private static int v1MessageLength(final byte[] serialized) {
+    final int numSigners = serialized[1] & 0xFF;
+    return serialized.length - (numSigners * Transaction.SIGNATURE_LENGTH);
+  }
 
   @Override
   public CompletableFuture<byte[]> sign(final byte[] serialized) {
-    return signingService.sign(serialized, MESSAGE_OFFSET, serialized.length - MESSAGE_OFFSET);
+    if (isV1(serialized)) {
+      return signingService.sign(serialized, 0, v1MessageLength(serialized));
+    } else {
+      return signingService.sign(serialized, LEGACY_MESSAGE_OFFSET, serialized.length - LEGACY_MESSAGE_OFFSET);
+    }
   }
 
   @Override
@@ -170,8 +127,13 @@ record TransactionProcessorRecord(ExecutorService executor,
 
   @Override
   public void setSignature(final byte[] serialized, final byte[] sig) {
-    serialized[0] = 1;
-    System.arraycopy(sig, 0, serialized, 1, Transaction.SIGNATURE_LENGTH);
+    if (isV1(serialized)) {
+      // The fee payer signature is the first of the signatures appended after the message.
+      System.arraycopy(sig, 0, serialized, v1MessageLength(serialized), Transaction.SIGNATURE_LENGTH);
+    } else {
+      serialized[0] = 1;
+      System.arraycopy(sig, 0, serialized, 1, Transaction.SIGNATURE_LENGTH);
+    }
   }
 
   @Override
@@ -182,15 +144,20 @@ record TransactionProcessorRecord(ExecutorService executor,
   @Override
   public Transaction createTransaction(final SimulationFutures simulationFutures,
                                        final BigDecimal maxLamportPriorityFee,
-                                       final int cuBudget) {
-    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, cuBudget);
+                                       final int cuBudget,
+                                       final int loadedAccountsDataSize) {
+    return simulationFutures.createTransaction(
+        maxLamportPriorityFee,
+        cuBudget,
+        loadedAccountsDataSize
+    );
   }
 
   @Override
   public Transaction createTransaction(final SimulationFutures simulationFutures,
                                        final BigDecimal maxLamportPriorityFee,
                                        final TxSimulation simulationResult) {
-    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, simulationResult);
+    return simulationFutures.createTransaction(maxLamportPriorityFee, simulationResult);
   }
 
   @Override
@@ -254,7 +221,12 @@ record TransactionProcessorRecord(ExecutorService executor,
                                               final TxSimulation simulationResult,
                                               final int cuBudget,
                                               final CompletableFuture<LatestBlockHash> blockHashFuture) {
-    final var transaction = createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
+    final var transaction = createTransaction(
+        simulationFutures,
+        maxLamportPriorityFee,
+        cuBudget,
+        simulationResult.loadedAccountsDataSize()
+    );
     setBlockHash(transaction, simulationResult, blockHashFuture);
     signTransaction(transaction);
     return transaction;
@@ -283,20 +255,16 @@ record TransactionProcessorRecord(ExecutorService executor,
   public SimulationFutures simulateAndEstimate(final Commitment commitment,
                                                final List<Instruction> instructions,
                                                final Function<List<Instruction>, Transaction> transactionFactory) {
-    final var simulateTx = transactionFactory.apply(instructions).prependInstructions(
-        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
-        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 0)
-    );
-
+    final var simulateTx = transactionFactory.apply(instructions);
     final var base64EncodedTx = simulateTx.base64EncodeToString();
     final int base64Length = base64EncodedTx.length();
-    if (simulateTx.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH) {
+    if (simulateTx.exceedsSizeLimit()) {
       return new SimulationFutures(
+          feePayer,
           commitment,
           instructions,
           simulateTx,
           base64Length,
-          transactionFactory,
           null,
           null
       );
@@ -315,11 +283,11 @@ record TransactionProcessorRecord(ExecutorService executor,
     ).async(executor);
 
     return new SimulationFutures(
+        feePayer,
         commitment,
         instructions,
         simulateTx,
         base64Length,
-        transactionFactory,
         simulationFuture,
         feeEstimateFuture
     );

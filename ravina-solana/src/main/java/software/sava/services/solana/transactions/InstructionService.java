@@ -27,6 +27,43 @@ public interface InstructionService {
     );
   }
 
+  /// Creates a service with default values applied to {@link #process(TxRequest)} requests which
+  /// do not set them, so that call sites only specify what deviates.
+  static InstructionService createService(final RpcCaller rpcCaller,
+                                          final TransactionProcessor transactionProcessor,
+                                          final SPLClient splClient,
+                                          final EpochInfoService epochInfoService,
+                                          final TxMonitorService txMonitorService,
+                                          final BigDecimal defaultMaxLamportPriorityFee,
+                                          final double defaultCuBudgetMultiplier,
+                                          final double defaultLoadedAccountsDataSizeMultiplier,
+                                          final int defaultMaxRetriesAfterExpired) {
+    return new BaseInstructionService(
+        rpcCaller,
+        transactionProcessor,
+        splClient,
+        epochInfoService,
+        txMonitorService,
+        defaultMaxLamportPriorityFee,
+        defaultCuBudgetMultiplier,
+        defaultLoadedAccountsDataSizeMultiplier,
+        defaultMaxRetriesAfterExpired
+    );
+  }
+
+  /// Processes the requested instructions, resolving unset request values from this service's
+  /// defaults.
+  ///
+  /// @throws IllegalStateException if no maxLamportPriorityFee is set on the request or as a
+  ///                               service default.
+  TransactionResult process(final TxRequest request) throws InterruptedException;
+
+  /// Processes the given instructions using this service's defaults.
+  default TransactionResult process(final List<Instruction> instructions,
+                                    final String logContext) throws InterruptedException {
+    return process(TxRequest.createRequest(instructions, logContext));
+  }
+
   TransactionResult processInstructions(double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final BigDecimal maxLamportPriorityFee,
@@ -382,7 +419,38 @@ public interface InstructionService {
                                         final int maxRetriesAfterExpired,
                                         final String logContext) throws InterruptedException;
 
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final boolean verifyExpired,
+                                                final boolean retrySend,
+                                                final int maxRetriesAfterExpired,
+                                                final Function<List<Instruction>, Transaction> transactionFactory,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        1.0,
+        instructions,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        transactionFactory,
+        logContext
+    );
+  }
+
+  /// Multiplies the units consumed and loaded accounts data size reported by the simulation to
+  /// provide headroom for runtime path and account data changes between simulation and
+  /// execution.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                        final double loadedAccountsDataSizeMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,
                                         final BigDecimal maxLamportPriorityFee,

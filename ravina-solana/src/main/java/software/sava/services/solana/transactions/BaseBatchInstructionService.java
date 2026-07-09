@@ -35,7 +35,67 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     this.batchSize = batchSize;
   }
 
+  protected BaseBatchInstructionService(final RpcCaller rpcCaller,
+                                        final TransactionProcessor transactionProcessor,
+                                        final SPLClient splClient,
+                                        final EpochInfoService epochInfoService,
+                                        final TxMonitorService txMonitorService,
+                                        final int batchSize,
+                                        final int reduceSize,
+                                        final BigDecimal defaultMaxLamportPriorityFee,
+                                        final double defaultCuBudgetMultiplier,
+                                        final double defaultLoadedAccountsDataSizeMultiplier,
+                                        final int defaultMaxRetriesAfterExpired) {
+    super(
+        rpcCaller, transactionProcessor, splClient, epochInfoService, txMonitorService,
+        defaultMaxLamportPriorityFee,
+        defaultCuBudgetMultiplier,
+        defaultLoadedAccountsDataSizeMultiplier,
+        defaultMaxRetriesAfterExpired
+    );
+    this.reduceSize = reduceSize;
+    this.batchSize = batchSize;
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final TxRequest request) throws InterruptedException {
+    return batchProcess(
+        resolveCuBudgetMultiplier(request),
+        resolveLoadedAccountsDataSizeMultiplier(request),
+        request.instructions(),
+        resolveMaxLamportPriorityFee(request),
+        resolveAwaitCommitment(request),
+        resolveAwaitCommitmentOnError(request),
+        request.verifyExpired(),
+        request.retrySend(),
+        resolveMaxRetriesAfterExpired(request),
+        resolveTransactionFactory(request),
+        request.logContext() == null ? "" : request.logContext()
+    );
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final TxRequest request,
+                                                    final Map<PublicKey, ?> accountsMap,
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        resolveCuBudgetMultiplier(request),
+        resolveLoadedAccountsDataSizeMultiplier(request),
+        accountsMap,
+        resolveMaxLamportPriorityFee(request),
+        resolveAwaitCommitment(request),
+        resolveAwaitCommitmentOnError(request),
+        request.verifyExpired(),
+        request.retrySend(),
+        resolveMaxRetriesAfterExpired(request),
+        resolveTransactionFactory(request),
+        request.logContext() == null ? "" : request.logContext(),
+        batchFactory
+    );
+  }
+
   private TransactionResult processBatch(final double cuBudgetMultiplier,
+                                         final double loadedAccountsDataSizeMultiplier,
                                          final List<Instruction> batch,
                                          final BigDecimal maxLamportPriorityFee,
                                          final Commitment awaitCommitment,
@@ -47,7 +107,9 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                          final String logContext) throws InterruptedException {
     final var transactionResult = processInstructions(
         cuBudgetMultiplier,
+        loadedAccountsDataSizeMultiplier,
         batch,
+        NO_OP,
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
@@ -77,6 +139,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final double loadedAccountsDataSizeMultiplier,
                                                     final List<Instruction> instructions,
                                                     final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
@@ -96,6 +159,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
       final var transactionResult = processBatch(
           cuBudgetMultiplier,
+          loadedAccountsDataSizeMultiplier,
           batch,
           maxLamportPriorityFee,
           awaitCommitment,
@@ -124,6 +188,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final double loadedAccountsDataSizeMultiplier,
                                                     final Map<PublicKey, ?> accountsMap,
                                                     final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
@@ -146,6 +211,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
 
       final var transactionResult = processBatch(
           cuBudgetMultiplier,
+          loadedAccountsDataSizeMultiplier,
           batch,
           maxLamportPriorityFee,
           awaitCommitment,
@@ -185,12 +251,40 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final String logContext) throws InterruptedException {
     return batchProcess(
         cuBudgetMultiplier,
+        1.0,
         instructions,
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
+        logContext
+    );
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final double loadedAccountsDataSizeMultiplier,
+                                                    final List<Instruction> instructions,
+                                                    final BigDecimal maxLamportPriorityFee,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
+                                                    final String logContext) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        loadedAccountsDataSizeMultiplier,
+        instructions,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        transactionProcessor.transactionFactory(),
         logContext
     );
   }
@@ -208,12 +302,42 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     return batchProcess(
         cuBudgetMultiplier,
+        1.0,
         accountsMap,
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
+        logContext,
+        batchFactory
+    );
+  }
+
+  @Override
+  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                                    final double loadedAccountsDataSizeMultiplier,
+                                                    final Map<PublicKey, ?> accountsMap,
+                                                    final BigDecimal maxLamportPriorityFee,
+                                                    final Commitment awaitCommitment,
+                                                    final Commitment awaitCommitmentOnError,
+                                                    final boolean verifyExpired,
+                                                    final boolean retrySend,
+                                                    final int maxRetriesAfterExpired,
+                                                    final String logContext,
+                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        loadedAccountsDataSizeMultiplier,
+        accountsMap,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        transactionProcessor.transactionFactory(),
         logContext,
         batchFactory
     );

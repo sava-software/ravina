@@ -30,17 +30,96 @@ public class BaseInstructionService implements InstructionService {
   protected final SPLClient splClient;
   protected final EpochInfoService epochInfoService;
   protected final TxMonitorService txMonitorService;
+  protected final BigDecimal defaultMaxLamportPriorityFee;
+  protected final double defaultCuBudgetMultiplier;
+  protected final double defaultLoadedAccountsDataSizeMultiplier;
+  protected final int defaultMaxRetriesAfterExpired;
 
   protected BaseInstructionService(final RpcCaller rpcCaller,
                                    final TransactionProcessor transactionProcessor,
                                    final SPLClient splClient,
                                    final EpochInfoService epochInfoService,
                                    final TxMonitorService txMonitorService) {
+    this(rpcCaller, transactionProcessor, splClient, epochInfoService, txMonitorService, null, 1.0, 1.0, 0);
+  }
+
+  protected BaseInstructionService(final RpcCaller rpcCaller,
+                                   final TransactionProcessor transactionProcessor,
+                                   final SPLClient splClient,
+                                   final EpochInfoService epochInfoService,
+                                   final TxMonitorService txMonitorService,
+                                   final BigDecimal defaultMaxLamportPriorityFee,
+                                   final double defaultCuBudgetMultiplier,
+                                   final double defaultLoadedAccountsDataSizeMultiplier,
+                                   final int defaultMaxRetriesAfterExpired) {
     this.rpcCaller = rpcCaller;
     this.transactionProcessor = transactionProcessor;
     this.splClient = splClient;
     this.epochInfoService = epochInfoService;
     this.txMonitorService = txMonitorService;
+    this.defaultMaxLamportPriorityFee = defaultMaxLamportPriorityFee;
+    this.defaultCuBudgetMultiplier = defaultCuBudgetMultiplier;
+    this.defaultLoadedAccountsDataSizeMultiplier = defaultLoadedAccountsDataSizeMultiplier;
+    this.defaultMaxRetriesAfterExpired = defaultMaxRetriesAfterExpired;
+  }
+
+  protected final double resolveCuBudgetMultiplier(final TxRequest request) {
+    final double multiplier = request.cuBudgetMultiplier();
+    return multiplier > 0 ? multiplier : defaultCuBudgetMultiplier;
+  }
+
+  protected final double resolveLoadedAccountsDataSizeMultiplier(final TxRequest request) {
+    final double multiplier = request.loadedAccountsDataSizeMultiplier();
+    return multiplier > 0 ? multiplier : defaultLoadedAccountsDataSizeMultiplier;
+  }
+
+  protected final BigDecimal resolveMaxLamportPriorityFee(final TxRequest request) {
+    final var maxLamportPriorityFee = request.maxLamportPriorityFee() == null
+        ? defaultMaxLamportPriorityFee
+        : request.maxLamportPriorityFee();
+    if (maxLamportPriorityFee == null) {
+      throw new IllegalStateException("A maxLamportPriorityFee must be set on the request or as a service default.");
+    }
+    return maxLamportPriorityFee;
+  }
+
+  protected final Commitment resolveAwaitCommitment(final TxRequest request) {
+    return request.awaitCommitment() == null ? CONFIRMED : request.awaitCommitment();
+  }
+
+  protected final Commitment resolveAwaitCommitmentOnError(final TxRequest request) {
+    return request.awaitCommitmentOnError() == null
+        ? resolveAwaitCommitment(request)
+        : request.awaitCommitmentOnError();
+  }
+
+  protected final int resolveMaxRetriesAfterExpired(final TxRequest request) {
+    final int maxRetriesAfterExpired = request.maxRetriesAfterExpired();
+    return maxRetriesAfterExpired < 0 ? defaultMaxRetriesAfterExpired : maxRetriesAfterExpired;
+  }
+
+  protected final Function<List<Instruction>, Transaction> resolveTransactionFactory(final TxRequest request) {
+    return request.transactionFactory() == null
+        ? transactionProcessor.transactionFactory()
+        : request.transactionFactory();
+  }
+
+  @Override
+  public final TransactionResult process(final TxRequest request) throws InterruptedException {
+    return processInstructions(
+        resolveCuBudgetMultiplier(request),
+        resolveLoadedAccountsDataSizeMultiplier(request),
+        request.instructions(),
+        request.beforeSend() == null ? NO_OP : request.beforeSend(),
+        resolveMaxLamportPriorityFee(request),
+        resolveAwaitCommitment(request),
+        resolveAwaitCommitmentOnError(request),
+        request.verifyExpired(),
+        request.retrySend(),
+        resolveMaxRetriesAfterExpired(request),
+        resolveTransactionFactory(request),
+        request.logContext() == null ? "" : request.logContext()
+    );
   }
 
   public final RpcCaller rpcCaller() {
@@ -67,8 +146,9 @@ public class BaseInstructionService implements InstructionService {
                                                 final SimulationFutures simulationFutures,
                                                 final TxSimulation simulationResult,
                                                 final BigDecimal maxLamportPriorityFee,
-                                                final int cuBudget) {
-    final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
+                                                final int cuBudget,
+                                                final int loadedAccountsDataSize) {
+    final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget, loadedAccountsDataSize);
     long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
     if (Long.compareUnsigned(blockHeight, 0) <= 0) {
       try {
@@ -134,13 +214,14 @@ public class BaseInstructionService implements InstructionService {
         verifyExpired,
         retrySend,
         maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
+        transactionProcessor.transactionFactory(),
         logContext
     );
   }
 
   @Override
   public final TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                     final double loadedAccountsDataSizeMultiplier,
                                                      final List<Instruction> instructions,
                                                      final Function<Transaction, Transaction> beforeSend,
                                                      final BigDecimal maxLamportPriorityFee,
@@ -180,12 +261,16 @@ public class BaseInstructionService implements InstructionService {
       }
 
       final int cuBudget = SimulationFutures.cuBudget(cuBudgetMultiplier, simulationResult);
+      final int loadedAccountsDataSize = SimulationFutures.loadedAccountsDataSize(
+          loadedAccountsDataSizeMultiplier, simulationResult
+      );
       final var sendContext = sendTransaction(
           beforeSend,
           simulationFutures,
           simulationResult,
           maxLamportPriorityFee,
-          cuBudget
+          cuBudget,
+          loadedAccountsDataSize
       );
       final long cuPrice = simulationFutures.cuPrice();
       if (sendContext == null) {

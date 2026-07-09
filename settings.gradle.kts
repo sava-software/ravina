@@ -23,7 +23,7 @@ pluginManagement {
 }
 
 plugins {
-  id("software.sava.build") version "21.4.0"
+  id("software.sava.build") version "21.4.2"
 }
 
 apply(plugin = "software.sava.build.feature-jdk-provisioning")
@@ -38,3 +38,5 @@ javaModules {
     module("ravina-kms/google") { artifact = "ravina-kms-google" }
   }
 }
+
+includeBuild("../sava")

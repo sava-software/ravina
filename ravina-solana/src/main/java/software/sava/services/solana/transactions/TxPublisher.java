@@ -9,10 +9,9 @@ public interface TxPublisher {
                         final long blockHashHeight);
 
   default SendTxContext publish(final Transaction transaction, final long blockHashHeight) {
-    final var base64Encoded = transaction.base64EncodeToString();
-    return base64Encoded.length() > Transaction.MAX_BASE_64_ENCODED_LENGTH
+    return transaction.exceedsSizeLimit()
         ? null
-        : publish(transaction, base64Encoded, blockHashHeight);
+        : publish(transaction, transaction.base64EncodeToString(), blockHashHeight);
   }
 
   default SendTxContext retry(final SendTxContext sendTxContext) {

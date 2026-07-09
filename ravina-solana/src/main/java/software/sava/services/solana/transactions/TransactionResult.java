@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.core.tx.TxBuilder;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
 
@@ -90,11 +91,11 @@ public record TransactionResult(List<Instruction> instructions,
   }
 
   public boolean exceedsSizeLimit() {
-    return transaction.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH;
+    return transaction.exceedsSizeLimit();
   }
 
   public long priorityFeeLamports() {
-    return (cuBudget * cuPrice) / 1_000_000;
+    return TxBuilder.computeUnitPriceToPriorityFeeLamports(cuPrice, cuBudget);
   }
 
   public long baseFeeLamports() {
