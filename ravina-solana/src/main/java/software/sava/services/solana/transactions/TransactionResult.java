@@ -25,6 +25,37 @@ public record TransactionResult(List<Instruction> instructions,
   public static final TransactionError SIZE_LIMIT_EXCEEDED = new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED");
   public static final TransactionError EXPIRED = new TransactionError.Unknown("EXPIRED");
 
+  public enum Outcome {
+    /// Landed without an error.
+    SENT,
+    /// Landed but failed with a TransactionError; see {@link #error()} and {@link #sig()}.
+    FAILED,
+    /// The RPC simulation returned an error; see {@link #error()}, nothing was sent.
+    SIMULATION_FAILED,
+    /// The transaction exceeded the serialized size limit, nothing was sent.
+    SIZE_LIMIT_EXCEEDED,
+    /// The transaction was not confirmed before its block hash expired.
+    EXPIRED,
+    /// No recent block hash could be retrieved, nothing was sent.
+    BLOCK_HASH_UNAVAILABLE
+  }
+
+  /// The terminal state of this result, mapping the sentinel {@link #error()} values so that
+  /// consumers may switch exhaustively instead of comparing error references.
+  public Outcome outcome() {
+    if (error == null) {
+      return Outcome.SENT;
+    } else if (error == SIZE_LIMIT_EXCEEDED) {
+      return Outcome.SIZE_LIMIT_EXCEEDED;
+    } else if (error == EXPIRED) {
+      return Outcome.EXPIRED;
+    } else if (error == FAILED_TO_RETRIEVE_BLOCK_HASH) {
+      return Outcome.BLOCK_HASH_UNAVAILABLE;
+    } else {
+      return simulationFailed ? Outcome.SIMULATION_FAILED : Outcome.FAILED;
+    }
+  }
+
   static TransactionResult createSizeExceededResult(final List<Instruction> instructions,
                                                     final Transaction transaction,
                                                     final int base64Length) {
