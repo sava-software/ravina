@@ -1,5 +1,12 @@
 # Changelog
 
+## [25.4.1](https://github.com/sava-software/ravina/compare/25.4.0...25.4.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **gradle:** correct task dependency names in GitHub publishing script ([ff9b55c](https://github.com/sava-software/ravina/commit/ff9b55ce43ecdbe483e648e15f8963bfa663a04b))
+
 ## [25.4.0](https://github.com/sava-software/ravina/compare/25.3.0...25.4.0) (2026-07-17)
 
 
