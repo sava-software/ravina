@@ -102,6 +102,19 @@ public interface Call<T> extends Supplier<T> {
 
   static <I, R> Call<R> createUncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
                                                     final Function<I, CompletableFuture<R>> call,
+                                                    final CallContext callContext,
+                                                    final NanoClock clock,
+                                                    final String retryLogContext) {
+    return new UncheckedBalancedCall<>(loadBalancer,
+        call,
+        callContext,
+        clock,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createUncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
+                                                    final Function<I, CompletableFuture<R>> call,
                                                     final String retryLogContext) {
     return new UncheckedBalancedCall<>(loadBalancer,
         call,
@@ -145,6 +158,20 @@ public interface Call<T> extends Supplier<T> {
         loadBalancer,
         call,
         CallContext.DEFAULT_CALL_CONTEXT,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createGreedyCall(final LoadBalancer<I> loadBalancer,
+                                         final Function<I, CompletableFuture<R>> call,
+                                         final CallContext callContext,
+                                         final NanoClock clock,
+                                         final String retryLogContext) {
+    return new GreedyBalancedCall<>(
+        loadBalancer,
+        call,
+        callContext,
+        clock,
         retryLogContext
     );
   }

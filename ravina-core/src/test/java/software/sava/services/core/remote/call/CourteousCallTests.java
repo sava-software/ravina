@@ -146,4 +146,44 @@ final class CourteousCallTests {
     assertEquals(List.of(100L, 100L), clock.sleeps);
     assertEquals(0, state.capacity());
   }
+
+  @Test
+  void claimsForFreeWhenTheDelayTruncatesToZeroMillis() {
+    final var clock = new TestClock(false);
+    // maxCapacity 10,000 over PT1S: one weight replenishes in 0.1ms, which truncates to 0ms.
+    final var resetDuration = Duration.ofSeconds(1);
+    final var config = new CapacityConfig(0, 10_000, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
+    final var state = config.createMonitor("test", NoopTracker.FACTORY, clock).capacityState();
+    state.claimRequest(10_000);
+
+    final var call = Call.createCourteousCall(
+        () -> CompletableFuture.completedFuture(1L),
+        state,
+        CallContext.createContext(1, 0, false),
+        Backoff.fibonacci(1, 13),
+        clock,
+        "test::freeOverdraw"
+    );
+    assertEquals(1L, call.get());
+    assertEquals(List.of(), clock.sleeps);
+    assertEquals(-1, state.capacity());
+  }
+
+  @Test
+  void greedyCallClaimsUnconditionally() {
+    final var clock = new TestClock(false);
+    final var state = createState(clock);
+    state.claimRequest(10);
+    final var call = Call.createGreedyCall(
+        () -> CompletableFuture.completedFuture(5L),
+        state,
+        CallContext.createContext(1, 0, false),
+        Backoff.fibonacci(1, 13),
+        clock,
+        "test::greedy"
+    );
+    assertEquals(5L, call.get());
+    assertEquals(-1, state.capacity());
+    assertEquals(List.of(), clock.sleeps);
+  }
 }
