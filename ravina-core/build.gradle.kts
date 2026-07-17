@@ -32,6 +32,37 @@ hardening {
     excludedClasses = listOf("software.sava.services.core.remote.load_balance.*Tests")
     targetTests = "software.sava.services.core.remote.load_balance.*Test*"
   }
+  mutation.register("calls") {
+    targetClasses = listOf(
+      "software.sava.services.core.remote.call.ComposedCall",
+      "software.sava.services.core.remote.call.GreedyCall",
+      "software.sava.services.core.remote.call.CourteousCall",
+      "software.sava.services.core.remote.call.CourteousBalancedCall",
+      "software.sava.services.core.remote.call.GreedyBalancedCall",
+      "software.sava.services.core.remote.call.UncheckedBalancedCall"
+    )
+    targetTests = "software.sava.services.core.remote.call.*Test*"
+  }
+  mutation.register("config") {
+    targetClasses = listOf(
+      "software.sava.services.core.config.*",
+      "software.sava.services.core.net.http.WebHookConfig",
+      "software.sava.services.core.net.http.WebHookConfig\$*",
+      "software.sava.services.core.remote.call.BackoffConfig",
+      "software.sava.services.core.remote.call.BackoffConfig\$*",
+      "software.sava.services.core.remote.load_balance.LoadBalancerConfig",
+      "software.sava.services.core.remote.load_balance.LoadBalancerConfig\$*"
+    )
+    excludedClasses = listOf(
+      "software.sava.services.core.config.*Tests",
+      "software.sava.services.core.config.*Fuzz"
+    )
+    targetTests = "software.sava.services.core.config.*Test*,software.sava.services.core.net.http.*Test*,software.sava.services.core.remote.call.*Test*,software.sava.services.core.remote.load_balance.*Test*"
+  }
+  mutation.register("errorTracking") {
+    targetClasses = listOf("software.sava.services.core.request_capacity.trackers.RootErrorTracker")
+    targetTests = "software.sava.services.core.request_capacity.trackers.*Test*,software.sava.services.core.remote.call.*Test*"
+  }
 
   fuzz.register("backoff") {
     targetClass = "software.sava.services.core.remote.call.BackoffFuzz"
@@ -45,5 +76,10 @@ hardening {
   fuzz.register("capacityState") {
     targetClass = "software.sava.services.core.request_capacity.CapacityStateFuzz"
     maxLen = 512
+  }
+  fuzz.register("configs") {
+    targetClass = "software.sava.services.core.config.ConfigsFuzz"
+    maxLen = 768
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/configs")
   }
 }

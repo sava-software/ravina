@@ -86,9 +86,10 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     for (final var errorResponses : this.errorResponses.values()) {
       response = errorResponses.peek();
       if (response != null) {
-        do {
+        while (response != null && response.timestamp() <= expireBefore) {
           errorResponses.poll();
-        } while ((response = errorResponses.peek()) != null && response.timestamp() <= expireBefore);
+          response = errorResponses.peek();
+        }
         size = errorResponses.size();
         if (size > maxCount) {
           maxCount = size;
@@ -121,14 +122,13 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     for (final var errorResponseEntry : errorResponses.entrySet()) {
       final var errorResponses = errorResponseEntry.getValue();
       var response = errorResponses.peek();
-      if (response != null) {
-        do {
-          errorResponses.poll();
-        } while ((response = errorResponses.peek()) != null && response.timestamp() <= expireBefore);
-        final var copy = List.copyOf(errorResponses);
-        if (!copy.isEmpty()) {
-          snapshot.put(errorResponseEntry.getKey(), copy);
-        }
+      while (response != null && response.timestamp() <= expireBefore) {
+        errorResponses.poll();
+        response = errorResponses.peek();
+      }
+      final var copy = List.copyOf(errorResponses);
+      if (!copy.isEmpty()) {
+        snapshot.put(errorResponseEntry.getKey(), copy);
       }
     }
     return snapshot.isEmpty() ? Map.of() : snapshot;

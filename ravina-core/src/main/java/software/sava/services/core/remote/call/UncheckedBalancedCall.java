@@ -49,13 +49,14 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
       if (callFuture == null) {
         return null;
       }
-      long start = callContext.measureCallTime() ? System.currentTimeMillis() : 0;
+      final boolean measureCallTime = callContext.measureCallTime();
+      long start = measureCallTime ? clock.nanoTime() : 0;
       final int numItems = loadBalancer.size();
       for (long errorCount = 0, retry = 0; ; ) {
         try {
           final var result = callFuture.get();
-          if (start > 0) {
-            this.next.sample(System.currentTimeMillis() - start);
+          if (measureCallTime) {
+            this.next.sample((clock.nanoTime() - start) / 1_000_000);
           }
           this.next.success();
           return result;
@@ -88,8 +89,8 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
           if (callFuture == null) {
             return null;
           }
-          if (start > 0) {
-            start = System.currentTimeMillis();
+          if (measureCallTime) {
+            start = clock.nanoTime();
           }
         }
       }

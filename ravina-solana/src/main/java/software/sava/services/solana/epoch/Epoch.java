@@ -105,8 +105,12 @@ public record Epoch(long startedAt,
     return (int) Math.round(MILLIS_PER_YEAR / (double) (estimatedMillisPerSlot * slotsPerEpoch()));
   }
 
+  public long millisRemaining(final long now) {
+    return endsAt - now;
+  }
+
   public long millisRemaining() {
-    return endsAt - System.currentTimeMillis();
+    return millisRemaining(System.currentTimeMillis());
   }
 
   public long epoch() {
@@ -125,11 +129,15 @@ public record Epoch(long startedAt,
     return slotStats == null ? defaultMillisPerSlot : slotStats.median();
   }
 
-  public long estimatedSlot(final long millisPerSlot) {
+  public long estimatedSlot(final long millisPerSlot, final long now) {
     return Math.min(
-        info.slotIndex() + ((System.currentTimeMillis() - sampledAt) / millisPerSlot),
+        info.slotIndex() + ((now - sampledAt) / millisPerSlot),
         info.slotsInEpoch()
     );
+  }
+
+  public long estimatedSlot(final long millisPerSlot) {
+    return estimatedSlot(millisPerSlot, System.currentTimeMillis());
   }
 
   public long estimatedSlot() {
@@ -142,9 +150,13 @@ public record Epoch(long startedAt,
     return BigInteger.valueOf(info.blockHeight()).add(BigInteger.valueOf(slotDelta - missedSlots));
   }
 
-  public BigInteger estimatedBlockHeight(final long millisPerSlot, final double skipRate) {
-    final long estimatedSlot = estimatedSlot(millisPerSlot);
+  public BigInteger estimatedBlockHeight(final long millisPerSlot, final double skipRate, final long now) {
+    final long estimatedSlot = estimatedSlot(millisPerSlot, now);
     return estimatedBlockHeightGivenSlotEstimate(estimatedSlot, skipRate);
+  }
+
+  public BigInteger estimatedBlockHeight(final long millisPerSlot, final double skipRate) {
+    return estimatedBlockHeight(millisPerSlot, skipRate, System.currentTimeMillis());
   }
 
   public BigInteger estimatedBlockHeight() {
@@ -160,13 +172,17 @@ public record Epoch(long startedAt,
   }
 
   public String logFormat() {
+    return logFormat(System.currentTimeMillis());
+  }
+
+  public String logFormat(final long now) {
     final int median = medianMillisPerSlot();
-    final long millisRemaining = millisRemaining();
-    final long estimatedSlot = estimatedSlot(median);
+    final long millisRemaining = millisRemaining(now);
+    final long estimatedSlot = estimatedSlot(median, now);
     final long slotsPerEpoch = slotsPerEpoch();
     final double percentProgress = percentComplete(estimatedSlot);
     final var blockHeight = estimatedBlockHeightGivenSlotEstimate(estimatedSlot, sampleSkipRate);
-    final long startedAgo = System.currentTimeMillis() - startedAt;
+    final long startedAgo = now - startedAt;
     return String.format(
         "Epoch %s :: Start %s ago :: Ends in %s | %s :: %d ms/slot | %d epochs/year :: %,d / %,d | %.1f%% :: %.2f%% skip rate | %s height",
         Long.toUnsignedString(epoch()),

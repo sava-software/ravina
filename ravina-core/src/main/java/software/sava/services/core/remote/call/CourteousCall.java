@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.context.CallContext;
 
@@ -14,8 +15,9 @@ final class CourteousCall<R> extends GreedyCall<R> {
                 final CapacityState capacityState,
                 final CallContext callContext,
                 final Backoff backoff,
+                final NanoClock clock,
                 final String retryLogContext) {
-    super(call, capacityState, callContext, backoff, retryLogContext);
+    super(call, capacityState, callContext, backoff, clock, retryLogContext);
   }
 
   @Override
@@ -30,7 +32,7 @@ final class CourteousCall<R> extends GreedyCall<R> {
           return call.get();
         } else {
           try {
-            Thread.sleep(delayMillis);
+            clock.sleep(delayMillis);
           } catch (final InterruptedException e) {
             throw new RuntimeException(e);
           }

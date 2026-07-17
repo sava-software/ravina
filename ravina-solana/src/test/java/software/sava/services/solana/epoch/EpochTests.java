@@ -67,6 +67,27 @@ final class EpochTests {
   }
 
   @Test
+  void derivedTimesUseTheProvidedNow() {
+    final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+
+    assertEquals(epoch.endsAt() - 1_500_000, epoch.millisRemaining(1_500_000));
+    assertEquals(0, epoch.millisRemaining(epoch.endsAt()));
+
+    // 400,000ms since the sample at 400ms per slot advances 1,000 slots.
+    assertEquals(1_100, epoch.estimatedSlot(400, 1_400_000));
+    // The estimate never exceeds the slots in the epoch.
+    assertEquals(432_000, epoch.estimatedSlot(1, 2_000_000));
+
+    // Estimated slot 1,100 is 1,000 past the sample; half are skipped at a 0.5 skip rate.
+    assertEquals(BigInteger.valueOf(1_500), epoch.estimatedBlockHeight(400, 0.5, 1_400_000));
+    assertEquals(BigInteger.valueOf(2_000), epoch.estimatedBlockHeight(400, 0.0, 1_400_000));
+
+    final var log = epoch.logFormat(1_400_000);
+    assertTrue(log.startsWith("Epoch 500 :: "));
+    assertTrue(log.contains("400 ms/slot"));
+  }
+
+  @Test
   void derivedRatios() {
     final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
     assertEquals(50.0, epoch.percentComplete(216_000));

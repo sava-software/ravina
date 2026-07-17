@@ -21,14 +21,31 @@ public interface Call<T> extends Supplier<T> {
   static <T> Call<T> createComposedCall(final Supplier<CompletableFuture<T>> call,
                                         final Backoff backoff,
                                         final CallContext callContext,
+                                        final NanoClock clock,
                                         final String retryLogContext) {
-    return new ComposedCall<>(call, backoff, callContext, retryLogContext);
+    return new ComposedCall<>(call, backoff, callContext, clock, retryLogContext);
+  }
+
+  static <T> Call<T> createComposedCall(final Supplier<CompletableFuture<T>> call,
+                                        final Backoff backoff,
+                                        final CallContext callContext,
+                                        final String retryLogContext) {
+    return new ComposedCall<>(call, backoff, callContext, NanoClock.SYSTEM, retryLogContext);
   }
 
   static <T> Call<T> createComposedCall(final Supplier<CompletableFuture<T>> call,
                                         final Backoff backoff,
                                         final String retryLogContext) {
-    return new ComposedCall<>(call, backoff, CallContext.DEFAULT_CALL_CONTEXT, retryLogContext);
+    return new ComposedCall<>(call, backoff, CallContext.DEFAULT_CALL_CONTEXT, NanoClock.SYSTEM, retryLogContext);
+  }
+
+  static <T> Call<T> createGreedyCall(final Supplier<CompletableFuture<T>> call,
+                                      final CapacityState capacityState,
+                                      final CallContext callContext,
+                                      final Backoff backoff,
+                                      final NanoClock clock,
+                                      final String retryLogContext) {
+    return new GreedyCall<>(call, capacityState, callContext, backoff, clock, retryLogContext);
   }
 
   static <T> Call<T> createGreedyCall(final Supplier<CompletableFuture<T>> call,
@@ -36,7 +53,23 @@ public interface Call<T> extends Supplier<T> {
                                       final CallContext callContext,
                                       final Backoff backoff,
                                       final String retryLogContext) {
-    return new GreedyCall<>(call, capacityState, callContext, backoff, retryLogContext);
+    return new GreedyCall<>(call, capacityState, callContext, backoff, NanoClock.SYSTEM, retryLogContext);
+  }
+
+  static <I, R> Call<R> createCourteousCall(final Supplier<CompletableFuture<R>> call,
+                                            final CapacityState capacityState,
+                                            final CallContext callContext,
+                                            final Backoff backoff,
+                                            final NanoClock clock,
+                                            final String retryLogContext) {
+    return new CourteousCall<>(
+        call,
+        capacityState,
+        callContext,
+        backoff,
+        clock,
+        retryLogContext
+    );
   }
 
   static <I, R> Call<R> createCourteousCall(final Supplier<CompletableFuture<R>> call,
@@ -44,11 +77,12 @@ public interface Call<T> extends Supplier<T> {
                                             final CallContext callContext,
                                             final Backoff backoff,
                                             final String retryLogContext) {
-    return new CourteousCall<>(
+    return createCourteousCall(
         call,
         capacityState,
         callContext,
         backoff,
+        NanoClock.SYSTEM,
         retryLogContext
     );
   }

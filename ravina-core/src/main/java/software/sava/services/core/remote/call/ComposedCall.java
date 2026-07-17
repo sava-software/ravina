@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.util.concurrent.CompletableFuture;
@@ -16,15 +17,18 @@ class ComposedCall<T> implements Call<T> {
   protected final Supplier<CompletableFuture<T>> call;
   private final Backoff backoff;
   protected final CallContext callContext;
+  protected final NanoClock clock;
   private final String retryLogContext;
 
   ComposedCall(final Supplier<CompletableFuture<T>> call,
                final Backoff backoff,
                final CallContext callContext,
+               final NanoClock clock,
                final String retryLogContext) {
     this.call = call;
     this.backoff = backoff;
     this.callContext = callContext;
+    this.clock = clock;
     this.retryLogContext = retryLogContext;
   }
 
@@ -56,8 +60,7 @@ class ComposedCall<T> implements Call<T> {
               errorCount, cause.getMessage(), sleep, retryLogContext
           ));
           if (sleep > 0) {
-            //noinspection BusyWait
-            Thread.sleep(sleep);
+            clock.sleep(sleep);
           }
           callFuture = call();
         }

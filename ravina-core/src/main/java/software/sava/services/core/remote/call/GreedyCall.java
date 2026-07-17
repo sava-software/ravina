@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.context.CallContext;
 
@@ -14,8 +15,9 @@ class GreedyCall<T> extends ComposedCall<T> {
              final CapacityState capacityState,
              final CallContext callContext,
              final Backoff backoff,
+             final NanoClock clock,
              final String retryLogContext) {
-    super(call, backoff, callContext, retryLogContext);
+    super(call, backoff, callContext, clock, retryLogContext);
     this.capacityState = capacityState;
   }
 
