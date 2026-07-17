@@ -1,6 +1,7 @@
 package software.sava.services.core.config;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 
 import javax.net.ssl.KeyManagerFactory;
@@ -16,7 +17,6 @@ import java.util.Arrays;
 import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 record NetConfigRecord(String host,
                        int port,
@@ -116,20 +116,19 @@ record NetConfigRecord(String host,
       }
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "host", "port", "keyStoreType", "keyStorePath", "password"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("host", buf, offset, len)) {
-        host = ji.readString();
-      } else if (fieldEquals("port", buf, offset, len)) {
-        port = ji.readInt();
-      } else if (fieldEquals("keyStoreType", buf, offset, len)) {
-        keyStoreType = ji.readString();
-      } else if (fieldEquals("keyStorePath", buf, offset, len)) {
-        keyStorePath = Path.of(ji.readString()).toAbsolutePath();
-      } else if (fieldEquals("password", buf, offset, len)) {
-        password = ji.applyChars((b, o, l) -> Arrays.copyOfRange(b, o, o + l));
-      } else {
-        ji.skip();
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> host = ji.readString();
+        case 1 -> port = ji.readInt();
+        case 2 -> keyStoreType = ji.readString();
+        case 3 -> keyStorePath = Path.of(ji.readString()).toAbsolutePath();
+        case 4 -> password = ji.applyChars((b, o, l) -> Arrays.copyOfRange(b, o, o + l));
+        default -> ji.skip();
       }
       return true;
     }

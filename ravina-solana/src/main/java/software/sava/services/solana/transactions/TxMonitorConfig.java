@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.services.core.config.PropertiesParser;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -9,7 +10,6 @@ import java.time.Duration;
 import java.util.Properties;
 
 import software.sava.services.core.config.ServiceConfigUtil;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
                               Duration webSocketConfirmationTimeout,
@@ -83,18 +83,20 @@ public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
       );
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "minSleepBetweenSigStatusPolling", "webSocketConfirmationTimeout",
+        "retrySendDelay", "minBlocksRemainingToResend"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("minSleepBetweenSigStatusPolling", buf, offset, len)) {
-        minSleepBetweenSigStatusPolling = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("webSocketConfirmationTimeout", buf, offset, len)) {
-        webSocketConfirmationTimeout = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("retrySendDelay", buf, offset, len)) {
-        retrySendDelay = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("minBlocksRemainingToResend", buf, offset, len)) {
-        minBlocksRemainingToResend = ji.readInt();
-      } else {
-        throw new IllegalStateException("Unknown TxMonitorConfig field " + new String(buf, offset, len));
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> minSleepBetweenSigStatusPolling = ServiceConfigUtil.parseDuration(ji);
+        case 1 -> webSocketConfirmationTimeout = ServiceConfigUtil.parseDuration(ji);
+        case 2 -> retrySendDelay = ServiceConfigUtil.parseDuration(ji);
+        case 3 -> minBlocksRemainingToResend = ji.readInt();
+        default ->
+            throw new IllegalStateException("Unknown TxMonitorConfig field " + new String(buf, offset, len));
       }
       return true;
     }

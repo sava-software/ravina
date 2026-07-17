@@ -6,6 +6,7 @@ import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -15,7 +16,6 @@ import java.util.Properties;
 
 import static java.time.Duration.ofSeconds;
 import static java.util.Objects.requireNonNullElse;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record CapacityConfig(int minCapacity,
                              int maxCapacity,
@@ -135,28 +135,26 @@ public record CapacityConfig(int minCapacity,
       );
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "minCapacity", "minCapacityDuration", "maxCapacity", "resetDuration",
+        "maxGroupedErrorResponses", "maxGroupedErrorExpiration",
+        "tooManyErrorsBackoffDuration", "serverErrorBackOffDuration", "rateLimitedBackOffDuration"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("minCapacity", buf, offset, len)) {
-        this.minCapacity = ji.readInt();
-      } else if (fieldEquals("minCapacityDuration", buf, offset, len)) {
-        this.minCapacityDuration = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("maxCapacity", buf, offset, len)) {
-        this.maxCapacity = ji.readInt();
-      } else if (fieldEquals("resetDuration", buf, offset, len)) {
-        this.resetDuration = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("maxGroupedErrorResponses", buf, offset, len)) {
-        this.maxGroupedErrorResponses = ji.readInt();
-      } else if (fieldEquals("maxGroupedErrorExpiration", buf, offset, len)) {
-        this.maxGroupedErrorExpiration = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("tooManyErrorsBackoffDuration", buf, offset, len)) {
-        this.tooManyErrorsBackoffDuration = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("serverErrorBackOffDuration", buf, offset, len)) {
-        this.serverErrorBackOffDuration = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("rateLimitedBackOffDuration", buf, offset, len)) {
-        this.rateLimitedBackOffDuration = ServiceConfigUtil.parseDuration(ji);
-      } else {
-        throw new IllegalStateException("Unhandled CapacityConfig field " + new String(buf, offset, len));
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> this.minCapacity = ji.readInt();
+        case 1 -> this.minCapacityDuration = ServiceConfigUtil.parseDuration(ji);
+        case 2 -> this.maxCapacity = ji.readInt();
+        case 3 -> this.resetDuration = ServiceConfigUtil.parseDuration(ji);
+        case 4 -> this.maxGroupedErrorResponses = ji.readInt();
+        case 5 -> this.maxGroupedErrorExpiration = ServiceConfigUtil.parseDuration(ji);
+        case 6 -> this.tooManyErrorsBackoffDuration = ServiceConfigUtil.parseDuration(ji);
+        case 7 -> this.serverErrorBackOffDuration = ServiceConfigUtil.parseDuration(ji);
+        case 8 -> this.rateLimitedBackOffDuration = ServiceConfigUtil.parseDuration(ji);
+        default ->
+            throw new IllegalStateException("Unhandled CapacityConfig field " + new String(buf, offset, len));
       }
       return true;
     }

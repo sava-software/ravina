@@ -103,17 +103,7 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
                                                  final String defaultFormat,
                                                  final CapacityConfig defaultCapacity,
                                                  final Backoff defaultBackoff) {
-    final var webHookConfigs = new ArrayList<WebHookConfig>();
-    while (ji.readArray()) {
-      final var webHookConfig = WebHookConfig.parseConfig(
-          ji,
-          defaultFormat,
-          defaultCapacity,
-          defaultBackoff
-      );
-      webHookConfigs.add(webHookConfig);
-    }
-    return webHookConfigs.isEmpty() ? List.of() : webHookConfigs;
+    return ji.readList(j -> WebHookConfig.parseConfig(j, defaultFormat, defaultCapacity, defaultBackoff));
   }
 
   @Override

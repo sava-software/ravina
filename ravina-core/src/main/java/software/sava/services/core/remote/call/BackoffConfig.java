@@ -3,6 +3,7 @@ package software.sava.services.core.remote.call;
 import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.config.ServiceConfigUtil;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -11,7 +12,6 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Locale.ENGLISH;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record BackoffConfig(BackoffStrategy strategy,
                             Duration initialRetryDelay,
@@ -75,20 +75,20 @@ public record BackoffConfig(BackoffStrategy strategy,
       );
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "strategy", "initialRetryDelay", "initialRetryDelaySeconds",
+        "maxRetryDelay", "maxRetryDelaySeconds"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("strategy", buf, offset, len)) {
-        strategy = BackoffStrategy.valueOf(ji.readString().toLowerCase(ENGLISH));
-      } else if (fieldEquals("initialRetryDelay", buf, offset, len)) {
-        initialRetryDelay = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("initialRetryDelaySeconds", buf, offset, len)) {
-        initialRetryDelay = Duration.ofSeconds(ji.readInt());
-      } else if (fieldEquals("maxRetryDelay", buf, offset, len)) {
-        maxRetryDelay = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("maxRetryDelaySeconds", buf, offset, len)) {
-        maxRetryDelay = Duration.ofSeconds(ji.readInt());
-      } else {
-        ji.skip();
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> strategy = BackoffStrategy.valueOf(ji.readString().toLowerCase(ENGLISH));
+        case 1 -> initialRetryDelay = ServiceConfigUtil.parseDuration(ji);
+        case 2 -> initialRetryDelay = Duration.ofSeconds(ji.readInt());
+        case 3 -> maxRetryDelay = ServiceConfigUtil.parseDuration(ji);
+        case 4 -> maxRetryDelay = Duration.ofSeconds(ji.readInt());
+        default -> ji.skip();
       }
       return true;
     }

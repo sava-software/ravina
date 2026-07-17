@@ -3,6 +3,7 @@ package software.sava.services.solana.epoch;
 import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.config.ServiceConfigUtil;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -12,7 +13,6 @@ import java.util.Properties;
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
 import static software.sava.services.solana.epoch.SlotPerformanceStats.TARGET_MILLIS_PER_SLOT;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record EpochServiceConfig(int defaultMillisPerSlot,
                                  int minMillisPerSlot,
@@ -103,22 +103,22 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
       );
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "defaultMillisPerSlot", "minMillisPerSlot", "maxMillisPerSlot",
+        "slotSampleWindow", "fetchSlotSamplesDelay", "fetchEpochInfoAfterEndDelay"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("defaultMillisPerSlot", buf, offset, len)) {
-        defaultMillisPerSlot = ji.readInt();
-      } else if (fieldEquals("minMillisPerSlot", buf, offset, len)) {
-        minMillisPerSlot = ji.readInt();
-      } else if (fieldEquals("maxMillisPerSlot", buf, offset, len)) {
-        maxMillisPerSlot = ji.readInt();
-      } else if (fieldEquals("slotSampleWindow", buf, offset, len)) {
-        slotSampleWindow = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("fetchSlotSamplesDelay", buf, offset, len)) {
-        fetchSlotSamplesDelay = ServiceConfigUtil.parseDuration(ji);
-      } else if (fieldEquals("fetchEpochInfoAfterEndDelay", buf, offset, len)) {
-        fetchEpochInfoAfterEndDelay = ServiceConfigUtil.parseDuration(ji);
-      } else {
-        throw new IllegalStateException("Unknown EpochServiceConfig field " + new String(buf, offset, len));
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> defaultMillisPerSlot = ji.readInt();
+        case 1 -> minMillisPerSlot = ji.readInt();
+        case 2 -> maxMillisPerSlot = ji.readInt();
+        case 3 -> slotSampleWindow = ServiceConfigUtil.parseDuration(ji);
+        case 4 -> fetchSlotSamplesDelay = ServiceConfigUtil.parseDuration(ji);
+        case 5 -> fetchEpochInfoAfterEndDelay = ServiceConfigUtil.parseDuration(ji);
+        default ->
+            throw new IllegalStateException("Unknown EpochServiceConfig field " + new String(buf, offset, len));
       }
       return true;
     }

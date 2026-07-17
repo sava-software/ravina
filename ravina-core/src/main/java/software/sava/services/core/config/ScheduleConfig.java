@@ -1,6 +1,7 @@
 package software.sava.services.core.config;
 
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -11,7 +12,6 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record ScheduleConfig(long initialDelay,
                              long delay,
@@ -78,18 +78,18 @@ public record ScheduleConfig(long initialDelay,
       return new ScheduleConfig(initialDelay, delay, period, timeUnit);
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "initialDelay", "delay", "period", "timeUnit"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("initialDelay", buf, offset, len)) {
-        initialDelay = ji.readLong();
-      } else if (fieldEquals("delay", buf, offset, len)) {
-        delay = ji.readLong();
-      } else if (fieldEquals("period", buf, offset, len)) {
-        period = ji.readLong();
-      } else if (fieldEquals("timeUnit", buf, offset, len)) {
-        timeUnit = TimeUnit.valueOf(ji.readString().toUpperCase(Locale.ENGLISH));
-      } else {
-        ji.skip();
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> initialDelay = ji.readLong();
+        case 1 -> delay = ji.readLong();
+        case 2 -> period = ji.readLong();
+        case 3 -> timeUnit = TimeUnit.valueOf(ji.readString().toUpperCase(Locale.ENGLISH));
+        default -> ji.skip();
       }
       return true;
     }

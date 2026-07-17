@@ -10,6 +10,7 @@ import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.IOException;
@@ -18,7 +19,6 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Predicate;
 
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class GoogleKMSClientFactory implements SigningServiceFactory, FieldBufferPredicate {
 
@@ -142,22 +142,20 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
     return createService(executorService, backoff, prefix, properties, GoogleKMSErrorTrackerFactory.INSTANCE);
   }
 
+  private static final FieldMatcher FIELDS = FieldMatcher.of(
+      "project", "location", "keyRing", "cryptoKey", "cryptoKeyVersion", "capacity"
+  );
+
   @Override
   public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-    if (fieldEquals("project", buf, offset, len)) {
-      builder.setProject(ji.readString());
-    } else if (fieldEquals("location", buf, offset, len)) {
-      builder.setLocation(ji.readString());
-    } else if (fieldEquals("keyRing", buf, offset, len)) {
-      builder.setKeyRing(ji.readString());
-    } else if (fieldEquals("cryptoKey", buf, offset, len)) {
-      builder.setCryptoKey(ji.readString());
-    } else if (fieldEquals("cryptoKeyVersion", buf, offset, len)) {
-      builder.setCryptoKeyVersion(ji.readNumberOrNumberString());
-    } else if (fieldEquals("capacity", buf, offset, len)) {
-      capacityConfig = CapacityConfig.parse(ji);
-    } else {
-      ji.skip();
+    switch (FIELDS.match(buf, offset, len)) {
+      case 0 -> builder.setProject(ji.readString());
+      case 1 -> builder.setLocation(ji.readString());
+      case 2 -> builder.setKeyRing(ji.readString());
+      case 3 -> builder.setCryptoKey(ji.readString());
+      case 4 -> builder.setCryptoKeyVersion(ji.readNumberOrNumberString());
+      case 5 -> capacityConfig = CapacityConfig.parse(ji);
+      default -> ji.skip();
     }
     return true;
   }

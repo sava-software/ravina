@@ -134,12 +134,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
           defaultBackoff = backoffConfig.createBackoff();
         }
       } else if (fieldEquals("endpoints", buf, offset, len)) {
-        final var rpcConfigs = new ArrayList<UriCapacityConfig>();
-        while (ji.readArray()) {
-          final var rpcConfig = UriCapacityConfig.parseConfig(ji);
-          rpcConfigs.add(rpcConfig);
-        }
-        this.resourceConfigs = rpcConfigs;
+        this.resourceConfigs = ji.readList(UriCapacityConfig::parseConfig);
       } else {
         ji.skip();
       }

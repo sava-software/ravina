@@ -5,6 +5,7 @@ import software.sava.services.core.remote.call.BackoffConfig;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.FieldBufferPredicate;
+import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -13,7 +14,6 @@ import java.net.http.HttpResponse;
 import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
-import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
                                        URI endpoint,
@@ -88,21 +88,23 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
       }
     }
 
+    private static final FieldMatcher FIELDS = FieldMatcher.of(
+        "name", "endpoint", "capacity", "backoff"
+    );
+
     @Override
     public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
-      if (fieldEquals("name", buf, offset, len)) {
-        name = ji.readString();
-      } else if (fieldEquals("endpoint", buf, offset, len)) {
-        endpoint = ji.readString();
-      } else if (fieldEquals("capacity", buf, offset, len)) {
-        capacityConfig = CapacityConfig.parse(ji);
-      } else if (fieldEquals("backoff", buf, offset, len)) {
-        final var backoffConfig = BackoffConfig.parseConfig(ji);
-        if (backoffConfig != null) {
-          backoff = backoffConfig.createBackoff();
+      switch (FIELDS.match(buf, offset, len)) {
+        case 0 -> name = ji.readString();
+        case 1 -> endpoint = ji.readString();
+        case 2 -> capacityConfig = CapacityConfig.parse(ji);
+        case 3 -> {
+          final var backoffConfig = BackoffConfig.parseConfig(ji);
+          if (backoffConfig != null) {
+            backoff = backoffConfig.createBackoff();
+          }
         }
-      } else {
-        ji.skip();
+        default -> ji.skip();
       }
       return true;
     }
