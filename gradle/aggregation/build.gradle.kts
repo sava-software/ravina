@@ -13,10 +13,10 @@ dependencies {
 tasks.register("publishToGitHubPackages") {
   group = "publishing"
   dependsOn(
-    ":ravina-core:publishMavenJavaPublicationToSavaGithubPackagesRepository",
-    ":ravina-solana:publishMavenJavaPublicationToSavaGithubPackagesRepository",
-    ":ravina-kms-core:publishMavenJavaPublicationToSavaGithubPackagesRepository",
-    ":ravina-kms-http:publishMavenJavaPublicationToSavaGithubPackagesRepository",
-    ":ravina-kms-google:publishMavenJavaPublicationToSavaGithubPackagesRepository"
+    ":ravina-core:publishMavenJavaPublicationToSavaGithubPackagesPublishRepository",
+    ":ravina-solana:publishMavenJavaPublicationToSavaGithubPackagesPublishRepository",
+    ":ravina-kms-core:publishMavenJavaPublicationToSavaGithubPackagesPublishRepository",
+    ":ravina-kms-http:publishMavenJavaPublicationToSavaGithubPackagesPublishRepository",
+    ":ravina-kms-google:publishMavenJavaPublicationToSavaGithubPackagesPublishRepository"
   )
 }
