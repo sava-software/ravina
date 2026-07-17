@@ -61,7 +61,8 @@ public final class ServiceConfigUtil {
   }
 
   public static <T> T loadConfig(final Path serviceConfigFile, final Parser<T> parser) {
-    try (final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile))) {
+    try {
+      final var ji = JsonIterator.parse(Files.readAllBytes(serviceConfigFile));
       ji.testObject(parser);
       return parser.createConfig();
     } catch (final IOException e) {

@@ -90,7 +90,7 @@ public record TransactionResult(List<Instruction> instructions,
   }
 
   public boolean exceedsSizeLimit() {
-    return transaction.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH;
+    return transaction.exceedsSizeLimit();
   }
 
   public long priorityFeeLamports() {

@@ -1,7 +1,7 @@
 package software.sava.services.core.remote.call;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -12,7 +12,8 @@ import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 import systems.comodal.jsoniter.JsonIterator;
 
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -22,6 +23,33 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 final class CallTests {
+
+  // Time only advances when the code under test sleeps, so capacity replenishment
+  // is an exact function of the delays the rate limiter requested.
+  private static final class TestClock implements NanoClock {
+
+    private long nanos;
+    private final List<Long> sleeps = new ArrayList<>();
+
+    @Override
+    public long nanoTime() {
+      return nanos;
+    }
+
+    @Override
+    public void sleep(final long millis) {
+      sleeps.add(millis);
+      nanos += millis * 1_000_000;
+    }
+
+    List<Long> sleepsSince(final int fromIndex) {
+      return List.copyOf(sleeps.subList(fromIndex, sleeps.size()));
+    }
+
+    int numSleeps() {
+      return sleeps.size();
+    }
+  }
 
   private static final class LongErrorTracker extends RootErrorTracker<Long> {
 
@@ -52,14 +80,13 @@ final class CallTests {
     @Override
     protected void logResponse(final Long response) {
       if (response == 400) {
-        assertTrue(capacityState.capacity() <= 1, response + ": " + capacityState);
+        assertEquals(0, capacityState.capacity(), response + ": " + capacityState);
       } else if (response == 401) {
-        assertEquals(398, capacityState.capacity(), response + ": " + capacityState);
+        // 89ms backoff replenished 356, minus the claim of 2 for this call.
+        assertEquals(354, capacityState.capacity(), response + ": " + capacityState);
       } else if (response == 429) {
-        assertTrue(
-            capacityState.capacity() > -100 && capacityState.capacity() < 0,
-            response + ": " + capacityState
-        );
+        // Rate limited: docked one full resetDuration of capacity.
+        assertEquals(-102, capacityState.capacity(), response + ": " + capacityState);
       }
     }
   }
@@ -75,8 +102,6 @@ final class CallTests {
   }
 
   @Test
-  @DisabledIfEnvironmentVariable(named = "GITHUB_ACTIONS", matches = "true",
-      disabledReason = "Too much CPU contention on GitHub Actions runners")
   void testCourteous() {
     final var serviceName = "testCall";
     final var capacityConfig = CapacityConfig.parse(JsonIterator.parse("""
@@ -87,67 +112,76 @@ final class CallTests {
         }"""));
     assertNotNull(capacityConfig);
     final var backoff = Backoff.fibonacci(MILLISECONDS, 100, 2_100);
-    final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE);
+    final var clock = new TestClock();
+    final var monitor = capacityConfig.createMonitor(serviceName, LongErrorTrackerFactory.INSTANCE, clock);
 
+    final var count = new AtomicLong(0);
     final var loadBalancer = LoadBalancer.createBalancer(BalancedItem.createItem(
-        new AtomicLong(0),
+        count,
         monitor,
         backoff
     ));
 
     final var call = Call.createCourteousCall(
-        loadBalancer, count -> {
-          final long _count = count.incrementAndGet();
-          if (_count == 400 || _count == 401 || _count == 429) {
-            monitor.errorTracker().test(_count);
-            return CompletableFuture.failedFuture(new IllegalStateException("Error " + _count));
+        loadBalancer, _count -> {
+          final long callCount = _count.incrementAndGet();
+          if (callCount == 400 || callCount == 401 || callCount == 429) {
+            monitor.errorTracker().test(callCount);
+            return CompletableFuture.failedFuture(new IllegalStateException("Error " + callCount));
           } else {
-            return CompletableFuture.completedFuture(_count);
+            return CompletableFuture.completedFuture(callCount);
           }
         },
         CallContext.createContext(2, 0, false),
+        clock,
         "rpcClient::getProgramAccounts"
     );
 
-    int s = 0;
-    final long[] samples = new long[900];
-    Arrays.fill(samples, -1);
-    long start, duration, callCount;
-    for (int i = 1; i <= samples.length; ++i) {
-      start = System.nanoTime();
-      callCount = call.get();
-      duration = System.nanoTime() - start;
-
-      if (i == 400) {
-        final var log = String.format(
-            "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
-            i, callCount, duration
-        );
+    // maxCapacity 400 over PT0.1S replenishes 4 weight/ms; at weight 2 per call the
+    // sustainable rate is 2 calls/ms, i.e. a 1ms pacing sleep every other call.
+    final var noSleep = List.<Long>of();
+    final var paceSleep = List.of(1L);
+    for (int i = 1; i <= 900; ++i) {
+      final int sleepsBefore = clock.numSleeps();
+      final long callCount = call.get();
+      final var sleeps = clock.sleepsSince(sleepsBefore);
+      final var log = String.format("[iteration=%d] [callCount=%d] [sleeps=%s]", i, callCount, sleeps);
+      if (i <= 201) {
+        // Initial capacity covers the first 200 calls; call 201 overdraws to -2 for
+        // free because the 500us it should wait truncates to 0ms.
+        assertEquals(i, callCount, log);
+        assertEquals(noSleep, sleeps, log);
+      } else if (i < 400) {
+        assertEquals(i, callCount, log);
+        assertEquals((i & 1) == 0 ? paceSleep : noSleep, sleeps, log);
+      } else if (i == 400) {
+        // Calls 400 and 401 fail after a 1ms pacing sleep, each triggering a
+        // fibonacci backoff: 89ms, then 144ms.
         assertEquals(402, callCount, log);
-        assertTrue(duration >= 250_000_000, log);
-        assertTrue(duration < 300_000_000, log);
+        assertEquals(List.of(1L, 89L, 144L), sleeps, log);
+      } else if (i < 427) {
+        // The backoffs replenished far more capacity than the errors consumed.
+        assertEquals(i + 2, callCount, log);
+        assertEquals(noSleep, sleeps, log);
       } else if (i == 427) {
-        final var log = String.format(
-            "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
-            i, callCount, duration
-        );
+        // Call 429 is rate limited, docking a full resetDuration of capacity;
+        // one 89ms backoff replenishes it back to max.
         assertEquals(430, callCount, log);
-        assertTrue(duration >= 90_000_000, log);
-        assertTrue(duration < 100_000_000, log);
+        assertEquals(List.of(89L), sleeps, log);
+      } else if (i <= 626) {
+        assertEquals(i + 3, callCount, log);
+        assertEquals(noSleep, sleeps, log);
       } else {
-        if (duration > 11_000_000) {
-          fail(String.format(
-              "[iteration=%d] [callCount=%d] [duration=%,dns]%n",
-              i, callCount, duration
-          ));
-        }
-        samples[s++] = duration;
+        // Capacity exhausted again; back to the sustainable pace.
+        assertEquals(i + 3, callCount, log);
+        assertEquals((i & 1) == 0 ? paceSleep : noSleep, sleeps, log);
       }
     }
-    final long median = samples[samples.length >> 1];
-    assertTrue(median < 10_000, Long.toString(median));
-    final var stats = Arrays.stream(samples).summaryStatistics();
-    assertTrue(stats.getAverage() < 300_000, stats.toString());
+
+    // 900 successful calls plus the 3 failures.
+    assertEquals(903, count.get());
+    assertEquals(559_000_000L, clock.nanoTime());
+    assertEquals(0, monitor.capacityState().capacity());
   }
 
   @Test

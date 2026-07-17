@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
 
@@ -11,8 +12,9 @@ class GreedyBalancedCall<I, R> extends UncheckedBalancedCall<I, R> {
   GreedyBalancedCall(final LoadBalancer<I> loadBalancer,
                      final Function<I, CompletableFuture<R>> call,
                      final CallContext callContext,
+                     final NanoClock clock,
                      final String retryLogContext) {
-    super(loadBalancer, call, callContext, retryLogContext);
+    super(loadBalancer, call, callContext, clock, retryLogContext);
   }
 
   @Override

@@ -290,7 +290,7 @@ record TransactionProcessorRecord(ExecutorService executor,
 
     final var base64EncodedTx = simulateTx.base64EncodeToString();
     final int base64Length = base64EncodedTx.length();
-    if (simulateTx.exceedsSizeLimit() || base64Length > Transaction.MAX_BASE_64_ENCODED_LENGTH) {
+    if (simulateTx.exceedsSizeLimit()) {
       return new SimulationFutures(
           commitment,
           instructions,

@@ -33,10 +33,9 @@ public final class MemorySignerFromFilePointerFactory implements SigningServiceF
         final var signer = PrivateKeyEncoding.fromProperties(props);
         return new MemorySigner(signer);
       } else if (fileName.endsWith(".json")) {
-        try (final var privateKeyJI = JsonIterator.parse(fileBytes)) {
-          final var signer = PrivateKeyEncoding.fromJsonPrivateKey(privateKeyJI);
-          return new MemorySigner(signer);
-        }
+        final var privateKeyJI = JsonIterator.parse(fileBytes);
+        final var signer = PrivateKeyEncoding.fromJsonPrivateKey(privateKeyJI);
+        return new MemorySigner(signer);
       } else {
         throw new IllegalArgumentException("Unsupported file extension for filePath: " + filePath + ". Expected .properties or .json");
       }

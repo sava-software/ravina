@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.time.Duration;
@@ -15,6 +16,7 @@ final class CapacityStateVal implements CapacityState {
   private static final IntBinaryOperator CLAIM_REQUEST = (numRemaining, weight) -> numRemaining - weight;
   private static final IntBinaryOperator PUT_CLAIM_BACK = Integer::sum;
 
+  private final NanoClock clock;
   private final CapacityConfig capacityConfig;
   private final AtomicInteger capacity;
   private final double weightPerNanosecond;
@@ -22,14 +24,15 @@ final class CapacityStateVal implements CapacityState {
   private final IntBinaryOperator updateCapacity;
   private final AtomicLong updatedAtSystemNanoTime;
 
-  CapacityStateVal(final CapacityConfig capacityConfig) {
+  CapacityStateVal(final CapacityConfig capacityConfig, final NanoClock clock) {
+    this.clock = clock;
     this.capacityConfig = capacityConfig;
     final int maxCapacity = capacityConfig.maxCapacity();
     this.weightPerNanosecond = maxCapacity / (double) capacityConfig.resetDuration().toNanos();
     this.nanosPerWeight = Math.round(1 / weightPerNanosecond);
     this.updateCapacity = (numRemaining, newCapacity) -> Math.min(maxCapacity, Math.max(capacityConfig.minCapacity(), numRemaining + newCapacity));
     this.capacity = new AtomicInteger(maxCapacity);
-    this.updatedAtSystemNanoTime = new AtomicLong(System.nanoTime());
+    this.updatedAtSystemNanoTime = new AtomicLong(clock.nanoTime());
   }
 
   @Override
@@ -97,7 +100,7 @@ final class CapacityStateVal implements CapacityState {
   }
 
   private int tryUpdateCapacity() {
-    final long nanoTime = System.nanoTime();
+    final long nanoTime = clock.nanoTime();
     final long updatedAtSystemNanoTime = this.updatedAtSystemNanoTime.get();
     final long nanosSinceUpdated = nanoTime - updatedAtSystemNanoTime;
     if (nanosSinceUpdated < nanosPerWeight) {

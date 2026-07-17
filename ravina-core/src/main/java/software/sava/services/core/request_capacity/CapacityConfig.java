@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.config.PropertiesParser;
 import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.request_capacity.trackers.ErrorTrackerFactory;
@@ -58,7 +59,13 @@ public record CapacityConfig(int minCapacity,
 
   public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,
                                                           final ErrorTrackerFactory<R> errorTrackerFactory) {
-    final var capacityState = new CapacityStateVal(this);
+    return createMonitor(serviceName, errorTrackerFactory, NanoClock.SYSTEM);
+  }
+
+  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,
+                                                          final ErrorTrackerFactory<R> errorTrackerFactory,
+                                                          final NanoClock clock) {
+    final var capacityState = new CapacityStateVal(this, clock);
     return new CapacityMonitorRecord<>(
         serviceName,
         capacityState,
@@ -67,7 +74,7 @@ public record CapacityConfig(int minCapacity,
   }
 
   public ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> createHttpResponseMonitor(final String serviceName) {
-    final var capacityState = new CapacityStateVal(this);
+    final var capacityState = new CapacityStateVal(this, NanoClock.SYSTEM);
     return new CapacityMonitorRecord<>(
         serviceName,
         capacityState,

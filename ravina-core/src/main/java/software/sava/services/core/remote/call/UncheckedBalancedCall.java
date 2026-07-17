@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.context.CallContext;
@@ -19,6 +20,7 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
   protected final LoadBalancer<I> loadBalancer;
   protected final Function<I, CompletableFuture<R>> call;
   protected final CallContext callContext;
+  protected final NanoClock clock;
   protected final String retryLogContext;
 
   protected BalancedItem<I> next;
@@ -26,10 +28,12 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
   UncheckedBalancedCall(final LoadBalancer<I> loadBalancer,
                         final Function<I, CompletableFuture<R>> call,
                         final CallContext callContext,
+                        final NanoClock clock,
                         final String retryLogContext) {
     this.loadBalancer = loadBalancer;
     this.call = call;
     this.callContext = callContext;
+    this.clock = clock;
     this.retryLogContext = retryLogContext;
   }
 
@@ -78,8 +82,7 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
                 "Failed %d times because [%s], retrying in %dms. Context: %s",
                 errorCount, cause.getMessage(), sleep, retryLogContext
             ));
-            //noinspection BusyWait
-            Thread.sleep(sleep);
+            clock.sleep(sleep);
           }
           callFuture = call();
           if (callFuture == null) {

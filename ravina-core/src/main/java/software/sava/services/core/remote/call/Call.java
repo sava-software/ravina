@@ -1,5 +1,6 @@
 package software.sava.services.core.remote.call;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -71,6 +72,21 @@ public interface Call<T> extends Supplier<T> {
     return new UncheckedBalancedCall<>(loadBalancer,
         call,
         CallContext.DEFAULT_CALL_CONTEXT,
+        NanoClock.SYSTEM,
+        retryLogContext
+    );
+  }
+
+  static <I, R> Call<R> createCourteousCall(final LoadBalancer<I> loadBalancer,
+                                            final Function<I, CompletableFuture<R>> call,
+                                            final CallContext callContext,
+                                            final NanoClock clock,
+                                            final String retryLogContext) {
+    return new CourteousBalancedCall<>(
+        loadBalancer,
+        call,
+        callContext,
+        clock,
         retryLogContext
     );
   }
@@ -79,10 +95,11 @@ public interface Call<T> extends Supplier<T> {
                                             final Function<I, CompletableFuture<R>> call,
                                             final CallContext callContext,
                                             final String retryLogContext) {
-    return new CourteousBalancedCall<>(
+    return createCourteousCall(
         loadBalancer,
         call,
         callContext,
+        NanoClock.SYSTEM,
         retryLogContext
     );
   }
@@ -106,6 +123,7 @@ public interface Call<T> extends Supplier<T> {
         loadBalancer,
         call,
         callContext,
+        NanoClock.SYSTEM,
         retryLogContext
     );
   }
@@ -117,6 +135,7 @@ public interface Call<T> extends Supplier<T> {
         loadBalancer,
         call,
         CallContext.DEFAULT_CALL_CONTEXT,
+        NanoClock.SYSTEM,
         retryLogContext
     );
   }
