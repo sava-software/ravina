@@ -1,5 +1,30 @@
 # Changelog
 
+## [25.4.0](https://github.com/sava-software/ravina/compare/25.3.0...25.4.0) (2026-07-17)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** JSON parsing implementations now rely on `FieldMatcher`. Ensure proper mapping of field names in all JSON parsing logic.
+* **core:** Core modules now enforce stricter validation in fuzz-tested components. Update any code depending on lenient parsing or unchecked delays.
+* **core:** Time-based operations now require `NanoClock` instead of direct use of system time. Update constructors and method calls to provide a `NanoClock` instance.
+
+### Features
+
+* **core:** add fuzz tests for backoff, capacity, and load balancing ([af72c32](https://github.com/sava-software/ravina/commit/af72c32063145585d8196807de36aeabf9c2b9b0))
+* **core:** add NanoClock interface for time abstraction ([f48d39e](https://github.com/sava-software/ravina/commit/f48d39ec2888e4a7a4332c7ef3152163c1085f8d))
+* **tests:** add extensive unit and fuzz tests for calls and configs ([42a333b](https://github.com/sava-software/ravina/commit/42a333bb6c145c46c304441e5ea3464abbecffc8))
+
+
+### Miscellaneous Chores
+
+* release 25.4.0 ([cc93fe0](https://github.com/sava-software/ravina/commit/cc93fe03fb9406d7edda60a17f7f9415b58baa09))
+
+
+### Code Refactoring
+
+* **core:** replace fieldEquals with FieldMatcher for JSON parsing ([1b3768a](https://github.com/sava-software/ravina/commit/1b3768a89ca12cac9632798f4f31d9409e0bd581))
+
 ## [25.3.0](https://github.com/sava-software/ravina/compare/25.2.2...25.3.0) (2026-06-01)
 
 
