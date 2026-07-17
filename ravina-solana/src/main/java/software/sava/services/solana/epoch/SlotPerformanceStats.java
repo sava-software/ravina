@@ -53,7 +53,7 @@ public record SlotPerformanceStats(int median,
       final int middle = numPerfSamples >> 1;
       final int median = (numPerfSamples & 1) == 1
           ? msPerSlotArray[middle]
-          : (int) Math.round((msPerSlotArray[middle] + msPerSlotArray[middle + 1]) / 2.0);
+          : (int) Math.round((msPerSlotArray[middle - 1] + msPerSlotArray[middle]) / 2.0);
       final int mean = (int) Math.round(Arrays.stream(msPerSlotArray).average().orElseThrow());
 
       final int min = msPerSlotArray[0];

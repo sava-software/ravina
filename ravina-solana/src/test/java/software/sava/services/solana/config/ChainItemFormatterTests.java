@@ -117,4 +117,17 @@ final class ChainItemFormatterTests {
     assertEquals("https://explorer.solana.com/tx/%s", formatter.sigFormat());
     assertEquals(DEFAULT_ADDRESS_FORMAT, formatter.addressFormat());
   }
+
+  @Test
+  void testCommaSeparateInteger() {
+    assertEquals("", ChainItemFormatter.commaSeparateInteger(""));
+    assertEquals("1", ChainItemFormatter.commaSeparateInteger("1"));
+    assertEquals("12", ChainItemFormatter.commaSeparateInteger("12"));
+    assertEquals("123", ChainItemFormatter.commaSeparateInteger("123"));
+    assertEquals("1,234", ChainItemFormatter.commaSeparateInteger("1234"));
+    assertEquals("12,345", ChainItemFormatter.commaSeparateInteger("12345"));
+    assertEquals("123,456", ChainItemFormatter.commaSeparateInteger("123456"));
+    assertEquals("1,234,567", ChainItemFormatter.commaSeparateInteger("1234567"));
+    assertEquals("98,765,432,109,876,543,210", ChainItemFormatter.commaSeparateInteger("98765432109876543210"));
+  }
 }

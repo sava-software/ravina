@@ -2,8 +2,6 @@ package software.sava.services.core.remote.call;
 
 import java.util.concurrent.TimeUnit;
 
-import static java.util.concurrent.TimeUnit.SECONDS;
-
 final class ExponentialBackoffErrorHandler extends RootBackoff {
 
   private final long maxErrorCount;
@@ -12,7 +10,11 @@ final class ExponentialBackoffErrorHandler extends RootBackoff {
                                  final long initialRetryDelay,
                                  final long maxRetryDelay) {
     super(timeUnit, initialRetryDelay, maxRetryDelay);
-    this.maxErrorCount = (long) (Math.log(maxRetryDelay) / Math.log(2)) - 1;
+    long errorCount = 2;
+    for (long delay = initialRetryDelay << 1; delay > 0 && delay < maxRetryDelay; delay <<= 1) {
+      ++errorCount;
+    }
+    this.maxErrorCount = errorCount;
   }
 
   @Override
@@ -22,8 +24,7 @@ final class ExponentialBackoffErrorHandler extends RootBackoff {
     } else if (errorCount < 2) {
       return initialRetryDelay;
     } else {
-      final long exponentialDelay = (long) Math.pow(2, errorCount - 1);
-      return Math.max(initialRetryDelay, Math.min(maxRetryDelay, timeUnit.convert(exponentialDelay, SECONDS)));
+      return Math.min(maxRetryDelay, initialRetryDelay << (errorCount - 1));
     }
   }
 }

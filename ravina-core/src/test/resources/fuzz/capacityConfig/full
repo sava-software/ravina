@@ -1,0 +1,10 @@
+{
+  "minCapacity": -50,
+  "maxCapacity": 200,
+  "resetDuration": "PT13S",
+  "maxGroupedErrorResponses": 3,
+  "maxGroupedErrorExpiration": "PT42S",
+  "tooManyErrorsBackoffDuration": "PT21S",
+  "serverErrorBackOffDuration": "PT8S",
+  "rateLimitedBackOffDuration": "PT34S"
+}

@@ -59,8 +59,10 @@ final class ItemContext<T> implements BalancedItem<T> {
     if (previousSample < 0) {
       this.sampleMedian.set(sample);
     } else {
-      Arrays.sort(this.localSampleArray);
-      this.sampleMedian.set(this.localSampleArray[MEDIAN_INDEX]);
+      // Sort a copy so the ring positions in localSampleArray stay aligned with samples.
+      final long[] sorted = Arrays.copyOf(this.localSampleArray, NUM_SAMPLES);
+      Arrays.sort(sorted);
+      this.sampleMedian.set(sorted[MEDIAN_INDEX]);
     }
   }
 

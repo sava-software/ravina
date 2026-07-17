@@ -42,12 +42,17 @@ public interface Backoff {
 
     long startPrevious;
     long startCurrent;
-    // Find previous value.
+    // Start at the fibonacci number nearest the initial delay.
     for (; ; ) {
       mark = current;
       current += previous;
       previous = mark;
       if (initialRetryDelay <= current) {
+        if ((initialRetryDelay - previous) > (current - initialRetryDelay)) {
+          mark = current;
+          current += previous;
+          previous = mark;
+        }
         startPrevious = previous;
         startCurrent = current;
         break;
@@ -67,7 +72,7 @@ public interface Backoff {
     previous = startPrevious;
     current = startCurrent;
     for (int i = 0; ; ) {
-      sequence[i] = previous;
+      sequence[i] = Math.min(previous, maxRetryDelay);
       if (++i == steps) {
         sequence[i - 1] = maxRetryDelay;
         break;
@@ -90,7 +95,7 @@ public interface Backoff {
   long initialDelay(final TimeUnit timeUnit);
 
   default long initialDelay() {
-    return maxDelay(timeUnit());
+    return initialDelay(timeUnit());
   }
 
   long maxDelay(final TimeUnit timeUnit);
