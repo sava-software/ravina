@@ -1,8 +1,13 @@
 package software.sava.services.solana.config;
 
 import org.junit.jupiter.api.Test;
+import software.sava.core.accounts.PublicKey;
+import software.sava.rpc.json.http.request.Commitment;
+import software.sava.rpc.json.http.response.Context;
+import software.sava.rpc.json.http.response.TxStatus;
 import systems.comodal.jsoniter.JsonIterator;
 
+import java.util.OptionalInt;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -116,6 +121,57 @@ final class ChainItemFormatterTests {
     final var formatter = ChainItemFormatter.parseConfig(properties);
     assertEquals("https://explorer.solana.com/tx/%s", formatter.sigFormat());
     assertEquals(DEFAULT_ADDRESS_FORMAT, formatter.addressFormat());
+  }
+
+  @Test
+  void testParseJsonUnknownFieldThrows() {
+    final var json = """
+        {
+          "bogus": "https://explorer.solana.com/tx/%s"
+        }
+        """;
+    assertThrows(IllegalStateException.class, () -> ChainItemFormatter.parseFormatter(JsonIterator.parse(json)));
+  }
+
+  @Test
+  void testCreateDefault() {
+    final var formatter = ChainItemFormatter.createDefault();
+    assertNotNull(formatter);
+    assertEquals(DEFAULT_SIG_FORMAT, formatter.sigFormat());
+    assertEquals(DEFAULT_ADDRESS_FORMAT, formatter.addressFormat());
+  }
+
+  @Test
+  void testFormatHelpers() {
+    final var formatter = ChainItemFormatter.createDefault();
+    assertEquals("https://solscan.io/tx/abc", formatter.formatSig("abc"));
+    assertEquals("https://solscan.io/account/xyz", formatter.formatAddress("xyz"));
+    final var publicKey = PublicKey.createPubKey(new byte[PublicKey.PUBLIC_KEY_LENGTH]);
+    assertEquals(
+        "https://solscan.io/account/11111111111111111111111111111111",
+        formatter.formatAddress(publicKey)
+    );
+  }
+
+  @Test
+  void testFormatSigStatusWithContext() {
+    final var formatter = ChainItemFormatter.createDefault();
+    final var status = new TxStatus(new Context(123, "1.18"), 456, OptionalInt.of(2), null, Commitment.CONFIRMED);
+    final var formatted = formatter.formatSigStatus("sigX", status);
+    assertTrue(formatted.contains("https://solscan.io/tx/sigX"), formatted);
+    assertTrue(formatted.contains("context slot: 123"), formatted);
+    assertTrue(formatted.contains("tx slot: 456"), formatted);
+    assertTrue(formatted.contains("confirmations: 2"), formatted);
+  }
+
+  @Test
+  void testFormatSigStatusWithoutContext() {
+    final var formatter = ChainItemFormatter.createDefault();
+    final var status = new TxStatus(null, 456, OptionalInt.empty(), null, null);
+    final var formatted = formatter.formatSigStatus("sigX", status);
+    assertTrue(formatted.contains("context slot: -1"), formatted);
+    assertTrue(formatted.contains("tx slot: 456"), formatted);
+    assertTrue(formatted.contains("confirmations: -1"), formatted);
   }
 
   @Test

@@ -9,7 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.concurrent.Executors;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 final class GoogleKMSClientFactoryTests {
 
@@ -123,6 +123,141 @@ final class GoogleKMSClientFactoryTests {
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var backoff = Backoff.single(1);
       assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "my.gcp.", props));
+    }
+  }
+
+  @Test
+  void testParsePropertiesPopulatesKeyVersionNameBuilder() throws Exception {
+    final var props = new Properties();
+    props.setProperty("project", "my-project");
+    props.setProperty("location", "us-east1");
+    props.setProperty("keyRing", "my-key-ring");
+    props.setProperty("cryptoKey", "my-crypto-key");
+    props.setProperty("cryptoKeyVersion", "1");
+    props.setProperty("capacity.maxCapacity", "50");
+    props.setProperty("capacity.minCapacity", "5");
+    props.setProperty("capacity.resetDuration", "PT10S");
+    props.setProperty("capacity.rateLimitedBackOffDuration", "PT2S");
+    final var factory = new GoogleKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var backoff = Backoff.single(1);
+      assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "", props));
+    }
+    // Parsing completed before the credentials failure: verify each property
+    // was applied to the key version name builder.
+    final var builderField = GoogleKMSClientFactory.class.getDeclaredField("builder");
+    builderField.setAccessible(true);
+    final var builder = (com.google.cloud.kms.v1.CryptoKeyVersionName.Builder) builderField.get(factory);
+    assertEquals("my-project", builder.getProject());
+    assertEquals("us-east1", builder.getLocation());
+    assertEquals("my-key-ring", builder.getKeyRing());
+    assertEquals("my-crypto-key", builder.getCryptoKey());
+    assertEquals("1", builder.getCryptoKeyVersion());
+  }
+
+  @Test
+  void testParsePropertiesAbsentNameFieldsAreSkipped() throws Exception {
+    // Absent name properties must not blow up parsing: each field is simply
+    // left unset. Only capacity properties are supplied, so capacityConfig
+    // resolves and the call still fails on credentials rather than earlier.
+    // Note this cannot distinguish the null guards in createService: the
+    // resource-name builder stores a null as readily as it is left unset, so
+    // guarding the setters is redundant with respect to builder state.
+    final var props = new Properties();
+    props.setProperty("capacity.maxCapacity", "50");
+    props.setProperty("capacity.minCapacity", "5");
+    props.setProperty("capacity.resetDuration", "PT10S");
+    props.setProperty("capacity.rateLimitedBackOffDuration", "PT2S");
+    final var factory = new GoogleKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var backoff = Backoff.single(1);
+      assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "", props));
+    }
+    final var builderField = GoogleKMSClientFactory.class.getDeclaredField("builder");
+    builderField.setAccessible(true);
+    final var builder = (com.google.cloud.kms.v1.CryptoKeyVersionName.Builder) builderField.get(factory);
+    assertNull(builder.getProject());
+    assertNull(builder.getLocation());
+    assertNull(builder.getKeyRing());
+    assertNull(builder.getCryptoKey());
+    assertNull(builder.getCryptoKeyVersion());
+  }
+
+  @Test
+  void testFactoryReuseRetainsCapacityConfig() {
+    final var factory = new GoogleKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var backoff = Backoff.single(1);
+
+      final var props = new Properties();
+      props.setProperty("project", "my-project");
+      props.setProperty("location", "us-east1");
+      props.setProperty("keyRing", "my-key-ring");
+      props.setProperty("cryptoKey", "my-crypto-key");
+      props.setProperty("cryptoKeyVersion", "1");
+      props.setProperty("capacity.maxCapacity", "50");
+      props.setProperty("capacity.minCapacity", "5");
+      props.setProperty("capacity.resetDuration", "PT10S");
+      props.setProperty("capacity.rateLimitedBackOffDuration", "PT2S");
+      assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "", props));
+
+      // Second use without capacity properties: the previously parsed capacity
+      // config must be reused rather than re-parsed from these properties, so
+      // the failure is still the credentials one.
+      final var reuseProps = new Properties();
+      reuseProps.setProperty("project", "my-project");
+      reuseProps.setProperty("location", "us-east1");
+      reuseProps.setProperty("keyRing", "my-key-ring");
+      reuseProps.setProperty("cryptoKey", "my-crypto-key");
+      reuseProps.setProperty("cryptoKeyVersion", "1");
+      assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "", reuseProps));
+    }
+  }
+
+  // --- static factory methods (no GCP client required) ---
+
+  @Test
+  void testStaticCreateServiceWithErrorTracker() {
+    final var keyVersionName = com.google.cloud.kms.v1.CryptoKeyVersionName.of(
+        "my-project", "us-east1", "my-key-ring", "my-crypto-key", "1");
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var service = GoogleKMSClientFactory.createService(
+          executor,
+          Backoff.single(1),
+          null,
+          keyVersionName,
+          (java.util.function.BiPredicate<Throwable, byte[]>) null
+      );
+      assertNotNull(service);
+      assertNull(service.capacityMonitor());
+    }
+  }
+
+  @Test
+  void testStaticCreateServiceWithCapacityMonitor() {
+    final var keyVersionName = com.google.cloud.kms.v1.CryptoKeyVersionName.of(
+        "my-project", "us-east1", "my-key-ring", "my-crypto-key", "1");
+    final var config = new software.sava.services.core.request_capacity.CapacityConfig(
+        0,
+        100,
+        java.time.Duration.ofSeconds(1),
+        8,
+        java.time.Duration.ofSeconds(1),
+        java.time.Duration.ofSeconds(1),
+        java.time.Duration.ofMillis(500),
+        java.time.Duration.ofSeconds(1)
+    );
+    final var monitor = config.<Throwable>createMonitor("kms", GoogleKMSErrorTrackerFactory.INSTANCE);
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var service = GoogleKMSClientFactory.createService(
+          executor,
+          Backoff.single(1),
+          null,
+          keyVersionName,
+          monitor
+      );
+      assertNotNull(service);
+      assertSame(monitor, service.capacityMonitor());
     }
   }
 }

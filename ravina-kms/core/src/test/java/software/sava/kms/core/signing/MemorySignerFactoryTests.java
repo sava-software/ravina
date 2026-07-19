@@ -189,4 +189,76 @@ final class MemorySignerFactoryTests {
     final var factory = new MemorySignerFromFilePointerFactory();
     assertThrows(IllegalArgumentException.class, () -> factory.createService(props));
   }
+
+  @Test
+  void testFilePointerJsonThreeArgOverload(@TempDir Path tempDir) throws IOException {
+    final var json = String.format("""
+        {"encoding":"base58PrivateKey","secret":"%s"}""", BASE58_PRIVATE_KEY);
+    final var keyFile = tempDir.resolve("key.json");
+    Files.writeString(keyFile, json);
+
+    final var factoryJson = String.format("""
+        {"filePath":"%s"}""", keyFile.toString().replace("\\", "\\\\"));
+    final var factory = new MemorySignerFromFilePointerFactory();
+    final var ji = JsonIterator.parse(factoryJson.getBytes(StandardCharsets.UTF_8));
+    final var service = factory.createService(null, null, ji);
+    assertNotNull(service);
+    assertEquals(EXPECTED_PUB_KEY, service.publicKey().join().toBase58());
+  }
+
+  @Test
+  void testFilePointerJsonIgnoresUnknownFieldAfterFilePath(@TempDir Path tempDir) throws IOException {
+    final var json = String.format("""
+        {"encoding":"base58PrivateKey","secret":"%s"}""", BASE58_PRIVATE_KEY);
+    final var keyFile = tempDir.resolve("key.json");
+    Files.writeString(keyFile, json);
+
+    final var factoryJson = String.format("""
+        {"filePath":"%s","junk":"/does/not/exist.txt"}""", keyFile.toString().replace("\\", "\\\\"));
+    final var factory = new MemorySignerFromFilePointerFactory();
+    final var ji = JsonIterator.parse(factoryJson.getBytes(StandardCharsets.UTF_8));
+    final var service = factory.createService(ji);
+    assertEquals(EXPECTED_PUB_KEY, service.publicKey().join().toBase58());
+  }
+
+  @Test
+  void testFilePointerJsonIgnoresUnknownFieldBeforeFilePath(@TempDir Path tempDir) throws IOException {
+    final var json = String.format("""
+        {"encoding":"base58PrivateKey","secret":"%s"}""", BASE58_PRIVATE_KEY);
+    final var keyFile = tempDir.resolve("key.json");
+    Files.writeString(keyFile, json);
+
+    final var factoryJson = String.format("""
+        {"junk":"/does/not/exist.txt","filePath":"%s"}""", keyFile.toString().replace("\\", "\\\\"));
+    final var factory = new MemorySignerFromFilePointerFactory();
+    final var ji = JsonIterator.parse(factoryJson.getBytes(StandardCharsets.UTF_8));
+    final var service = factory.createService(ji);
+    assertEquals(EXPECTED_PUB_KEY, service.publicKey().join().toBase58());
+  }
+
+  // --- MemorySigner behavior ---
+
+  @Test
+  void testMemorySignerSignAndPublicKey() {
+    final byte[] keyPair = Signer.generatePrivateKeyPairBytes();
+    final var signer = Signer.createFromKeyPair(keyPair);
+    final var service = new MemorySigner(signer);
+
+    final var withRetries = service.publicKeyWithRetries();
+    assertNotNull(withRetries);
+    assertEquals(signer.publicKey(), withRetries.join());
+
+    final byte[] msg = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    final var fullSignature = service.sign(msg);
+    assertNotNull(fullSignature);
+    assertArrayEquals(signer.sign(msg, 0, msg.length), fullSignature.join());
+
+    final var sliceSignature = service.sign(msg, 2, 4);
+    assertNotNull(sliceSignature);
+    assertArrayEquals(signer.sign(msg, 2, 4), sliceSignature.join());
+
+    assertNull(service.capacityMonitor());
+    service.close();
+  }
 }

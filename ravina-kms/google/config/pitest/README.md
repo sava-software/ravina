@@ -14,16 +14,45 @@ behavior*, never for "hard to test". Line numbers are part of the baseline
 key; after confirming churned rows are shifted old ones, refresh with
 `-PupdateMutationBaseline`.
 
-## Untriaged debt
+See `../../../ravina-core/config/pitest/README.md` for the measured note on
+timeout-detected mutants differing between single-suite and multi-suite runs.
 
-The initial baseline was seeded with the full pre-existing survivor
-population (2026-07-19), much of it `NO_COVERAGE` on the I/O client paths
-(live KMS calls are integration-tested, not unit-tested). Except for the
-groups triaged below, entries are **triage debt made explicit, not
-acceptance**.
+## Status
+
+No untriaged debt: every accepted entry has a reason below. This is the one
+module where a real share of the remainder is unreachable without live
+credentials — see the I/O section.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals
-(e.g. the error trackers' `logResponse`): log output is not part of any
-behavioral contract.
+**Logging removals** — `GoogleKMSErrorTracker.logResponse`
+`VoidMethodCallMutator`: log output is not part of any behavioral contract.
+
+**Redundant setter null-guards** — `GoogleKMSClientFactory.createService`
+(properties overload) lines 99/103/107/111/115,
+`RemoveConditionalMutator_EQUAL_IF` on each
+`if (project != null) builder.setProject(project);`. Measured, not assumed:
+`CryptoKeyVersionName.Builder` accepts a null without throwing and its getter
+then returns null — exactly what the getter returns when the setter is never
+called. Forcing the branch is therefore indistinguishable in builder state.
+`testParsePropertiesAbsentNameFieldsAreSkipped` pins the absent-property
+behavior (all five getters null) even though it cannot kill these mutants.
+
+## Unreachable without live GCP credentials (accepted, not "equivalent")
+
+Kept separate on purpose: these change observable behavior, but reaching them
+requires a real Cloud KMS endpoint, which unit tests must not contact. They
+are the module's genuine I/O debt.
+
+- `GoogleKMSClientFactory.createService` `NullReturnValsMutator` on the
+  `return new GoogleKMSClient(...)` sites (lines 70, 87, 124, 142). Every unit
+  test fails earlier at `KeyManagementServiceClient.create()` with
+  `UncheckedIOException` for want of credentials, so the return is never
+  reached.
+- `GoogleKMSClient.lambda$publicKey$0` (line 46) and `lambda$sign$0`
+  (line 68) `NullReturnValsMutator`: these map a live KMS response and cannot
+  run without one.
+
+Closing these needs an integration test against a real or emulated KMS, not a
+unit test — deliberately out of scope for `check`.
+

@@ -13,8 +13,9 @@ hardening {
     // silently skipped
     targetClasses = listOf("software.sava.kms.http.*")
     excludedClasses = listOf(
-      // test sources share the recompiled root
-      "software.sava.kms.http.*Tests"
+      // test sources share the recompiled root; the trailing wildcard also
+      // covers nested/anonymous classes inside test classes
+      "software.sava.kms.http.*Tests*"
     )
     targetTests = "software.sava.kms.http.*Test*"
   }

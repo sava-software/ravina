@@ -5,6 +5,7 @@ import software.sava.services.core.net.http.WebHookConfig;
 import systems.comodal.jsoniter.JsonIterator;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
@@ -342,6 +343,105 @@ final class HttpClientConfigTests {
     assertNotNull(backoff);
     assertEquals(Duration.ofSeconds(2).toNanos(), backoff.initialDelay(TimeUnit.NANOSECONDS));
     assertEquals(Duration.ofSeconds(60).toNanos(), backoff.maxDelay(TimeUnit.NANOSECONDS));
+  }
+
+  @Test
+  void testHeliusEndpointPropertyWinsOverUrl() {
+    final var properties = new Properties();
+    properties.setProperty("endpoint", "https://api.helius.xyz/v0");
+    properties.setProperty("url", "https://other.helius.xyz/v1");
+    properties.setProperty("capacity.maxCapacity", "50");
+    properties.setProperty("capacity.resetDuration", "PT1S");
+    properties.setProperty("backoff.strategy", "exponential");
+    properties.setProperty("backoff.initialRetryDelay", "PT1S");
+    properties.setProperty("backoff.maxRetryDelay", "PT32S");
+
+    final var config = HeliusConfig.parse(properties);
+    assertNotNull(config);
+    // The url property is only a fallback for a missing endpoint property.
+    assertEquals(URI.create("https://api.helius.xyz/v0"), config.endpoint());
+  }
+
+  @Test
+  void testHeliusCreateClient() {
+    final var config = HeliusConfig.parseConfig(JsonIterator.parse("""
+        {
+          "endpoint": "https://api.helius.xyz/v0",
+          "capacity": {
+            "maxCapacity": 50,
+            "resetDuration": "PT1S"
+          },
+          "backoff": {
+            "strategy": "exponential",
+            "initialRetryDelay": "PT1S",
+            "maxRetryDelay": "PT32S"
+          }
+        }"""));
+    assertNotNull(config);
+    try (final var httpClient = HttpClient.newHttpClient()) {
+      final var client = config.createClient(httpClient);
+      assertNotNull(client);
+      assertEquals(URI.create("https://api.helius.xyz/v0"), client.endpoint());
+    }
+  }
+
+  @Test
+  void testHeliusEqualsHashCodeToString() {
+    final var parsedA = HeliusConfig.parseConfig(JsonIterator.parse("""
+        {
+          "endpoint": "https://api.helius.xyz/v0",
+          "capacity": {
+            "maxCapacity": 50,
+            "resetDuration": "PT1S"
+          },
+          "backoff": {
+            "strategy": "exponential",
+            "initialRetryDelay": "PT1S",
+            "maxRetryDelay": "PT32S"
+          }
+        }"""));
+    final var parsedB = HeliusConfig.parseConfig(JsonIterator.parse("""
+        {
+          "endpoint": "https://other.helius.xyz/v1",
+          "capacity": {
+            "maxCapacity": 25,
+            "resetDuration": "PT2S"
+          },
+          "backoff": {
+            "strategy": "exponential",
+            "initialRetryDelay": "PT2S",
+            "maxRetryDelay": "PT64S"
+          }
+        }"""));
+    assertNotNull(parsedA);
+    assertNotNull(parsedB);
+
+    final var endpointA = URI.create("https://api.helius.xyz/v0");
+    final var endpointB = URI.create("https://other.helius.xyz/v1");
+    final var monitor = parsedA.capacityMonitor();
+    final var backoff = parsedA.backoff();
+
+    final var base = new HeliusConfig(endpointA, monitor, backoff);
+    final var same = new HeliusConfig(endpointA, monitor, backoff);
+    final var diffEndpoint = new HeliusConfig(endpointB, monitor, backoff);
+    final var diffMonitor = new HeliusConfig(endpointA, parsedB.capacityMonitor(), backoff);
+    final var diffBackoff = new HeliusConfig(endpointA, monitor, parsedB.backoff());
+
+    assertTrue(base.equals(base));
+    assertTrue(base.equals(same));
+    assertTrue(same.equals(base));
+    assertFalse(base.equals(diffEndpoint));
+    assertFalse(base.equals(diffMonitor));
+    assertFalse(base.equals(diffBackoff));
+    assertFalse(base.equals(null));
+    assertFalse(base.equals("HeliusConfig"));
+
+    assertEquals(base.hashCode(), same.hashCode());
+    assertNotEquals(base.hashCode(), diffEndpoint.hashCode());
+
+    final var string = base.toString();
+    assertTrue(string.startsWith("HeliusConfig["), string);
+    assertTrue(string.contains("https://api.helius.xyz/v0"), string);
   }
 
   @Test

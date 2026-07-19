@@ -72,6 +72,32 @@ final class RemoteResourceConfigTests {
   }
 
   @Test
+  void testParseJsonNullBackoffUsesDefault() {
+    final var config = RemoteResourceConfig.parseConfig(JsonIterator.parse("""
+        {
+          "endpoint": "https://custom.example.com",
+          "backoff": null
+        }"""), DEFAULT_ENDPOINT, DEFAULT_BACKOFF);
+    assertNotNull(config);
+    assertEquals(URI.create("https://custom.example.com"), config.endpoint());
+    assertSame(DEFAULT_BACKOFF, config.backoff());
+  }
+
+  @Test
+  void testParseJsonUnknownFieldThrows() {
+    final var ji = JsonIterator.parse("""
+        {
+          "endpoint": "https://custom.example.com",
+          "bogusField": 1
+        }""");
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> RemoteResourceConfig.parseConfig(ji, DEFAULT_ENDPOINT, DEFAULT_BACKOFF)
+    );
+    assertTrue(exception.getMessage().contains("bogusField"));
+  }
+
+  @Test
   void testParseJsonNull() {
     final var config = RemoteResourceConfig.parseConfig(JsonIterator.parse("""
         null"""), DEFAULT_ENDPOINT, DEFAULT_BACKOFF);

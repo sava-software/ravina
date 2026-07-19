@@ -1,6 +1,10 @@
 package software.sava.services.core.remote.load_balance;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.core.remote.call.Backoff;
+import software.sava.services.core.request_capacity.CapacityConfig;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -88,5 +92,102 @@ final class ItemContextTests {
     assertEquals("item", item.item());
     assertNull(item.backoff());
     assertNull(item.capacityMonitor());
+  }
+
+  @Test
+  void accessorsExposeTheConfiguredDependencies() {
+    final var backoff = Backoff.single(1);
+    final var monitor = CapacityConfig
+        .createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1))
+        .createHttpResponseMonitor("item");
+    final var item = BalancedItem.createItem("item", monitor, backoff);
+    assertSame(backoff, item.backoff());
+    assertSame(monitor, item.capacityMonitor());
+    assertSame(monitor.capacityState(), item.capacityState());
+  }
+
+  @Test
+  void zeroSamplesAreValid() {
+    final var item = createItem();
+    item.sample(0);
+    assertEquals(0, item.sampleMedian());
+  }
+
+  @Test
+  void defaultFailedDelegatesWithWeightOne() {
+    // A minimal implementation which does not override the default failed() method;
+    // every unused member throws so the helper itself offers nothing to mutate.
+    final int[] lastWeight = {Integer.MIN_VALUE};
+    final var item = new BalancedItem<String>() {
+      @Override
+      public Backoff backoff() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void sample(final long sample) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public long sampleMedian() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public String item() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void failed(final int weight) {
+        lastWeight[0] = weight;
+      }
+
+      @Override
+      public void success() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public long errorCount() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void skip() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public long skipped() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void selected() {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public software.sava.services.core.request_capacity.CapacityMonitor capacityMonitor() {
+        throw new UnsupportedOperationException();
+      }
+    };
+    item.failed();
+    assertEquals(1, lastWeight[0]);
+  }
+
+  @Test
+  void overwritingAZeroSampleRecomputesTheMedian() {
+    final var item = createItem();
+    item.sample(0);
+    item.sample(10);
+    item.sample(20);
+    item.sample(30);
+    item.sample(40);
+    // The sixth sample overwrites the zero; zero is a real sample, not an unfilled slot.
+    item.sample(50);
+    assertEquals(30, item.sampleMedian()); // median of {50, 10, 20, 30, 40}
   }
 }

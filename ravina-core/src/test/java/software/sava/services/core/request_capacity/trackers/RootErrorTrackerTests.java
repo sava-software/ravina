@@ -7,6 +7,7 @@ import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -30,6 +31,7 @@ final class RootErrorTrackerTests {
   private static final class IntErrorTracker extends RootErrorTracker<Integer> {
 
     private long now;
+    private int loggedResponses;
 
     IntErrorTracker(final CapacityState capacityState) {
       super(capacityState);
@@ -51,12 +53,18 @@ final class RootErrorTrackerTests {
     }
 
     @Override
+    protected boolean unableToHandleResponse(final Integer response) {
+      return response != 404;
+    }
+
+    @Override
     protected boolean updateGroupedErrorResponseCount(final long ignored, final Integer response, final byte[] body) {
       return updateGroupedErrorResponseCount(now, Integer.toString(response), new TestErrorRecord(now, response));
     }
 
     @Override
     protected void logResponse(final Integer response, final byte[] body) {
+      ++loggedResponses;
     }
   }
 
@@ -159,6 +167,130 @@ final class RootErrorTrackerTests {
     assertTrue(tracker.test(400, null));
     assertEquals(1, tracker.maxGroupedErrorCount());
     assertEquals(100, monitor.capacityState().capacity());
+  }
+
+  @Test
+  void onlyErrorResponsesAreLogged() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    assertTrue(tracker.test(200, null));
+    assertEquals(0, tracker.loggedResponses);
+    assertEquals(0, tracker.maxGroupedErrorCount());
+    assertEquals(100, monitor.capacityState().capacity());
+
+    assertTrue(tracker.test(500, null));
+    assertEquals(1, tracker.loggedResponses);
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(400, null));
+    assertEquals(2, tracker.loggedResponses);
+  }
+
+  @Test
+  void handledRequestErrorsAreLoggedButNotTracked() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(404, null));
+    // 404 is handled by this tracker: logged, but no grouped-error tracking or capacity docking.
+    assertEquals(1, tracker.loggedResponses);
+    assertEquals(0, tracker.maxGroupedErrorCount());
+    assertEquals(100, monitor.capacityState().capacity());
+  }
+
+  @Test
+  void recordsExpireExactlyAtTheExpirationBoundary() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(400, null));
+    // expireBefore == 11_000 - 10_000 == 1_000; a record timestamped exactly then is expired.
+    tracker.now = 11_000;
+    assertTrue(tracker.test(400, null));
+    assertEquals(1, tracker.maxGroupedErrorCount());
+  }
+
+  @Test
+  void fullyExpiredGroupsAreDrainedSafely() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(400, null));
+    // The 401 update expires the entire 400 group, draining its queue to empty.
+    tracker.now = 12_500;
+    assertTrue(tracker.test(401, null));
+    assertEquals(1, tracker.maxGroupedErrorCount());
+  }
+
+  @Test
+  void groupedErrorCountIsTheMaxAcrossGroups() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(400, null));
+    tracker.now = 1_100;
+    assertTrue(tracker.test(400, null));
+    tracker.now = 1_200;
+    assertTrue(tracker.test(400, null));
+    tracker.now = 1_300;
+    assertTrue(tracker.test(401, null));
+    // 400 has three records, 401 one; the max must win regardless of iteration order.
+    assertEquals(3, tracker.maxGroupedErrorCount());
+  }
+
+  @Test
+  void groupedErrorCountIsTheMaxAcrossGroupsReversedInsertion() {
+    final var monitor = createMonitor(Duration.ofSeconds(10));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = 1_000;
+    assertTrue(tracker.test(401, null));
+    tracker.now = 1_100;
+    assertTrue(tracker.test(401, null));
+    tracker.now = 1_200;
+    assertTrue(tracker.test(401, null));
+    tracker.now = 1_300;
+    assertTrue(tracker.test(400, null));
+    assertEquals(3, tracker.maxGroupedErrorCount());
+  }
+
+  @Test
+  void snapshotExpiresStaleRecords() {
+    final var monitor = createMonitor(Duration.ofSeconds(1));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    // Wide margins around the wall clock keep this deterministic: the snapshot
+    // expires against System.currentTimeMillis() minus the one second expiration.
+    final long wallClock = System.currentTimeMillis();
+    tracker.now = wallClock + 60_000;
+    assertTrue(tracker.test(400, null));
+    tracker.now = wallClock - 10_000;
+    assertTrue(tracker.test(401, null));
+
+    final var snapshot = tracker.produceErrorResponseSnapshot();
+    assertEquals(1, snapshot.size());
+    assertFalse(snapshot.containsKey("401"));
+    final var retained = snapshot.get("400");
+    assertEquals(1, retained.size());
+    assertEquals(wallClock + 60_000, retained.getFirst().timestamp());
+  }
+
+  @Test
+  void fullyExpiredSnapshotIsAnImmutableEmptyMap() {
+    final var monitor = createMonitor(Duration.ofSeconds(1));
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    tracker.now = System.currentTimeMillis() - 10_000;
+    assertTrue(tracker.test(400, null));
+
+    final var snapshot = tracker.produceErrorResponseSnapshot();
+    assertTrue(snapshot.isEmpty());
+    assertThrows(UnsupportedOperationException.class, () -> snapshot.put("400", List.of()));
   }
 
   @Test

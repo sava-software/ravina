@@ -92,13 +92,22 @@ block (all five modules). Full process contract: sava-build's `HARDENING.md`.
 - Line-number churn from editing a mutated file shows up as paired stale +
   "new" baseline entries; confirm they're the shifted old ones before
   refreshing.
-- The seeded baselines are mostly untriaged debt (see each
-  `config/pitest/README.md`) — shrinking them is always an improvement.
-  Triaged *equivalent* mutants (do not chase): `logger.log` removals,
-  `sort()` calls on the no-op `ArrayLoadBalancer` inside
-  `CourteousBalancedCall` (the comparator ignores capacity so order cannot
-  change mid-call), and timer mutations that are unobservable when
-  `measureCallTime` is false.
+- The baselines are triaged: every accepted entry has a written reason in the
+  module's `config/pitest/README.md`, except the `backoff` and `calls` suites
+  which still carry their originally-seeded population. Shrinking any of them
+  is always an improvement. Recurring *equivalent* groups (do not chase):
+  `logger.log` removals; `sort()` calls on the no-op `ArrayLoadBalancer`
+  inside `CourteousBalancedCall` (the comparator ignores capacity so order
+  cannot change mid-call); timer mutations unobservable when
+  `measureCallTime` is false; builder `parseProperties` null-guards that
+  assign null over an already-null field; and `return super.test(...)`
+  return-value mutations where the supertype only ever returns true.
+- **A few mutants are detected only by PIT's timeout, and that is
+  load-dependent** — the same mutant can report `SURVIVED` when its suite runs
+  alone and `TIMED_OUT` (detected) under `qualityGate`. The baselines
+  deliberately carry the union of both modes; four such rows are known. Don't
+  strip a row because one run shows it detected, and don't bulk-add every
+  `TIMED_OUT` row either — that would blind the ratchet to real regressions.
 - Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
 - **Randomized tests use fixed seeds**: the ratchet needs deterministic
   kills; per-run exploration is the fuzz targets' job.

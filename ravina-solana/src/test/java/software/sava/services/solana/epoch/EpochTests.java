@@ -88,6 +88,57 @@ final class EpochTests {
   }
 
   @Test
+  void slotStatsMedianDrivesPacing() {
+    final var stats = new SlotPerformanceStats(450, 460, 400, 520, 20.0, 5);
+    final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, stats, 1_000_000);
+
+    assertEquals(450, epoch.medianMillisPerSlot());
+    assertEquals(1_000_000 - (100L * 450), epoch.startedAt());
+    assertEquals(1_000_000 + (431_900L * 450), epoch.endsAt());
+    assertSame(stats, epoch.slotStats());
+  }
+
+  @Test
+  void medianMillisPerSlotPrefersTheSlotStatsMedian() {
+    // Constructed directly: create() resolves defaultMillisPerSlot to the stats
+    // median, so only a raw record can hold a default that disagrees.
+    final var stats = new SlotPerformanceStats(450, 460, 400, 520, 20.0, 5);
+    final var withStats = new Epoch(960_000, 173_760_000, epochInfo(1_000, 500, 100), null, 400, stats, 1_000_000, 0.0, 0.0);
+    assertEquals(450, withStats.medianMillisPerSlot());
+    final var withoutStats = new Epoch(960_000, 173_760_000, epochInfo(1_000, 500, 100), null, 400, null, 1_000_000, 0.0, 0.0);
+    assertEquals(400, withoutStats.medianMillisPerSlot());
+  }
+
+  @Test
+  void sampleSkipRateUsesThePreviousSampleNotTheEarliest() {
+    final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+    final var middle = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
+    final var latest = Epoch.create(earliest, middle, epochInfo(1_140, 500, 300), 400, null, 3_000_000);
+
+    // Epoch skip rate spans back to the earliest sample: 200 slots, 140 blocks.
+    assertEquals(0.3, latest.epochSkipRate(), 1e-12);
+    // Sample skip rate only spans the previous sample: 100 slots, 50 blocks.
+    assertEquals(0.5, latest.sampleSkipRate(), 1e-12);
+  }
+
+  @Test
+  void logFormatReportsElapsedTimeAndSkipRate() {
+    final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+    final var latest = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
+
+    final var log = latest.logFormat(2_400_000);
+    // startedAt is 960,000, so 2,400,000 is 24 minutes after the epoch started.
+    assertTrue(log.contains("Start 24M ago"), log);
+    // endsAt is 174,720,000: 172,320,000 ms remaining is exactly 47 hours 52 minutes.
+    assertTrue(log.contains("Ends in 47H52M"), log);
+    assertTrue(log.contains("400 ms/slot | 183 epochs/year"), log);
+    // The sample skip rate of 0.1 renders as a percentage.
+    assertTrue(log.contains("10.00% skip rate"), log);
+    // Estimated slot 1,200 is 1,000 past the sample; 10% skipped: 1,090 + 900.
+    assertTrue(log.contains("1,990 height"), log);
+  }
+
+  @Test
   void derivedRatios() {
     final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
     assertEquals(50.0, epoch.percentComplete(216_000));

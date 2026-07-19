@@ -151,4 +151,82 @@ final class HttpKMSClientFactoryTests {
       service.close();
     }
   }
+
+  // --- static factory methods ---
+
+  @Test
+  void testStaticCreateServiceWithErrorTracker() throws Exception {
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var httpClient = java.net.http.HttpClient.newBuilder().executor(executor).build();
+      final var service = HttpKMSClientFactory.createService(
+          executor,
+          httpClient,
+          java.net.URI.create("http://localhost:65535/"),
+          Backoff.single(1),
+          (java.util.function.BiPredicate<Throwable, byte[]>) null
+      );
+      assertNotNull(service);
+      assertNull(service.capacityMonitor());
+      service.close();
+    }
+  }
+
+  @Test
+  void testStaticCreateServiceWithCapacityMonitor() throws Exception {
+    final var config = new software.sava.services.core.request_capacity.CapacityConfig(
+        0,
+        100,
+        java.time.Duration.ofSeconds(1),
+        8,
+        java.time.Duration.ofSeconds(1),
+        java.time.Duration.ofSeconds(1),
+        java.time.Duration.ofMillis(500),
+        java.time.Duration.ofSeconds(1)
+    );
+    final var monitor = config.<Throwable>createMonitor("kms", HttpKMSErrorTrackerFactory.INSTANCE);
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var httpClient = java.net.http.HttpClient.newBuilder().executor(executor).build();
+      final var service = HttpKMSClientFactory.createService(
+          executor,
+          httpClient,
+          java.net.URI.create("http://localhost:65535/"),
+          Backoff.single(1),
+          monitor
+      );
+      assertNotNull(service);
+      assertSame(monitor, service.capacityMonitor());
+      service.close();
+    }
+  }
+
+  // --- stateful factory reuse ---
+
+  @Test
+  void testFactoryReuseRetainsEndpointAndCapacityConfig() throws Exception {
+    final var factory = new HttpKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var backoff = Backoff.single(1);
+
+      final var props = new Properties();
+      props.setProperty("endpoint", "https://kms.example.com/api");
+      props.setProperty("capacity.maxCapacity", "50");
+      props.setProperty("capacity.minCapacity", "5");
+      props.setProperty("capacity.resetDuration", "PT10S");
+      props.setProperty("capacity.rateLimitedBackOffDuration", "PT2S");
+      final var first = factory.createService(executor, backoff, "", props);
+      assertNotNull(first);
+      first.close();
+
+      // No endpoint and no capacity properties: the previously parsed values
+      // must be reused rather than re-parsed from the (empty) properties.
+      final var reuseProps = new Properties();
+      reuseProps.setProperty("unrelated", "value");
+      final var second = factory.createService(executor, backoff, "", reuseProps);
+      assertNotNull(second);
+      final var capacityMonitor = second.capacityMonitor();
+      assertNotNull(capacityMonitor);
+      assertEquals(50, capacityMonitor.capacityState().capacity());
+      second.close();
+    }
+  }
 }

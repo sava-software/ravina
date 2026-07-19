@@ -14,16 +14,26 @@ behavior*, never for "hard to test". Line numbers are part of the baseline
 key; after confirming churned rows are shifted old ones, refresh with
 `-PupdateMutationBaseline`.
 
-## Untriaged debt
+See `../../../ravina-core/config/pitest/README.md` for the measured note on
+timeout-detected mutants differing between single-suite and multi-suite runs.
 
-The initial baseline was seeded with the full pre-existing survivor
-population (2026-07-19), much of it `NO_COVERAGE` on the I/O client paths
-(live KMS calls are integration-tested, not unit-tested). Except for the
-groups triaged below, entries are **triage debt made explicit, not
-acceptance**.
+## Status
+
+No untriaged debt: both accepted entries have a reason below.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals
-(e.g. the error trackers' `logResponse`): log output is not part of any
-behavioral contract.
+**Logging removals** — `HttpKMSErrorTracker.logResponse`
+`VoidMethodCallMutator`: log output is not part of any behavioral contract.
+
+**Allocation-only copy elision** — `HttpKMSClient.sign` line 70
+`RemoveConditionalMutator_EQUAL_ELSE` on
+`offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(...)`.
+Forcing the copy branch always produces a byte-identical array; only the
+allocation differs, and the signed output is the same. This is killable in
+principle, and `HARDENING.md` names the technique: assert an allocation bound
+via `com.sun.management.ThreadMXBean#getCurrentThreadAllocatedBytes`, which
+would turn "avoid a copy for the whole-array case" from an intention into an
+enforced invariant. Worth doing if this path is touched again; not worth
+adding the `java.management` test plumbing to this module for one mutant
+today.

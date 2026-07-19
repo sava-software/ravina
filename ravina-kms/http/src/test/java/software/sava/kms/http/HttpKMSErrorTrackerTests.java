@@ -47,4 +47,26 @@ final class HttpKMSErrorTrackerTests {
     assertFalse(tracker.hasExceededMaxAllowedGroupedErrorResponses());
     assertEquals(Map.of(), tracker.produceErrorResponseSnapshot());
   }
+
+  @Test
+  void classifiesEveryThrowableAsServerErrorOnly() {
+    final var config = new CapacityConfig(
+        0,
+        100,
+        Duration.ofSeconds(1),
+        8,
+        Duration.ofSeconds(1),
+        Duration.ofSeconds(1),
+        Duration.ofMillis(500),
+        Duration.ofSeconds(1)
+    );
+    final var monitor = config.createMonitor("kms", HttpKMSErrorTrackerFactory.INSTANCE, FIXED_CLOCK);
+    final var tracker = (HttpKMSErrorTracker) monitor.errorTracker();
+
+    final var throwable = new RuntimeException("boom");
+    assertTrue(tracker.isServerError(throwable));
+    assertFalse(tracker.isRequestError(throwable));
+    assertFalse(tracker.isRateLimited(throwable));
+    assertFalse(tracker.updateGroupedErrorResponseCount(0L, throwable, null));
+  }
 }

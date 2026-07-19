@@ -95,6 +95,21 @@ final class ScoredTableTests {
   }
 
   @Test
+  void selectingTheFinalTableStopsWithoutPruningRemainingAccounts() {
+    final var tableA = table(1_000, key(1), key(2));
+    final var remaining = new HashSet<>(Set.of(key(1), key(2), key(3)));
+    final var selected = new HashMap<PublicKey, AddressLookupTable>();
+
+    ScoredTable.scoreTables(4, remaining, new AddressLookupTable[]{tableA}, selected);
+
+    assertEquals(1, selected.size());
+    assertSame(tableA, selected.get(tableA.address()));
+    // Once every table has been selected the loop exits immediately, before
+    // pruning the last table's coverage from the remaining accounts.
+    assertEquals(Set.of(key(1), key(2), key(3)), remaining);
+  }
+
+  @Test
   void accountsCoveredByPreSelectedTablesAreNotReScored() {
     final var tableA = table(1_000, key(1), key(2));
     final var tableB = table(1_001, key(1), key(2), key(3));

@@ -50,6 +50,19 @@ final class TableCacheConfigTests {
   }
 
   @Test
+  void testParseJsonUnknownFieldsAreSkipped() {
+    final var json = """
+        {
+          "unknownField": "PT9H"
+        }
+        """;
+    final var config = TableCacheConfig.parse(JsonIterator.parse(json));
+    assertEquals(1_024, config.initialCapacity());
+    assertEquals(Duration.ofHours(4), config.refreshStaleItemsDelay());
+    assertEquals(Duration.ofHours(8), config.consideredStale());
+  }
+
+  @Test
   void testParseJsonNull() {
     final var json = "null";
     final var config = TableCacheConfig.parse(JsonIterator.parse(json));

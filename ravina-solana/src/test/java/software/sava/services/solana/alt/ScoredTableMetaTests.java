@@ -72,6 +72,20 @@ final class ScoredTableMetaTests {
   }
 
   @Test
+  void selectingTheFinalTableStopsWithoutPruningRemainingAccounts() {
+    final var metaA = meta(1_000, key(1), key(2));
+    final var remaining = new HashSet<>(Set.of(key(1), key(2), key(3)));
+
+    final var selected = ScoredTableMeta.scoreTables(4, remaining, new LookupTableAccountMeta[]{metaA});
+
+    assertEquals(1, selected.size());
+    assertSame(metaA, selected.getFirst());
+    // Once every table has been selected the loop exits immediately, before
+    // pruning the last table's coverage from the remaining accounts.
+    assertEquals(Set.of(key(1), key(2), key(3)), remaining);
+  }
+
+  @Test
   void stopsAtMaxTables() {
     final var metaA = meta(1_000, key(1), key(2));
     final var metaB = meta(1_001, key(3), key(4));

@@ -47,6 +47,19 @@ final class CallWeightsTests {
   }
 
   @Test
+  void testParseJsonUnknownFieldsAreSkipped() {
+    final var json = """
+        {
+          "someUnknownWeight": 99
+        }
+        """;
+    final var callWeights = CallWeights.parse(JsonIterator.parse(json));
+    assertEquals(2, callWeights.getProgramAccounts());
+    assertEquals(5, callWeights.getTransaction());
+    assertEquals(10, callWeights.sendTransaction());
+  }
+
+  @Test
   void testParseJsonNull() {
     final var json = "null";
     final var callWeights = CallWeights.parse(JsonIterator.parse(json));

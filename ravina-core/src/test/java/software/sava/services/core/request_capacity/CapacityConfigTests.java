@@ -1,6 +1,7 @@
 package software.sava.services.core.request_capacity;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.core.request_capacity.trackers.HttpErrorTrackerFactory;
 import systems.comodal.jsoniter.JsonIterator;
 
 import java.time.Duration;
@@ -87,6 +88,35 @@ final class CapacityConfigTests {
         }"""));
     assertNotNull(config);
     assertEquals(-200, config.minCapacity());
+  }
+
+  @Test
+  void testParsePropertiesWithoutPrefix() {
+    final var properties = new Properties();
+    properties.setProperty("minCapacity", "-10");
+    properties.setProperty("maxCapacity", "100");
+    properties.setProperty("resetDuration", "PT1S");
+
+    final var config = CapacityConfig.parse(properties);
+    assertNotNull(config);
+    assertEquals(-10, config.minCapacity());
+    assertEquals(100, config.maxCapacity());
+    assertEquals(Duration.ofSeconds(1), config.resetDuration());
+  }
+
+  @Test
+  void testCreateMonitors() {
+    final var config = CapacityConfig.createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1));
+
+    final var httpMonitor = config.createHttpResponseMonitor("http-service");
+    assertNotNull(httpMonitor);
+    assertEquals(10, httpMonitor.capacityState().capacity());
+    assertNotNull(httpMonitor.errorTracker());
+
+    final var monitor = config.createMonitor("service", HttpErrorTrackerFactory.INSTANCE);
+    assertNotNull(monitor);
+    assertEquals(10, monitor.capacityState().capacity());
+    assertNotNull(monitor.errorTracker());
   }
 
   @Test

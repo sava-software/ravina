@@ -18,8 +18,9 @@ hardening {
     // silently skipped
     targetClasses = listOf("software.sava.kms.google.*")
     excludedClasses = listOf(
-      // test sources share the recompiled root
-      "software.sava.kms.google.*Tests",
+      // test sources share the recompiled root; the trailing wildcard also
+      // covers nested/anonymous classes inside test classes
+      "software.sava.kms.google.*Tests*",
       // integration main; requires live GCP credentials
       "software.sava.kms.google.Integ"
     )

@@ -87,6 +87,27 @@ final class SlotPerformanceStatsTests {
   }
 
   @Test
+  void convenienceOverloadsDelegateWithTheTargetBounds() {
+    final var samples = List.of(sample(10_000, 60, 30)); // 500 ms per slot.
+    // The single-argument overload uses TARGET_MILLIS_PER_SLOT as both bounds.
+    final var oneArg = SlotPerformanceStats.calculateStats(samples);
+    assertNotNull(oneArg);
+    assertEquals(400, oneArg.median());
+    assertEquals(1, oneArg.numPerfSamples());
+    // The two-argument overload keeps the target floor but raises the ceiling.
+    final var twoArg = SlotPerformanceStats.calculateStats(samples, 1_000);
+    assertNotNull(twoArg);
+    assertEquals(500, twoArg.median());
+    assertEquals(1, twoArg.numPerfSamples());
+  }
+
+  @Test
+  void epochOpeningBoundarySampleIsExcluded() {
+    // numSlots == slot marks the opening sample of an epoch and must be ignored.
+    assertNull(SlotPerformanceStats.calculateStats(List.of(sample(100, 100, 60)), 400, 1_000));
+  }
+
+  @Test
   void invalidSamplesAreFilteredOut() {
     final var stats = SlotPerformanceStats.calculateStats(List.of(
         sample(10_000, 100, 50),

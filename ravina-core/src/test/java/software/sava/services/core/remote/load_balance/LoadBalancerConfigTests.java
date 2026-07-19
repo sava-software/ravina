@@ -145,6 +145,53 @@ final class LoadBalancerConfigTests {
   }
 
   @Test
+  void testCreateItemsAppliesPerEndpointCapacityOverrides() {
+    final var json = """
+        {
+          "defaultCapacity": {
+            "maxCapacity": 100,
+            "resetDuration": "PT10S"
+          },
+          "defaultBackoff": {
+            "strategy": "linear",
+            "initialRetryDelay": "PT1S",
+            "maxRetryDelay": "PT10S"
+          },
+          "endpoints": [
+            {
+              "url": "https://api1.example.com",
+              "capacity": {
+                "maxCapacity": 200,
+                "resetDuration": "PT5S"
+              }
+            },
+            {
+              "url": "https://api2.example.com"
+            }
+          ]
+        }
+        """;
+    final var config = LoadBalancerConfig.parse(JsonIterator.parse(json));
+
+    final var items = config.createItems(BalancedItem::createItem);
+    assertEquals(2, items.size());
+    final var first = items.getFirst();
+    assertEquals(URI.create("https://api1.example.com"), first.item());
+    assertNotNull(first.capacityMonitor());
+    assertEquals(200, first.capacityState().capacity());
+    assertSame(config.defaultBackoff(), first.backoff());
+    final var last = items.getLast();
+    assertEquals(URI.create("https://api2.example.com"), last.item());
+    // The second endpoint has no capacity config of its own; the default applies.
+    assertEquals(100, last.capacityState().capacity());
+
+    final var biItems = config.createItems((cfg, uriConfig) -> BalancedItem.createItem(uriConfig.endpoint(), null, null));
+    assertEquals(2, biItems.size());
+    assertEquals(URI.create("https://api1.example.com"), biItems.getFirst().item());
+    assertEquals(URI.create("https://api2.example.com"), biItems.getLast().item());
+  }
+
+  @Test
   void testParsePropertiesAllFields() {
     final var properties = new Properties();
     properties.setProperty("defaultCapacity.minCapacity", "5");
@@ -250,6 +297,99 @@ final class LoadBalancerConfigTests {
     assertNotNull(endpoints);
     assertEquals(1, endpoints.size());
     assertEquals(URI.create("https://api.example.com"), endpoints.getFirst().endpoint());
+  }
+
+  @Test
+  void testParsePropertiesNoEndpointsLeavesResourceConfigsNull() {
+    final var properties = new Properties();
+    properties.setProperty("defaultCapacity.maxCapacity", "50");
+    properties.setProperty("defaultCapacity.resetDuration", "PT1S");
+
+    final var config = LoadBalancerConfig.parse(properties, null, Backoff.single(1));
+    assertNotNull(config.defaultCapacityConfig());
+    assertEquals(50, config.defaultCapacityConfig().maxCapacity());
+    assertNull(config.resourceConfigs());
+  }
+
+  @Test
+  void testParseJsonNullDefaultBackoffUsesFallback() {
+    final var json = """
+        {
+          "defaultBackoff": null,
+          "endpoints": [
+            "https://api.example.com"
+          ]
+        }
+        """;
+    final var fallbackCapacity = CapacityConfig.createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1));
+    final var fallbackBackoff = Backoff.single(1);
+    final var config = LoadBalancerConfig.parse(JsonIterator.parse(json), fallbackCapacity, fallbackBackoff);
+
+    assertNotNull(config);
+    assertSame(fallbackBackoff, config.defaultBackoff());
+    assertEquals(1, config.resourceConfigs().size());
+  }
+
+  @Test
+  void testParseJsonUnknownFieldSkipped() {
+    final var json = """
+        {
+          "unknownField": "PT1S",
+          "endpoints": [
+            "https://api.example.com"
+          ]
+        }
+        """;
+    final var fallbackCapacity = CapacityConfig.createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1));
+    final var fallbackBackoff = Backoff.single(1);
+    final var config = LoadBalancerConfig.parse(JsonIterator.parse(json), fallbackCapacity, fallbackBackoff);
+
+    assertNotNull(config);
+    assertSame(fallbackBackoff, config.defaultBackoff());
+    assertSame(fallbackCapacity, config.defaultCapacityConfig());
+    assertEquals(1, config.resourceConfigs().size());
+    assertEquals(URI.create("https://api.example.com"), config.resourceConfigs().getFirst().endpoint());
+  }
+
+  @Test
+  void testCreateItemsWithFactory() {
+    final var properties = new Properties();
+    properties.setProperty("endpoints.0.url", "https://api1.example.com");
+    properties.setProperty("endpoints.1.url", "https://api2.example.com");
+
+    final var defaultCapacity = CapacityConfig.createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1));
+    final var defaultBackoff = Backoff.single(1);
+    final var config = LoadBalancerConfig.parse(properties, defaultCapacity, defaultBackoff);
+
+    final var items = config.<String>createItems(
+        (endpoint, monitor, backoff) -> BalancedItem.createItem(endpoint.toString(), monitor, backoff)
+    );
+    assertNotNull(items);
+    assertEquals(2, items.size());
+    assertEquals("https://api1.example.com", items.getFirst().item());
+    assertEquals("https://api2.example.com", items.getLast().item());
+    assertSame(defaultBackoff, items.getFirst().backoff());
+  }
+
+  @Test
+  void testCreateItemsWithBiFunction() {
+    final var properties = new Properties();
+    properties.setProperty("endpoints.0.url", "https://api1.example.com");
+    properties.setProperty("endpoints.1.url", "https://api2.example.com");
+
+    final var defaultCapacity = CapacityConfig.createSimpleConfig(Duration.ZERO, 10, Duration.ofSeconds(1));
+    final var defaultBackoff = Backoff.single(1);
+    final var config = LoadBalancerConfig.parse(properties, defaultCapacity, defaultBackoff);
+
+    final var items = config.<String>createItems((cfg, resourceConfig) -> BalancedItem.createItem(
+        resourceConfig.endpoint().toString(),
+        resourceConfig.createMonitor(resourceConfig.endpoint().getHost(), cfg.defaultCapacityConfig()),
+        cfg.defaultBackoff()
+    ));
+    assertNotNull(items);
+    assertEquals(2, items.size());
+    assertEquals("https://api1.example.com", items.getFirst().item());
+    assertEquals("https://api2.example.com", items.getLast().item());
   }
 
   @Test

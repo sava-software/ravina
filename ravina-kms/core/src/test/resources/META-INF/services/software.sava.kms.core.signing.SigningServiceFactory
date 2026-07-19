@@ -1,0 +1,2 @@
+software.sava.kms.core.signing.MemorySignerFactory
+software.sava.kms.core.signing.MemorySignerFromFilePointerFactory
