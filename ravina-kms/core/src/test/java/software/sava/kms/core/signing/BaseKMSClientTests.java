@@ -92,8 +92,16 @@ final class BaseKMSClientTests {
     }
   }
 
-  private static PublicKey randomPublicKey() {
-    return Signer.createFromKeyPair(Signer.generatePrivateKeyPairBytes()).publicKey();
+  /// Fixed key material: the mutation ratchet needs deterministic kills, so
+  /// the suite must not generate a key pair per run (see sava-build's
+  /// `HARDENING.md`). Distinct callers pass distinct salts where they need
+  /// distinct keys. Any 32 bytes are a valid ed25519 seed.
+  private static PublicKey fixedPublicKey(final int salt) {
+    final byte[] privateKey = new byte[Signer.KEY_LENGTH];
+    for (int i = 0; i < privateKey.length; ++i) {
+      privateKey[i] = (byte) ((i * 7) + salt);
+    }
+    return Signer.createFromPrivateKey(privateKey).publicKey();
   }
 
   private static ErrorTrackedCapacityMonitor<Throwable> createMonitor() {
@@ -112,7 +120,7 @@ final class BaseKMSClientTests {
 
   @Test
   void publicKeyWithRetriesWithoutCapacityMonitorUsesComposedCall() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(3);
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var client = new StubKMSClient(executor, Backoff.single(TimeUnit.MILLISECONDS, 1), null, null, pubKey);
       assertNull(client.capacityMonitor());
@@ -124,7 +132,7 @@ final class BaseKMSClientTests {
 
   @Test
   void publicKeyWithRetriesWithCapacityMonitorClaimsCapacity() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(3);
     final var monitor = createMonitor();
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var client = new StubKMSClient(

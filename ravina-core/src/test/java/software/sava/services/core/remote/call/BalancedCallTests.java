@@ -425,6 +425,61 @@ final class BalancedCallTests {
   }
 
   @Test
+  void courteousBalancedCallPrefersTheBalancerSelectionOverDeclarationOrder() {
+    final var clock = new TestClock(true);
+    final var monitorA = createMonitor(clock);
+    final var monitorB = createMonitor(clock);
+    final var monitorC = createMonitor(clock);
+    monitorA.capacityState().claimRequest(10);
+    final var a = BalancedItem.createItem("a", monitorA, Backoff.linear(MILLISECONDS, 10, 30));
+    final var b = BalancedItem.createItem("b", monitorB, Backoff.linear(MILLISECONDS, 10, 30));
+    final var c = BalancedItem.createItem("c", monitorC, Backoff.linear(MILLISECONDS, 10, 30));
+    // b has capacity but a worse error count, so the balancer skips past it to c even
+    // though b comes first in declaration order.
+    b.failed(5);
+    final var call = Call.createCourteousCall(
+        createBalancer(a, b, c),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, false),
+        clock,
+        "test::courteousBalancerChoice"
+    );
+    assertEquals("c", call.get());
+    assertTrue(clock.sleeps.isEmpty());
+    assertEquals(0, monitorA.capacityState().capacity());
+    assertEquals(10, monitorB.capacityState().capacity());
+    assertEquals(9, monitorC.capacityState().capacity());
+  }
+
+  @Test
+  void courteousBalancedCallReSortsBeforeSelectingTheFailoverItem() {
+    final var clock = new TestClock(true);
+    final var monitorA = createMonitor(clock);
+    final var monitorB = createMonitor(clock);
+    final var monitorC = createMonitor(clock);
+    monitorA.capacityState().claimRequest(10);
+    final var a = BalancedItem.createItem("a", monitorA, Backoff.linear(MILLISECONDS, 10, 30));
+    final var b = BalancedItem.createItem("b", monitorB, Backoff.linear(MILLISECONDS, 10, 30));
+    final var c = BalancedItem.createItem("c", monitorC, Backoff.linear(MILLISECONDS, 10, 30));
+    a.failed(2);
+    b.failed(5);
+    // Declaration order is [a, b, c] and a sorted balancer only orders itself when it is
+    // sorted, so failing to claim from a must re-sort to reach the healthiest peer, c.
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(a, b, c)),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, false),
+        clock,
+        "test::courteousReSort"
+    );
+    assertEquals("c", call.get());
+    assertTrue(clock.sleeps.isEmpty());
+    assertEquals(0, monitorA.capacityState().capacity());
+    assertEquals(10, monitorB.capacityState().capacity());
+    assertEquals(9, monitorC.capacityState().capacity());
+  }
+
+  @Test
   void courteousBalancedCallForceCallOverdrawsAfterMaxTryClaims() {
     final var clock = new TestClock(true);
     final var monitorA = createMonitor(clock);

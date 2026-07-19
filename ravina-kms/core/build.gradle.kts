@@ -15,8 +15,19 @@ hardening {
     excludedClasses = listOf(
       // test sources share the recompiled root; the trailing wildcard also
       // covers nested/anonymous classes inside test classes
-      "software.sava.kms.core.signing.*Tests*"
+      "software.sava.kms.core.signing.*Tests*",
+      // fuzz harnesses share the recompiled root
+      "software.sava.kms.core.signing.*Fuzz"
     )
     targetTests = "software.sava.kms.core.signing.*Test*"
+  }
+
+  fuzz.register("signingConfig") {
+    // field-order invariance over the mark()/reset() deferred re-parse
+    targetClass = "software.sava.kms.core.signing.SigningServiceConfigFuzz"
+    // the harness derives a field mask and a backoff delay from two bytes and
+    // builds the documents itself; longer inputs add nothing
+    maxLen = 16
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/signingConfig")
   }
 }

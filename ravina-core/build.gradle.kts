@@ -84,4 +84,13 @@ hardening {
     maxLen = 768
     seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/configs")
   }
+  fuzz.register("configParity") {
+    // differential: the same logical config rendered as JSON and as
+    // Properties must parse to equal values, or both paths must reject it
+    targetClass = "software.sava.services.core.config.ConfigParityFuzz"
+    // the harness derives field values from a fixed set of leading bytes;
+    // longer inputs add nothing
+    maxLen = 32
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/configParity")
+  }
 }

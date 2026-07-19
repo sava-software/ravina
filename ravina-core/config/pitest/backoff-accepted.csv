@@ -1,7 +1,5 @@
 software.sava.services.core.remote.call.Backoff,fibonacci,50,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,fibonacci,51,ConditionalsBoundaryMutator,SURVIVED
 software.sava.services.core.remote.call.Backoff,fibonacci,69,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,maxDelay,104,PrimitiveReturnsMutator,NO_COVERAGE
 software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,ConditionalsBoundaryMutator,SURVIVED
 software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,RemoveConditionalMutator_ORDER_IF,SURVIVED
 software.sava.services.core.remote.call.FibonacciBackoffErrorHandler,calculateDelay,21,ConditionalsBoundaryMutator,SURVIVED

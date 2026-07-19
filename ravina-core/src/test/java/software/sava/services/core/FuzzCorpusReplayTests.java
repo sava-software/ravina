@@ -1,6 +1,7 @@
 package software.sava.services.core;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.core.config.ConfigParityFuzz;
 import software.sava.services.core.config.ConfigsFuzz;
 import software.sava.services.core.remote.call.BackoffFuzz;
 import software.sava.services.core.request_capacity.CapacityConfigFuzz;
@@ -65,5 +66,12 @@ final class FuzzCorpusReplayTests {
   @Test
   void configsSeedCorpusReplays() throws IOException, URISyntaxException {
     replay("configs", ConfigsFuzz::fuzzerTestOneInput);
+  }
+
+  /// Differential: JSON and Properties must parse the same logical config to
+  /// equal values, or both reject it.
+  @Test
+  void configParitySeedCorpusReplays() throws IOException, URISyntaxException {
+    replay("configParity", ConfigParityFuzz::fuzzerTestOneInput);
   }
 }

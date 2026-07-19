@@ -49,11 +49,9 @@ not preemptively pad the baseline with every `TIMED_OUT` row: that would
 accept mutants that are reliably detected today and silently stop the ratchet
 from catching them if a future edit makes them genuinely survive.
 
-## Untriaged debt
+## Status
 
-The `backoff` and `calls` suites still carry their originally-seeded survivor
-population; they have not been through a triage pass. Those entries are
-**debt made explicit, not acceptance**. Everything else below has a reason.
+No untriaged debt: every accepted entry in every suite has a reason below.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
@@ -61,10 +59,35 @@ population; they have not been through a triage pass. Those entries are
 anywhere: log output is not part of any behavioral contract, and asserting on
 it would couple tests to message wording.
 
-**No-op sort on `ArrayLoadBalancer`** — `sort()` call removals inside
-`CourteousBalancedCall`: the array balancer's comparator ignores capacity, so
-item order cannot change mid-call and the sort is observably a no-op there.
-(`SortedLoadBalancer` sort mutants are killable and not accepted.)
+**Saturation absorbs the off-by-one** (`backoff`) — every surviving
+`ConditionalsBoundaryMutator`/`MathMutator` on a *max-error-count* computation:
+`Backoff.fibonacci` lines 50 and 69, `ExponentialBackoffErrorHandler.<init>`
+line 14, `LinearBackoffErrorHandler.<init>` line 13 and `.calculateDelay`
+line 18. Each shifts the saturation index by one, but the delay at that index
+is already clamped — `min(maxDelay, …)` for the linear and exponential
+handlers, and a force-clamped tail for the fibonacci sequence — so every error
+count yields the identical delay. This is one principle, not five
+coincidences: the boundary is a *fast path into* saturation, and saturation is
+enforced independently.
+
+**Index paths that coincide** (`backoff`) —
+`FibonacciBackoffErrorHandler.calculateDelay` line 21 `errorCount < 1` → `<=`:
+at `errorCount == 1` both branches resolve to `sequence[0]`.
+
+**Degenerate single-item pool** (`calls`) — `CourteousBalancedCall.call`
+line 31 `size() > 1` → `>= 1` and the forced-true variant. At size 1 the
+balancer is a `SingletonLoadBalancer`: `sort()` is a no-op, `withContext()`
+re-returns `previous`, and the `items()` scan skips its only element, so
+control falls through identically.
+
+**No-op sort** (`calls`) — `sort()` call removals inside
+`CourteousBalancedCall`. Two cases: on an `ArrayLoadBalancer` the comparator
+ignores capacity, so item order cannot change mid-call; and the *post-sleep*
+`sort()` at line 58 is unreachable without the line-32 `sort()` having run
+earlier in the same iteration, with nothing in between mutating the comparator
+keys (`errorCount`, `sampleMedian`) — so the re-sort cannot reorder. The
+line-32 `sort()` itself is **not** accepted: it is killed by
+`courteousBalancedCallReSortsBeforeSelectingTheFailoverItem`.
 
 **Unobservable timers** — call-time measurement mutants on paths where
 `measureCallTime` is false: the measured value is never read.
@@ -123,6 +146,13 @@ observable behavior, just not behavior a deterministic unit test can provoke.
 They are accepted because the ratchet requires determinism, not because they
 are inert. Killing any of them requires a concurrency harness, which this repo
 does not have.
+
+**Failover guards redundant single-threaded** (`calls`) —
+`CourteousBalancedCall.call` line 35 `previous != this.next` and line 39
+`previous != item`. Reaching the guarded branch needs `hasCapacity(previous)`
+to be true, but `tryClaimRequest(previous)` failed immediately before with no
+intervening clock advance; only a competing thread releasing or replenishing
+capacity can make the two disagree.
 
 **Concurrency-only divergence** — CAS fast-path and lock mutants whose operand
 still executes and which can only diverge when a competing thread makes the

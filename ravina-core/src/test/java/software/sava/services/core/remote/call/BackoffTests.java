@@ -72,6 +72,54 @@ final class BackoffTests {
   }
 
   @Test
+  void fibonacciTieBreaksToTheLowerNeighbour() {
+    // 4 is equidistant from 3 and 5; the sequence starts at the lower neighbour.
+    final var four = Backoff.fibonacci(MILLISECONDS, 4, 34);
+    assertEquals(3, four.initialDelay());
+    assertEquals(3, four.delay(0));
+    assertEquals(3, four.delay(1));
+    assertEquals(5, four.delay(2));
+    assertEquals(8, four.delay(3));
+    assertEquals(13, four.delay(4));
+    assertEquals(21, four.delay(5));
+    assertEquals(34, four.delay(6));
+    assertEquals(34, four.delay(-1));
+
+    // 17 is equidistant from 13 and 21.
+    final var seventeen = Backoff.fibonacci(MILLISECONDS, 17, 100);
+    assertEquals(13, seventeen.initialDelay());
+    assertEquals(13, seventeen.delay(1));
+    assertEquals(21, seventeen.delay(2));
+  }
+
+  @Test
+  void defaultMaxDelayUsesTheBackoffTimeUnit() {
+    assertEquals(2_100, Backoff.fibonacci(MILLISECONDS, 100, 2_100).maxDelay());
+    assertEquals(32_000, Backoff.exponential(MILLISECONDS, 100, 32_000).maxDelay());
+    assertEquals(1_000, Backoff.linear(MILLISECONDS, 250, 1_000).maxDelay());
+    assertEquals(5, Backoff.single(SECONDS, 5).maxDelay());
+    // The no-arg default agrees with the explicit-unit accessor.
+    final var backoff = Backoff.linear(SECONDS, 1, 8);
+    assertEquals(backoff.maxDelay(SECONDS), backoff.maxDelay());
+  }
+
+  @Test
+  void linearRampsEveryStepBeforeSaturatingAtTheMaxDelay() {
+    // maxRetryDelay / initialRetryDelay + initialRetryDelay = 5 + 2 = 7 steps: every
+    // error count below 7 must ramp rather than saturate.
+    final var backoff = Backoff.linear(MILLISECONDS, 2, 10);
+    assertEquals(2, backoff.delay(0));
+    assertEquals(2, backoff.delay(1));
+    assertEquals(4, backoff.delay(2));
+    assertEquals(6, backoff.delay(3));
+    assertEquals(8, backoff.delay(4));
+    assertEquals(10, backoff.delay(5));
+    assertEquals(10, backoff.delay(6));
+    assertEquals(10, backoff.delay(7));
+    assertEquals(10, backoff.delay(-1));
+  }
+
+  @Test
   void exponentialDoublesTheInitialDelayFromTheSecondError() {
     final var backoff = Backoff.exponential(MILLISECONDS, 100, 32_000);
     assertEquals(MILLISECONDS, backoff.timeUnit());

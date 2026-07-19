@@ -20,9 +20,20 @@ final class MemorySignerFactoryTests {
   private static String EXPECTED_PUB_KEY;
   private static String BASE58_PRIVATE_KEY;
 
+  /// Fixed key material: the mutation ratchet needs deterministic kills, so
+  /// the suite must not generate a key pair per run (see sava-build's
+  /// `HARDENING.md`). Any 32 bytes are a valid ed25519 seed.
+  private static byte[] fixedPrivateKey(final int salt) {
+    final byte[] privateKey = new byte[Signer.KEY_LENGTH];
+    for (int i = 0; i < privateKey.length; ++i) {
+      privateKey[i] = (byte) ((i * 7) + salt);
+    }
+    return privateKey;
+  }
+
   @BeforeAll
   static void setup() {
-    final byte[] keyPair = Signer.generatePrivateKeyPairBytes();
+    final byte[] keyPair = Signer.createKeyPairBytesFromPrivateKey(fixedPrivateKey(1));
     final byte[] privateKey = java.util.Arrays.copyOfRange(keyPair, 0, Signer.KEY_LENGTH);
     final var signer = Signer.createFromKeyPair(keyPair);
     EXPECTED_PUB_KEY = signer.publicKey().toBase58();
@@ -240,7 +251,7 @@ final class MemorySignerFactoryTests {
 
   @Test
   void testMemorySignerSignAndPublicKey() {
-    final byte[] keyPair = Signer.generatePrivateKeyPairBytes();
+    final byte[] keyPair = Signer.createKeyPairBytesFromPrivateKey(fixedPrivateKey(2));
     final var signer = Signer.createFromKeyPair(keyPair);
     final var service = new MemorySigner(signer);
 

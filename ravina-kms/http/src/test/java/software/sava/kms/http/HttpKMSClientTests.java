@@ -213,8 +213,16 @@ final class HttpKMSClientTests {
     return out.toByteArray();
   }
 
-  private static PublicKey randomPublicKey() {
-    return Signer.createFromKeyPair(Signer.generatePrivateKeyPairBytes()).publicKey();
+  /// Fixed key material: the mutation ratchet needs deterministic kills, so
+  /// the suite must not generate a key pair per run (see sava-build's
+  /// `HARDENING.md`). Distinct callers pass distinct salts where they need
+  /// distinct keys. Any 32 bytes are a valid ed25519 seed.
+  private static PublicKey fixedPublicKey(final int salt) {
+    final byte[] privateKey = new byte[Signer.KEY_LENGTH];
+    for (int i = 0; i < privateKey.length; ++i) {
+      privateKey[i] = (byte) ((i * 7) + salt);
+    }
+    return Signer.createFromPrivateKey(privateKey).publicKey();
   }
 
   private static HttpKMSClient createClient(final StubHttpClient httpClient) {
@@ -231,7 +239,7 @@ final class HttpKMSClientTests {
 
   @Test
   void publicKeyDefaultsToBase58Encoding() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(4);
     final var httpClient = new StubHttpClient(pubKey.toBase58(), null);
     final var client = createClient(httpClient);
     final var future = client.publicKey();
@@ -241,7 +249,7 @@ final class HttpKMSClientTests {
 
   @Test
   void publicKeyExplicitBase58Encoding() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(4);
     final var httpClient = new StubHttpClient(pubKey.toBase58(), "base58");
     final var client = createClient(httpClient);
     assertEquals(pubKey, client.publicKey().join());
@@ -249,7 +257,7 @@ final class HttpKMSClientTests {
 
   @Test
   void publicKeyBase64Encoding() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(4);
     final var base64 = Base64.getEncoder().encodeToString(pubKey.toByteArray());
     final var httpClient = new StubHttpClient(base64, "base64");
     final var client = createClient(httpClient);
@@ -262,7 +270,7 @@ final class HttpKMSClientTests {
     // "base64" but must still be rejected by the switch's equals guards.
     assertEquals("base58".hashCode(), "cBse58".hashCode());
     assertEquals("base64".hashCode(), "cBse64".hashCode());
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(4);
     for (final var encoding : new String[]{"cBse58", "cBse64"}) {
       final var httpClient = new StubHttpClient(pubKey.toBase58(), encoding);
       final var client = createClient(httpClient);
@@ -275,7 +283,7 @@ final class HttpKMSClientTests {
 
   @Test
   void publicKeyUnsupportedEncodingThrows() {
-    final var pubKey = randomPublicKey();
+    final var pubKey = fixedPublicKey(4);
     final var httpClient = new StubHttpClient(pubKey.toBase58(), "hex");
     final var client = createClient(httpClient);
     final var ex = assertThrows(CompletionException.class, () -> client.publicKey().join());
