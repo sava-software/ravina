@@ -131,11 +131,9 @@ CAS fail or observes an unreleased lock: `CapacityStateVal.tryClaimRequest`
 and the `unlock()` removals in `SortedLoadBalancer.sort`/`.items` (the lock is
 reentrant, so the owning thread re-enters freely single-threaded).
 
-**System-clock boundary** — `RootErrorTracker.produceErrorResponseSnapshot`
-`timestamp() <= expireBefore` → `<`: the two differ only for a record whose
-timestamp lands on the exact expiry millisecond. Unlike the rest of the error
-tracker, this method hard-codes `System.currentTimeMillis()` instead of
-accepting a `NanoClock`, so the boundary cannot be hit deterministically.
-**This one is a testability gap in the main source, not an inherent limit** —
-threading a clock through `produceErrorResponseSnapshot` would make it
-killable, and is the right fix if this area is touched again.
+*(The `RootErrorTracker.produceErrorResponseSnapshot` expiry boundary used to
+sit here, unkillable because the method hard-coded `System.currentTimeMillis()`.
+It now reads `NanoClock.currentTimeMillis()` via `CapacityState.clock()`, so
+`snapshotExpiryBoundaryIsInclusive` pins the `<=` exactly and the mutant is
+dead. Recorded as precedent: a mutant that is unkillable only because a clock
+is hard-coded is a testability gap to fix, not debt to accept.)*

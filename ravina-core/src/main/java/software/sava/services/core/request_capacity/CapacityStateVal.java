@@ -24,13 +24,19 @@ final class CapacityStateVal implements CapacityState {
   private final IntBinaryOperator updateCapacity;
   private final AtomicLong updatedAtSystemNanoTime;
 
+  @Override
+  public NanoClock clock() {
+    return clock;
+  }
+
   CapacityStateVal(final CapacityConfig capacityConfig, final NanoClock clock) {
     this.clock = clock;
     this.capacityConfig = capacityConfig;
     final int maxCapacity = capacityConfig.maxCapacity();
     this.weightPerNanosecond = maxCapacity / (double) capacityConfig.resetDuration().toNanos();
     this.nanosPerWeight = Math.round(1 / weightPerNanosecond);
-    this.updateCapacity = (numRemaining, newCapacity) -> Math.min(maxCapacity, Math.max(capacityConfig.minCapacity(), numRemaining + newCapacity));
+    this.updateCapacity = (numRemaining, newCapacity) ->
+        Math.clamp(numRemaining + newCapacity, capacityConfig.minCapacity(), maxCapacity);
     this.capacity = new AtomicInteger(maxCapacity);
     this.updatedAtSystemNanoTime = new AtomicLong(clock.nanoTime());
   }

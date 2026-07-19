@@ -25,6 +25,27 @@ final class RootErrorTrackerTests {
     }
   };
 
+  /// Drives `produceErrorResponseSnapshot`'s expiry comparison. Non-zero
+  /// origin so a mutated `0` reading is distinguishable from a real one.
+  private static final class TestClock implements NanoClock {
+
+    private long nanos = 1_000_000L * 500_000L;
+
+    @Override
+    public long nanoTime() {
+      return nanos;
+    }
+
+    @Override
+    public void sleep(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
+
+    void setMillis(final long millis) {
+      nanos = millis * 1_000_000L;
+    }
+  }
+
   private record TestErrorRecord(long timestamp, int errorCode) implements ErrorResponseRecord {
   }
 
@@ -81,6 +102,21 @@ final class RootErrorTrackerTests {
         Duration.ofSeconds(1)
     );
     return config.createMonitor("test", IntErrorTracker::new, FIXED_CLOCK);
+  }
+
+  private static ErrorTrackedCapacityMonitor<Integer> createMonitor(final Duration maxGroupedErrorExpiration,
+                                                                    final NanoClock clock) {
+    final var config = new CapacityConfig(
+        0,
+        100,
+        Duration.ofSeconds(1),
+        3,
+        maxGroupedErrorExpiration,
+        Duration.ofSeconds(2),
+        Duration.ofMillis(500),
+        Duration.ofSeconds(1)
+    );
+    return config.createMonitor("test", IntErrorTracker::new, clock);
   }
 
   @Test
@@ -261,15 +297,16 @@ final class RootErrorTrackerTests {
 
   @Test
   void snapshotExpiresStaleRecords() {
-    final var monitor = createMonitor(Duration.ofSeconds(1));
+    final var clock = new TestClock();
+    final var monitor = createMonitor(Duration.ofSeconds(1), clock);
     final var tracker = (IntErrorTracker) monitor.errorTracker();
 
-    // Wide margins around the wall clock keep this deterministic: the snapshot
-    // expires against System.currentTimeMillis() minus the one second expiration.
-    final long wallClock = System.currentTimeMillis();
-    tracker.now = wallClock + 60_000;
+    // Snapshot expiry reads the injected clock, so record timestamps and the
+    // snapshot's notion of "now" are set independently and exactly.
+    clock.setMillis(100_000);
+    tracker.now = 160_000;
     assertTrue(tracker.test(400, null));
-    tracker.now = wallClock - 10_000;
+    tracker.now = 90_000;
     assertTrue(tracker.test(401, null));
 
     final var snapshot = tracker.produceErrorResponseSnapshot();
@@ -277,20 +314,43 @@ final class RootErrorTrackerTests {
     assertFalse(snapshot.containsKey("401"));
     final var retained = snapshot.get("400");
     assertEquals(1, retained.size());
-    assertEquals(wallClock + 60_000, retained.getFirst().timestamp());
+    assertEquals(160_000, retained.getFirst().timestamp());
   }
 
   @Test
   void fullyExpiredSnapshotIsAnImmutableEmptyMap() {
-    final var monitor = createMonitor(Duration.ofSeconds(1));
+    final var clock = new TestClock();
+    final var monitor = createMonitor(Duration.ofSeconds(1), clock);
     final var tracker = (IntErrorTracker) monitor.errorTracker();
 
-    tracker.now = System.currentTimeMillis() - 10_000;
+    clock.setMillis(100_000);
+    tracker.now = 90_000;
     assertTrue(tracker.test(400, null));
 
     final var snapshot = tracker.produceErrorResponseSnapshot();
     assertTrue(snapshot.isEmpty());
     assertThrows(UnsupportedOperationException.class, () -> snapshot.put("400", List.of()));
+  }
+
+  @Test
+  void snapshotExpiryBoundaryIsInclusive() {
+    final var clock = new TestClock();
+    final var monitor = createMonitor(Duration.ofSeconds(1), clock);
+    final var tracker = (IntErrorTracker) monitor.errorTracker();
+
+    // expireBefore == 100_000 - 1_000 == 99_000. A record stamped exactly on
+    // that millisecond is expired; one millisecond later survives. Pins the
+    // boundary itself, which a wall-clock read could never hit reliably.
+    clock.setMillis(100_000);
+    tracker.now = 99_000;
+    assertTrue(tracker.test(400, null));
+    tracker.now = 99_001;
+    assertTrue(tracker.test(401, null));
+
+    final var snapshot = tracker.produceErrorResponseSnapshot();
+    assertFalse(snapshot.containsKey("400"), "record on the expiry millisecond must be dropped");
+    assertEquals(1, snapshot.size());
+    assertEquals(99_001, snapshot.get("401").getFirst().timestamp());
   }
 
   @Test

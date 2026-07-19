@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity.trackers;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.CapacityState;
 
 import java.util.HashMap;
@@ -15,6 +16,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
   protected static final Function<String, ConcurrentLinkedQueue<ErrorResponseRecord>> INIT_ERROR_RESPONSE_GROUP = _ -> new ConcurrentLinkedQueue<>();
 
   protected final CapacityState capacityState;
+  private final NanoClock clock;
   private final long groupedErrorExpirationMillis;
   private final int serverErrorBackOffCapacity;
   private final int tooManyErrorsBackoffCapacity;
@@ -25,6 +27,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
 
   protected RootErrorTracker(final CapacityState capacityState) {
     this.capacityState = capacityState;
+    this.clock = capacityState.clock();
     final var config = capacityState.capacityConfig();
     this.groupedErrorExpirationMillis = config.maxGroupedErrorExpiration().toMillis();
     this.serverErrorBackOffCapacity = -(int) Math.ceil(capacityState.capacityFor(config.serverErrorBackOffDuration()));
@@ -48,7 +51,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
   protected abstract boolean updateGroupedErrorResponseCount(final long now, final R response, final byte[] body);
 
   protected final boolean updateGroupedErrorResponseCount(final R response, final byte[] body) {
-    return updateGroupedErrorResponseCount(System.currentTimeMillis(), response, body);
+    return updateGroupedErrorResponseCount(clock.currentTimeMillis(), response, body);
   }
 
   protected abstract void logResponse(final R response, final byte[] body);
@@ -118,7 +121,7 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     }
 
     final var snapshot = HashMap.<String, List<ErrorResponseRecord>>newHashMap(numGroups);
-    final long expireBefore = System.currentTimeMillis() - groupedErrorExpirationMillis;
+    final long expireBefore = clock.currentTimeMillis() - groupedErrorExpirationMillis;
     for (final var errorResponseEntry : errorResponses.entrySet()) {
       final var errorResponses = errorResponseEntry.getValue();
       var response = errorResponses.peek();

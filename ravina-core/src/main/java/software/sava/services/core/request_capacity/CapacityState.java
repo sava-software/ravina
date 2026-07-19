@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity;
 
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.context.CallContext;
 
 import java.time.Duration;
@@ -10,6 +11,8 @@ import static software.sava.services.core.request_capacity.context.CallContext.D
 public interface CapacityState {
 
   CapacityConfig capacityConfig();
+
+  NanoClock clock();
 
   int capacity();
 
