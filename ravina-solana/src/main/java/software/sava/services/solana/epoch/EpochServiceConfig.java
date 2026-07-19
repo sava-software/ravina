@@ -5,7 +5,6 @@ import software.sava.services.core.config.ServiceConfigUtil;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.time.Duration;
 import java.util.Properties;
@@ -22,8 +21,7 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
                                  Duration fetchEpochInfoAfterEndDelay) {
 
   public static EpochServiceConfig parseConfig(final JsonIterator ji) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser();

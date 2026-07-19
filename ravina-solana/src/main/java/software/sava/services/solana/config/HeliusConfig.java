@@ -6,7 +6,6 @@ import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.services.solana.helius.client.http.HeliusClient;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -41,8 +40,7 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
   public static HeliusConfig parseConfig(final JsonIterator ji,
                                          final CapacityConfig defaultCapacity,
                                          final Backoff defaultBackoff) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser(defaultCapacity, defaultBackoff);

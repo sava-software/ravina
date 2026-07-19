@@ -7,7 +7,6 @@ import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.FieldMatcher;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.net.URI;
 import java.net.http.HttpResponse;
@@ -40,8 +39,7 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
                                                      final String defaultServiceName,
                                                      final String defaultEndpoint,
                                                      final Backoff defaultBackoff) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser();

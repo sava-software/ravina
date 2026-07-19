@@ -5,7 +5,6 @@ import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.config.PropertiesParser;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.util.Properties;
 
@@ -32,8 +31,7 @@ public record ChainItemFormatter(String sigFormat, String addressFormat) {
   }
 
   public static ChainItemFormatter parseFormatter(final JsonIterator ji) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser();

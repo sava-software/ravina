@@ -7,7 +7,6 @@ import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.UriCapacityConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,8 +71,7 @@ public record LoadBalancerConfig(CapacityConfig defaultCapacityConfig,
   public static LoadBalancerConfig parse(final JsonIterator ji,
                                          final CapacityConfig defaultCapacityConfig,
                                          final Backoff defaultBackoff) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser();

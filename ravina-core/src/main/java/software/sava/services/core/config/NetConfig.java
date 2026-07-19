@@ -1,7 +1,6 @@
 package software.sava.services.core.config;
 
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -22,8 +21,7 @@ public interface NetConfig {
   }
 
   static NetConfig parseConfig(final JsonIterator ji) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new NetConfigRecord.Parser();

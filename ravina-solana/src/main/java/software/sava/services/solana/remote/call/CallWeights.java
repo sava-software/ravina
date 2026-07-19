@@ -3,7 +3,6 @@ package software.sava.services.solana.remote.call;
 import software.sava.services.core.config.PropertiesParser;
 import systems.comodal.jsoniter.FieldBufferPredicate;
 import systems.comodal.jsoniter.JsonIterator;
-import systems.comodal.jsoniter.ValueType;
 
 import java.util.Properties;
 
@@ -14,8 +13,7 @@ public record CallWeights(int getProgramAccounts,
                           int sendTransaction) {
 
   public static CallWeights parse(final JsonIterator ji) {
-    if (ji.whatIsNext() == ValueType.NULL) {
-      ji.skip();
+    if (ji.readNull()) {
       return null;
     } else {
       final var parser = new Parser();
