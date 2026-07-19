@@ -118,15 +118,30 @@ block (all five modules). Full process contract: sava-build's `HARDENING.md`.
   Contract: garbage in → `RuntimeException` out (catch and return); invariant
   violations throw `AssertionError`/`IllegalStateException` and are findings.
   Multi-parser harnesses (`ConfigsFuzz`, `SolanaConfigsFuzz`) use byte 0 to
-  select the parser. Seed corpora live in `src/test/resources/fuzz/<name>/`.
-  Jazzer writes `crash-*` / `Crash_*.java` reproducers into the module dir on
-  a finding — use them, then delete them (never commit).
+  select the parser. Seed corpora live in `src/test/resources/fuzz/<name>/`;
+  every registered target has one. Jazzer writes `crash-*` / `Crash_*.java`
+  reproducers into the module dir on a finding — use them, then delete them
+  (never commit).
+- **Every fuzz finding becomes two artifacts**: the minimized input committed
+  to the seed corpus as `regression-<what>`, and a named regression test. A
+  crash fixed without both is a crash that can return.
+- `FuzzCorpusReplayTests` (one per module) replays every committed seed
+  through its harness inside `check`, so seeds face PIT's mutants and a
+  promoted finding keeps failing in the ordinary build without waiting on a
+  fuzz run. New seeds are picked up automatically — no registration. This is
+  what makes fuzzing pay off between fuzz runs; `regression-clamp-arg-order`
+  is the worked example (see below).
 - When adding a new parser, algorithm, or strategy: add unit tests, register
   it in (or add) a mutation suite, and extend a fuzz harness if it consumes
   external input. History justifies the effort — this setup found and fixed a
   fibonacci backoff exceeding its declared max, an even-count median crash in
-  `SlotPerformanceStats`, and `RootErrorTracker` silently dropping unexpired
-  error records.
+  `SlotPerformanceStats`, `RootErrorTracker` silently dropping unexpired
+  error records, and `CapacityStateVal`'s capacity accumulator calling
+  `Math.clamp(value, min, max)` with the arguments transposed — which threw
+  `IllegalArgumentException` from the token bucket as soon as replenishment
+  carried the running sum above `maxCapacity`. `fuzzCapacityState` reproduced
+  that one in 21 seconds from an 8-byte input, through a `durationUntil` path
+  no unit test reached.
 
 ## Gotchas & invariants worth knowing
 

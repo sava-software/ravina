@@ -67,6 +67,7 @@ hardening {
   fuzz.register("backoff") {
     targetClass = "software.sava.services.core.remote.call.BackoffFuzz"
     maxLen = 64
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/backoff")
   }
   fuzz.register("capacityConfig") {
     targetClass = "software.sava.services.core.request_capacity.CapacityConfigFuzz"
@@ -76,6 +77,7 @@ hardening {
   fuzz.register("capacityState") {
     targetClass = "software.sava.services.core.request_capacity.CapacityStateFuzz"
     maxLen = 512
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/capacityState")
   }
   fuzz.register("configs") {
     targetClass = "software.sava.services.core.config.ConfigsFuzz"

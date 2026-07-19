@@ -52,5 +52,6 @@ hardening {
   fuzz.register("configs") {
     targetClass = "software.sava.services.solana.config.SolanaConfigsFuzz"
     maxLen = 768
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/configs")
   }
 }
