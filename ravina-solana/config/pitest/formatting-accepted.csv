@@ -1,0 +1,11 @@
+software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,110,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,114,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.config.ChainItemFormatter$Parser,test,123,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.config.ChainItemFormatter,commaSeparateInteger,45,ConditionalsBoundaryMutator,SURVIVED
+software.sava.services.solana.config.ChainItemFormatter,createDefault,20,NullReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatAddress,67,EmptyObjectReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatAddress,71,EmptyObjectReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatSig,63,EmptyObjectReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatSigStatus,76,EmptyObjectReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatSigStatus,87,RemoveConditionalMutator_EQUAL_ELSE,NO_COVERAGE
+software.sava.services.solana.config.ChainItemFormatter,formatSigStatus,87,RemoveConditionalMutator_EQUAL_IF,NO_COVERAGE

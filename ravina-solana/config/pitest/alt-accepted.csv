@@ -1,0 +1,13 @@
+software.sava.services.solana.alt.ScoredTable,scoreTables,29,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,38,MathMutator,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,39,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,54,IncrementsMutator,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,54,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,58,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
+software.sava.services.solana.alt.ScoredTable,scoreTables,61,MathMutator,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,28,MathMutator,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,29,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,44,IncrementsMutator,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,44,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,49,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,52,MathMutator,SURVIVED

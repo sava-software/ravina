@@ -1,0 +1,11 @@
+software.sava.services.solana.transactions.SimulationFutures,capCuPrice,41,ConditionalsBoundaryMutator,SURVIVED
+software.sava.services.solana.transactions.SimulationFutures,capCuPrice,45,ConditionalsBoundaryMutator,SURVIVED
+software.sava.services.solana.transactions.SimulationFutures,capCuPrice,45,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
+software.sava.services.solana.transactions.SimulationFutures,createTransaction,65,NullReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,createTransaction,75,NullReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,cuBudget,28,PrimitiveReturnsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,cuBudget,32,PrimitiveReturnsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,cuBudget,34,MathMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,cuPrice,59,PrimitiveReturnsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,exceedsSizeLimit,82,BooleanFalseReturnValsMutator,NO_COVERAGE
+software.sava.services.solana.transactions.SimulationFutures,exceedsSizeLimit,82,BooleanTrueReturnValsMutator,NO_COVERAGE

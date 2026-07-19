@@ -76,17 +76,32 @@ parsing, and KMS-backed signing.
 
 Provided by the `software.sava.build.feature.hardening` plugin; suites and
 targets are registered in each module's `build.gradle.kts` `hardening {}`
-block. These are on-demand verification tasks — not part of `check` or CI.
+block (all five modules). Full process contract: sava-build's `HARDENING.md`.
 
-- Mutation: `./gradlew :ravina-core:pitestBackoff` (etc. — `pitest<Suite>`,
-  see `gradlew tasks --group verification`). Reports:
-  `build/reports/pitest/<suite>/` (HTML + `mutations.csv`). Workflow for
-  improving a suite: run it, read the surviving mutants from the CSV, write
-  assertions that distinguish them, re-run. Expect ~80–90% killed; known
-  *equivalent* mutants (do not chase): `logger.log` removals, `sort()` calls
-  on the no-op `ArrayLoadBalancer` inside `CourteousBalancedCall` (the
-  comparator ignores capacity so order cannot change mid-call), and timer
-  mutations that are unobservable when `measureCallTime` is false.
+- **Run `./gradlew qualityGate` after changing main sources** — unit tests
+  plus every PIT suite, each diffed against its accepted baseline in the
+  module's `config/pitest/`. It is the definition of "safe to commit". While
+  iterating, run only the `pitest<Suite>` that owns the code you touched —
+  `qualityGate` is the before-commit command, not the inner-loop one.
+- A new unkilled mutant has exactly three legal outcomes: **kill it** with a
+  test (prefer asserting the property it breaks — pacing as a function of
+  requested delays, capacity after a dock — over restating the
+  implementation), **refactor** it out of existence, or **accept it** with a
+  written reason in the module's `config/pitest/README.md`. Never run
+  `-PupdateMutationBaseline` just to make the build pass.
+- Line-number churn from editing a mutated file shows up as paired stale +
+  "new" baseline entries; confirm they're the shifted old ones before
+  refreshing.
+- The seeded baselines are mostly untriaged debt (see each
+  `config/pitest/README.md`) — shrinking them is always an improvement.
+  Triaged *equivalent* mutants (do not chase): `logger.log` removals,
+  `sort()` calls on the no-op `ArrayLoadBalancer` inside
+  `CourteousBalancedCall` (the comparator ignores capacity so order cannot
+  change mid-call), and timer mutations that are unobservable when
+  `measureCallTime` is false.
+- Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
+- **Randomized tests use fixed seeds**: the ratchet needs deterministic
+  kills; per-run exploration is the fuzz targets' job.
 - Fuzz: `./gradlew :ravina-core:fuzzBackoff -PmaxFuzzTime=60` (etc. —
   `fuzz<Target>`; default 60s). Harnesses are `*Fuzz.java` in the ordinary
   test sources: a `final` class exposing only

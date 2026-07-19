@@ -35,8 +35,8 @@ hardening {
   }
   mutation.register("config") {
     targetClasses = listOf(
-      "software.sava.services.solana.config.HttpClientConfig",
-      "software.sava.services.solana.config.HttpClientConfig\$*",
+      "software.sava.services.solana.config.HeliusConfig",
+      "software.sava.services.solana.config.HeliusConfig\$*",
       "software.sava.services.solana.epoch.EpochServiceConfig",
       "software.sava.services.solana.epoch.EpochServiceConfig\$*",
       "software.sava.services.solana.transactions.TxMonitorConfig",

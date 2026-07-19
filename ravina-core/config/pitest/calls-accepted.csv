@@ -1,0 +1,12 @@
+software.sava.services.core.remote.call.ComposedCall,get,58,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,31,ConditionalsBoundaryMutator,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,31,RemoveConditionalMutator_ORDER_IF,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,32,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,35,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,35,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,39,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.core.remote.call.CourteousBalancedCall,call,58,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,53,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,76,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,82,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,92,RemoveConditionalMutator_EQUAL_IF,SURVIVED
