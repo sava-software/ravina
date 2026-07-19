@@ -38,9 +38,9 @@ final class GoogleKMSErrorTrackerTests {
     final var tracker = monitor.errorTracker();
 
     assertEquals(100, monitor.capacityState().capacity());
-    assertTrue(tracker.test(new RuntimeException("boom")));
+    assertTrue(tracker.test(new RuntimeException("boom"), null));
     assertEquals(50, monitor.capacityState().capacity());
-    assertTrue(tracker.test(new RuntimeException("boom")));
+    assertTrue(tracker.test(new RuntimeException("boom"), null));
     assertEquals(0, monitor.capacityState().capacity());
 
     assertEquals(0, tracker.maxGroupedErrorCount());

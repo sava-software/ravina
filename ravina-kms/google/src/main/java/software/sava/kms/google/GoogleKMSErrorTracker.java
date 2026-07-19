@@ -29,12 +29,12 @@ public final class GoogleKMSErrorTracker extends RootErrorTracker<Throwable> {
   }
 
   @Override
-  protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response) {
+  protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response, final byte[] body) {
     return false;
   }
 
   @Override
-  protected void logResponse(final Throwable response) {
+  protected void logResponse(final Throwable response, final byte[] body) {
     logger.log(ERROR, "Call to Google KMS failed: ", response);
   }
 }

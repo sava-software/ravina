@@ -39,7 +39,7 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
 
   public WebHookConfig(final URI endpoint,
                        final String bodyFormat,
-                       final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
+                       final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
                        final Backoff backoff) {
     super(endpoint, capacityMonitor, backoff);
     this.bodyFormat = bodyFormat;

@@ -9,7 +9,7 @@ import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 public abstract class BaseKMSClient implements SigningService {
 
@@ -17,12 +17,12 @@ public abstract class BaseKMSClient implements SigningService {
   protected final Backoff backoff;
   protected final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor;
   protected final CapacityState capacityState;
-  protected final Predicate<Throwable> errorTracker;
+  protected final BiPredicate<Throwable, byte[]> errorTracker;
 
   protected BaseKMSClient(final ExecutorService executorService,
                           final Backoff backoff,
                           final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                          final Predicate<Throwable> errorTracker) {
+                          final BiPredicate<Throwable, byte[]> errorTracker) {
     this.executorService = executorService;
     this.backoff = backoff;
     this.capacityMonitor = capacityMonitor;

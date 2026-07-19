@@ -51,12 +51,12 @@ final class RootErrorTrackerTests {
     }
 
     @Override
-    protected boolean updateGroupedErrorResponseCount(final long ignored, final Integer response) {
+    protected boolean updateGroupedErrorResponseCount(final long ignored, final Integer response, final byte[] body) {
       return updateGroupedErrorResponseCount(now, Integer.toString(response), new TestErrorRecord(now, response));
     }
 
     @Override
-    protected void logResponse(final Integer response) {
+    protected void logResponse(final Integer response, final byte[] body) {
     }
   }
 
@@ -80,9 +80,9 @@ final class RootErrorTrackerTests {
     final var monitor = createMonitor(Duration.ofSeconds(10));
     final var tracker = monitor.errorTracker();
     assertEquals(100, monitor.capacityState().capacity());
-    assertTrue(tracker.test(500));
+    assertTrue(tracker.test(500, null));
     assertEquals(50, monitor.capacityState().capacity());
-    assertTrue(tracker.test(500));
+    assertTrue(tracker.test(500, null));
     assertEquals(0, monitor.capacityState().capacity());
   }
 
@@ -90,7 +90,7 @@ final class RootErrorTrackerTests {
   void rateLimitsDockAFullResetDuration() {
     final var monitor = createMonitor(Duration.ofSeconds(10));
     final var tracker = monitor.errorTracker();
-    assertTrue(tracker.test(429));
+    assertTrue(tracker.test(429, null));
     assertEquals(0, monitor.capacityState().capacity());
   }
 
@@ -98,7 +98,7 @@ final class RootErrorTrackerTests {
   void nonErrorResponsesLeaveCapacityUntouched() {
     final var monitor = createMonitor(Duration.ofSeconds(10));
     final var tracker = monitor.errorTracker();
-    assertTrue(tracker.test(200));
+    assertTrue(tracker.test(200, null));
     assertEquals(100, monitor.capacityState().capacity());
   }
 
@@ -108,23 +108,23 @@ final class RootErrorTrackerTests {
     final var tracker = (IntErrorTracker) monitor.errorTracker();
 
     tracker.now = 1_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(100, monitor.capacityState().capacity());
     assertEquals(1, tracker.maxGroupedErrorCount());
 
     tracker.now = 2_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(100, monitor.capacityState().capacity());
     assertEquals(2, tracker.maxGroupedErrorCount());
 
     tracker.now = 3_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(-100, monitor.capacityState().capacity());
     assertEquals(3, tracker.maxGroupedErrorCount());
     assertFalse(tracker.hasExceededMaxAllowedGroupedErrorResponses());
 
     tracker.now = 4_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(-300, monitor.capacityState().capacity());
     assertEquals(4, tracker.maxGroupedErrorCount());
     assertTrue(tracker.hasExceededMaxAllowedGroupedErrorResponses());
@@ -136,9 +136,9 @@ final class RootErrorTrackerTests {
     final var tracker = (IntErrorTracker) monitor.errorTracker();
 
     tracker.now = 1_000;
-    assertTrue(tracker.test(400));
-    assertTrue(tracker.test(401));
-    assertTrue(tracker.test(403));
+    assertTrue(tracker.test(400, null));
+    assertTrue(tracker.test(401, null));
+    assertTrue(tracker.test(403, null));
     assertEquals(1, tracker.maxGroupedErrorCount());
     assertEquals(100, monitor.capacityState().capacity());
   }
@@ -149,14 +149,14 @@ final class RootErrorTrackerTests {
     final var tracker = (IntErrorTracker) monitor.errorTracker();
 
     tracker.now = 1_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     tracker.now = 2_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(2, tracker.maxGroupedErrorCount());
 
     // Both prior records fall outside the 10 second expiration window.
     tracker.now = 12_500;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     assertEquals(1, tracker.maxGroupedErrorCount());
     assertEquals(100, monitor.capacityState().capacity());
   }
@@ -168,11 +168,11 @@ final class RootErrorTrackerTests {
     assertEquals(Map.of(), tracker.produceErrorResponseSnapshot());
 
     tracker.now = 1_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     tracker.now = 2_000;
-    assertTrue(tracker.test(400));
+    assertTrue(tracker.test(400, null));
     tracker.now = 3_000;
-    assertTrue(tracker.test(401));
+    assertTrue(tracker.test(401, null));
 
     final var snapshot = tracker.produceErrorResponseSnapshot();
     assertEquals(2, snapshot.size());

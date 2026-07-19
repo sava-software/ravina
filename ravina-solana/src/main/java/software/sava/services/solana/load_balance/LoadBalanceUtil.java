@@ -13,11 +13,11 @@ public final class LoadBalanceUtil {
                                                                     final HttpClient httpClient) {
     final var items = loadBalancerConfig.createItems(
         (endpoint, capacityMonitor, errorHandler) -> {
-          final var client = SolanaRpcClient.createClient(
-              endpoint,
-              httpClient,
-              capacityMonitor.errorTracker()
-          );
+          final var client = SolanaRpcClient.build()
+              .endpoint(endpoint)
+              .httpClient(httpClient)
+              .testResponse(capacityMonitor.errorTracker())
+              .createClient();
           return BalancedItem.createItem(client, capacityMonitor, errorHandler);
         });
     return LoadBalancer.createSortedBalancer(items);

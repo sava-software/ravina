@@ -73,7 +73,7 @@ public record CapacityConfig(int minCapacity,
     );
   }
 
-  public ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> createHttpResponseMonitor(final String serviceName) {
+  public ErrorTrackedCapacityMonitor<HttpResponse<?>> createHttpResponseMonitor(final String serviceName) {
     final var capacityState = new CapacityStateVal(this, NanoClock.SYSTEM);
     return new CapacityMonitorRecord<>(
         serviceName,

@@ -7,7 +7,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 import java.util.function.UnaryOperator;
 
 final class WebHookClientImpl implements WebHookClient {
@@ -23,14 +23,14 @@ final class WebHookClientImpl implements WebHookClient {
   private final HttpClient httpClient;
   private final Duration requestTimeout;
   private final UnaryOperator<HttpRequest.Builder> extendRequest;
-  private final Predicate<HttpResponse<byte[]>> applyResponse;
+  private final BiPredicate<HttpResponse<?>, byte[]> applyResponse;
   private final String bodyFormat;
 
   WebHookClientImpl(final URI endpoint,
                     final HttpClient httpClient,
                     final Duration requestTimeout,
                     final UnaryOperator<HttpRequest.Builder> extendRequest,
-                    final Predicate<HttpResponse<byte[]>> applyResponse,
+                    final BiPredicate<HttpResponse<?>, byte[]> applyResponse,
                     final String bodyFormat) {
     this.endpoint = endpoint;
     this.httpClient = httpClient;
@@ -53,7 +53,7 @@ final class WebHookClientImpl implements WebHookClient {
   private <R> Function<HttpResponse<byte[]>, R> wrapParser(final Function<HttpResponse<byte[]>, R> parser) {
     return this.applyResponse == null
         ? parser
-        : (response) -> this.applyResponse.test(response) ? parser.apply(response) : null;
+        : (response) -> this.applyResponse.test(response, response.body()) ? parser.apply(response) : null;
   }
 
   private <R> CompletableFuture<R> sendPostRequest(final Function<HttpResponse<byte[]>, R> parser, final String body) {

@@ -7,7 +7,7 @@ import java.util.stream.Collectors;
 
 import static java.lang.System.Logger.Level.DEBUG;
 
-public class HttpErrorTracker extends RootErrorTracker<HttpResponse<byte[]>> {
+public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>> {
 
   private static final System.Logger logger = System.getLogger(HttpErrorTracker.class.getName());
 
@@ -16,23 +16,25 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<byte[]>> {
   }
 
   @Override
-  protected boolean isServerError(final HttpResponse<byte[]> response) {
+  protected boolean isServerError(final HttpResponse<?> response) {
     return response.statusCode() > 500;
   }
 
   @Override
-  protected boolean isRequestError(final HttpResponse<byte[]> response) {
+  protected boolean isRequestError(final HttpResponse<?> response) {
     return response.statusCode() >= 400 && response.statusCode() < 500;
   }
 
   @Override
-  protected boolean isRateLimited(final HttpResponse<byte[]> response) {
+  protected boolean isRateLimited(final HttpResponse<?> response) {
     final int statusCode = response.statusCode();
     return statusCode == 429 || statusCode == 403;
   }
 
   @Override
-  protected final boolean updateGroupedErrorResponseCount(final long now, final HttpResponse<byte[]> response) {
+  protected final boolean updateGroupedErrorResponseCount(final long now,
+                                                          final HttpResponse<?> response,
+                                                          final byte[] body) {
     return updateGroupedErrorResponseCount(
         now,
         response.request().uri().getPath(),
@@ -41,9 +43,8 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<byte[]>> {
   }
 
   @Override
-  protected void logResponse(final HttpResponse<byte[]> response) {
+  protected void logResponse(final HttpResponse<?> response, final byte[] body) {
     if (logger.isLoggable(DEBUG)) {
-      final var body = response.body();
       if (body != null) {
         logger.log(DEBUG, String.format("""
                 %d %s:

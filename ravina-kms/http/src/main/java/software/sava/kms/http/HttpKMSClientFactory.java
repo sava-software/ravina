@@ -14,7 +14,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
@@ -30,7 +30,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
                                              final HttpClient httpClient,
                                              final URI endpoint,
                                              final Backoff backoff,
-                                             final Predicate<Throwable> errorTracker) {
+                                             final BiPredicate<Throwable, byte[]> errorTracker) {
     return new HttpKMSClient(
         executorService,
         backoff,

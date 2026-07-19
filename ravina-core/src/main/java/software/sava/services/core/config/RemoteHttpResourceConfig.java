@@ -15,7 +15,7 @@ import java.util.Properties;
 
 import static java.util.Objects.requireNonNullElse;
 
-public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
+public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
                                        URI endpoint,
                                        Backoff backoff) {
 

@@ -45,27 +45,27 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     return true;
   }
 
-  protected abstract boolean updateGroupedErrorResponseCount(final long now, final R response);
+  protected abstract boolean updateGroupedErrorResponseCount(final long now, final R response, final byte[] body);
 
-  protected final boolean updateGroupedErrorResponseCount(final R response) {
-    return updateGroupedErrorResponseCount(System.currentTimeMillis(), response);
+  protected final boolean updateGroupedErrorResponseCount(final R response, final byte[] body) {
+    return updateGroupedErrorResponseCount(System.currentTimeMillis(), response, body);
   }
 
-  protected abstract void logResponse(final R response);
+  protected abstract void logResponse(final R response, final byte[] body);
 
-  public boolean test(final R response) {
+  public boolean test(final R response, final byte[] body) {
     if (isServerError(response)) {
       capacityState.addCapacity(serverErrorBackOffCapacity);
-      logResponse(response);
+      logResponse(response, body);
     } else if (isRequestError(response)) {
       if (unableToHandleResponse(response)) {
         if (isRateLimited(response)) {
           capacityState.addCapacity(rateLimitedBackOffCapacity);
-        } else if (updateGroupedErrorResponseCount(response)) {
+        } else if (updateGroupedErrorResponseCount(response, body)) {
           capacityState.addCapacity(tooManyErrorsBackoffCapacity);
         }
       }
-      logResponse(response);
+      logResponse(response, body);
     }
     return true;
   }

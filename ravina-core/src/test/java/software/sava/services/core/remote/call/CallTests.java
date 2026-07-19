@@ -73,12 +73,12 @@ final class CallTests {
     }
 
     @Override
-    protected boolean updateGroupedErrorResponseCount(final long now, final Long response) {
+    protected boolean updateGroupedErrorResponseCount(final long now, final Long response, final byte[] body) {
       return false;
     }
 
     @Override
-    protected void logResponse(final Long response) {
+    protected void logResponse(final Long response, final byte[] body) {
       if (response == 400) {
         assertEquals(0, capacityState.capacity(), response + ": " + capacityState);
       } else if (response == 401) {
@@ -126,7 +126,7 @@ final class CallTests {
         loadBalancer, _count -> {
           final long callCount = _count.incrementAndGet();
           if (callCount == 400 || callCount == 401 || callCount == 429) {
-            monitor.errorTracker().test(callCount);
+            monitor.errorTracker().test(callCount, null);
             return CompletableFuture.failedFuture(new IllegalStateException("Error " + callCount));
           } else {
             return CompletableFuture.completedFuture(callCount);

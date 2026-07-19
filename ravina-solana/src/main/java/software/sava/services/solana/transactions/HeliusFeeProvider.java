@@ -1,7 +1,7 @@
 package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Transaction;
-import software.sava.solana.web2.helius.client.http.HeliusClient;
+import software.sava.services.solana.helius.client.http.HeliusClient;
 
 import java.math.BigDecimal;
 import java.util.concurrent.CompletableFuture;

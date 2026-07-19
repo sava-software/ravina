@@ -4,7 +4,7 @@ import software.sava.services.core.config.BaseHttpClientConfig;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
-import software.sava.solana.web2.helius.client.http.HeliusClient;
+import software.sava.services.solana.helius.client.http.HeliusClient;
 import systems.comodal.jsoniter.JsonIterator;
 import systems.comodal.jsoniter.ValueType;
 
@@ -19,7 +19,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
   public HeliusConfig(final URI endpoint,
-                      final ErrorTrackedCapacityMonitor<HttpResponse<byte[]>> capacityMonitor,
+                      final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
                       final Backoff backoff) {
     super(endpoint, capacityMonitor, backoff);
   }

@@ -17,7 +17,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 
 public final class GoogleKMSClientFactory implements SigningServiceFactory, FieldBufferPredicate {
@@ -32,7 +32,7 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
                                              final Backoff backoff,
                                              final KeyManagementServiceClient kmsClient,
                                              final CryptoKeyVersionName keyVersionName,
-                                             final Predicate<Throwable> errorTracker) {
+                                             final BiPredicate<Throwable, byte[]> errorTracker) {
     return new GoogleKMSClient(
         executorService,
         backoff,

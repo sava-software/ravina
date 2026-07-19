@@ -14,7 +14,7 @@ import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 import static java.net.http.HttpResponse.BodyHandlers.ofByteArray;
 import static java.net.http.HttpResponse.BodyHandlers.ofString;
@@ -39,7 +39,7 @@ final class HttpKMSClient extends BaseKMSClient {
   public HttpKMSClient(final ExecutorService executorService,
                        final Backoff backoff,
                        final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                       final Predicate<Throwable> errorTracker,
+                       final BiPredicate<Throwable, byte[]> errorTracker,
                        final HttpClient httpClient,
                        final URI endpoint) {
     super(executorService, backoff, capacityMonitor, errorTracker);

@@ -67,12 +67,12 @@ final class CourteousCallTests {
     }
 
     @Override
-    protected boolean updateGroupedErrorResponseCount(final long now, final Long response) {
+    protected boolean updateGroupedErrorResponseCount(final long now, final Long response, final byte[] body) {
       return false;
     }
 
     @Override
-    protected void logResponse(final Long response) {
+    protected void logResponse(final Long response, final byte[] body) {
     }
   }
 

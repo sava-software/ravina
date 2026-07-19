@@ -12,7 +12,7 @@ import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.function.Predicate;
+import java.util.function.BiPredicate;
 
 final class GoogleKMSClient extends BaseKMSClient {
 
@@ -24,7 +24,7 @@ final class GoogleKMSClient extends BaseKMSClient {
                   final KeyManagementServiceClient kmsClient,
                   final CryptoKeyVersionName keyVersionName,
                   final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                  final Predicate<Throwable> errorTracker) {
+                  final BiPredicate<Throwable, byte[]> errorTracker) {
     super(executorService, backoff, capacityMonitor, errorTracker);
     this.kmsClient = kmsClient;
     this.keyVersionName = keyVersionName;
@@ -46,7 +46,7 @@ final class GoogleKMSClient extends BaseKMSClient {
             return parsePublicKeyFromPem(pemPublicKey.getPem());
           } catch (final RuntimeException ex) {
             if (errorTracker != null) {
-              errorTracker.test(ex);
+              errorTracker.test(ex, null);
             }
             throw ex;
           }
@@ -68,7 +68,7 @@ final class GoogleKMSClient extends BaseKMSClient {
             return result.getSignature().toByteArray();
           } catch (final RuntimeException ex) {
             if (errorTracker != null) {
-              errorTracker.test(ex);
+              errorTracker.test(ex, null);
             }
             throw ex;
           }
