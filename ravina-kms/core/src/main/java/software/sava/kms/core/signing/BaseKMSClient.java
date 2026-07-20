@@ -15,14 +15,14 @@ public abstract class BaseKMSClient implements SigningService {
 
   protected final ExecutorService executorService;
   protected final Backoff backoff;
-  protected final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor;
+  protected final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor;
   protected final CapacityState capacityState;
-  protected final BiPredicate<Throwable, byte[]> errorTracker;
+  protected final BiPredicate<Throwable, Void> errorTracker;
 
   protected BaseKMSClient(final ExecutorService executorService,
                           final Backoff backoff,
-                          final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                          final BiPredicate<Throwable, byte[]> errorTracker) {
+                          final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor,
+                          final BiPredicate<Throwable, Void> errorTracker) {
     this.executorService = executorService;
     this.backoff = backoff;
     this.capacityMonitor = capacityMonitor;

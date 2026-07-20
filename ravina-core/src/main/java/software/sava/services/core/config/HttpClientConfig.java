@@ -13,7 +13,7 @@ public interface HttpClientConfig<C> {
 
   URI endpoint();
 
-  ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor();
+  ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor();
 
   Backoff backoff();
 

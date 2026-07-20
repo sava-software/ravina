@@ -34,7 +34,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   private final EpochInfoService epochInfoService;
   private final long minSleepMillisBetweenPolling;
   protected final ConcurrentSkipListSet<TxContext> pendingTransactions;
-  private final ReentrantLock workLock;
+  final ReentrantLock workLock; // package-private: tests assert the loop never leaks it
   private final Condition processTransactions;
 
   protected BaseTxMonitorService(final ChainItemFormatter formatter,
@@ -52,7 +52,6 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
 
   protected abstract long processTransactions(final Map<String, TxContext> batch) throws InterruptedException;
 
-  @SuppressWarnings("InfiniteLoopStatement")
   @Override
   public final void run() {
     final var batch = HashMap.<String, TxContext>newHashMap(MAX_SIG_STATUS);
@@ -161,7 +160,6 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
       final var error = sigStatus.error();
 
       if (error != null) {
-        // TODO: if failed because already landed, fetch transaction.
         final var awaitCommitmentOnError = txContext.awaitCommitmentOnError();
         if (commitmentMet(awaitCommitmentOnError, commitment)) {
           completeFuture(txContext, sigStatus);
@@ -183,12 +181,13 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
           continue;
         } else {
           logger.log(INFO, String.format("""
-                  Transaction has been successfully %s, awaiting %s.
-                  %s
-                  """,
-              commitment, awaitCommitment,
-              formatter.formatSig(sig)
-          ));
+                      Transaction has been successfully %s, awaiting %s.
+                      %s
+                      """,
+                  commitment, awaitCommitment,
+                  formatter.formatSig(sig)
+              )
+          );
         }
       }
 

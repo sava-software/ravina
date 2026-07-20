@@ -30,7 +30,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
                                              final HttpClient httpClient,
                                              final URI endpoint,
                                              final Backoff backoff,
-                                             final BiPredicate<Throwable, byte[]> errorTracker) {
+                                             final BiPredicate<Throwable, Void> errorTracker) {
     return new HttpKMSClient(
         executorService,
         backoff,
@@ -45,7 +45,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
                                              final HttpClient httpClient,
                                              final URI endpoint,
                                              final Backoff backoff,
-                                             final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor) {
+                                             final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor) {
     return new HttpKMSClient(
         executorService,
         backoff,
@@ -60,7 +60,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
   public SigningService createService(final ExecutorService executorService,
                                       final Backoff backoff,
                                       final JsonIterator ji,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     ji.testObject(this);
     final var httpClient = HttpClient.newBuilder().executor(executorService).build();
     final var capacityMonitor = capacityConfig.createMonitor("HTTP KMS", errorTrackerFactory);
@@ -84,7 +84,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
                                       final Backoff backoff,
                                       final String prefix,
                                       final Properties properties,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     final var p = PropertiesParser.propertyPrefix(prefix);
     final var endpointStr = PropertiesParser.getProperty(properties, p, "endpoint");
     if (endpointStr != null) {

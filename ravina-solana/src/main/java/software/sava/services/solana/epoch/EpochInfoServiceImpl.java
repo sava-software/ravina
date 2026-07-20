@@ -2,6 +2,7 @@ package software.sava.services.solana.epoch;
 
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.PerfSample;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.remote.call.RpcCaller;
@@ -22,29 +23,34 @@ final class EpochInfoServiceImpl implements EpochInfoService {
 
   static final int SECONDS_PER_SAMPLE = 60;
 
+  private final NanoClock clock;
   private final RpcCaller rpcCaller;
   private final CallContext getEpochInfoCallContext;
   private final int defaultMillisPerSlot;
   private final int minMillisPerSlot;
   private final int maxMillisPerSlot;
-  private final int numSamples;
+  // Package-private so the tests in this package can assert the derived
+  // sample count and that the loop never leaks its lock, without reflection.
+  final int numSamples;
   private final long fetchSamplesDelayMillis;
   private final long fetchEpochInfoAfterEndDelayMillis;
   private final Backoff backoff;
-  private final ReentrantLock lock;
+  final ReentrantLock lock;
   private final Condition initializedCondition;
   private final Condition fetchEpochNow;
 
   private volatile boolean initialized;
   private volatile Epoch epoch;
 
-  EpochInfoServiceImpl(final RpcCaller rpcCaller,
+  EpochInfoServiceImpl(final NanoClock clock,
+                       final RpcCaller rpcCaller,
                        final int defaultMillisPerSlot,
                        final int minMillisPerSlot,
                        final int maxMillisPerSlot,
                        final int numSamples,
                        final long fetchSamplesDelayMillis,
                        final long fetchEpochInfoAfterEndDelayMillis) {
+    this.clock = clock;
     this.rpcCaller = rpcCaller;
     this.getEpochInfoCallContext = CallContext.createContext(
         1, 0,
@@ -69,14 +75,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
                                    SlotPerformanceStats slotStats) throws InterruptedException {
     for (int errorCount = 0; ; ) {
       try {
-        final long request = System.currentTimeMillis();
+        final long request = clock.currentTimeMillis();
         // Avoid retries to try to have a more accurate round trip estimate.
         final var epochInfo = rpcCaller.courteousGet(
             SolanaRpcClient::getEpochInfo,
             getEpochInfoCallContext,
             "rpcClient::getEpochInfo"
         );
-        final long addedMillis = (System.currentTimeMillis() - request) >> 1;
+        final long addedMillis = (clock.currentTimeMillis() - request) >> 1;
         if (slotStats == null && samplesFuture != null) {
           slotStats = SlotPerformanceStats.calculateStats(samplesFuture.join(), minMillisPerSlot, maxMillisPerSlot);
         }
@@ -105,7 +111,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
                 errorCount, sleep
             ), ex
         );
-        SECONDS.sleep(sleep);
+        clock.sleep(SECONDS.toMillis(sleep));
       }
     }
   }
@@ -165,12 +171,11 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     }
   }
 
-  @SuppressWarnings({"BusyWait"})
   @Override
   public void run() {
     try {
       var samplesFuture = getSamples();
-      long now = System.currentTimeMillis();
+      long now = clock.currentTimeMillis();
       long fetchSamplesAfter = now + fetchSamplesDelayMillis;
       var earliestEpochInfo = getAndSetEpochInfo(null, null, samplesFuture, null);
       if (earliestEpochInfo == null) {
@@ -187,13 +192,17 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       var previousSample = logEpoch(null, epoch);
       var latestSample = previousSample;
       var slotStats = latestSample.slotStats();
-      long meanMillisPerSlot = slotStats.mean();
+      // calculateStats yields null when every sample is filtered out - notably
+      // at the opening slots of an epoch, which it skips deliberately. Epoch
+      // already falls back to the configured default; the loop must too, or it
+      // dies with an NPE exactly when a new epoch begins.
+      long meanMillisPerSlot = slotStats == null ? defaultMillisPerSlot : slotStats.mean();
 
       boolean fetchEpochNow;
       for (long endsAt = epoch.endsAt(), sleep; ; ) {
         lock.lock();
         try {
-          now = System.currentTimeMillis();
+          now = clock.currentTimeMillis();
           sleep = Math.min(
               fetchSamplesAfter - now,
               (endsAt - now) + fetchEpochInfoAfterEndDelayMillis
@@ -203,19 +212,19 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           lock.unlock();
         }
 
-        now = System.currentTimeMillis();
+        now = clock.currentTimeMillis();
         final boolean fetchSamples = now >= fetchSamplesAfter;
         if (fetchSamples) {
           final var samples = getSamples().join();
-          now = System.currentTimeMillis();
+          now = clock.currentTimeMillis();
           fetchSamplesAfter = now + fetchSamplesDelayMillis;
           slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
         }
         if (fetchEpochNow) {
-          sleep = meanMillisPerSlot - (System.currentTimeMillis() - latestSample.sampledAt());
+          sleep = meanMillisPerSlot - (clock.currentTimeMillis() - latestSample.sampledAt());
           if (sleep > 0) {
             // Wait at least one slot between samples.
-            Thread.sleep(sleep);
+            clock.sleep(sleep);
           }
         }
         if (fetchEpochNow || fetchSamples || now > endsAt) {
@@ -228,7 +237,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           if (latestSample.epoch() > earliestEpochInfo.epoch()) {
             earliestEpochInfo = latestSample;
           }
-          meanMillisPerSlot = latestSample.slotStats().mean();
+          final var latestSlotStats = latestSample.slotStats();
+          meanMillisPerSlot = latestSlotStats == null ? defaultMillisPerSlot : latestSlotStats.mean();
         }
       }
     } catch (final InterruptedException e) {

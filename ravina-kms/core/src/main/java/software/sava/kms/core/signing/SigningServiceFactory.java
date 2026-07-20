@@ -12,7 +12,7 @@ public interface SigningServiceFactory {
   SigningService createService(final ExecutorService executorService,
                                final Backoff backoff,
                                final JsonIterator ji,
-                               final ErrorTrackerFactory<Throwable> errorTrackerFactory);
+                               final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory);
 
   SigningService createService(final ExecutorService executorService,
                                final Backoff backoff,
@@ -26,7 +26,7 @@ public interface SigningServiceFactory {
                                final Backoff backoff,
                                final String prefix,
                                final Properties properties,
-                               final ErrorTrackerFactory<Throwable> errorTrackerFactory);
+                               final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory);
 
   SigningService createService(final ExecutorService executorService,
                                final Backoff backoff,

@@ -51,7 +51,7 @@ final class CallTests {
     }
   }
 
-  private static final class LongErrorTracker extends RootErrorTracker<Long> {
+  private static final class LongErrorTracker extends RootErrorTracker<Long, byte[]> {
 
     LongErrorTracker(final CapacityState capacityState) {
       super(capacityState);
@@ -91,12 +91,12 @@ final class CallTests {
     }
   }
 
-  private static final class LongErrorTrackerFactory implements ErrorTrackerFactory<Long> {
+  private static final class LongErrorTrackerFactory implements ErrorTrackerFactory<Long, byte[]> {
 
     static final LongErrorTrackerFactory INSTANCE = new LongErrorTrackerFactory();
 
     @Override
-    public ErrorTracker<Long> createTracker(final CapacityState capacityState) {
+    public ErrorTracker<Long, byte[]> createTracker(final CapacityState capacityState) {
       return new LongErrorTracker(capacityState);
     }
   }

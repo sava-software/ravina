@@ -43,9 +43,9 @@ final class CourteousCallTests {
     }
   }
 
-  private static final class NoopTracker extends RootErrorTracker<Long> {
+  private static final class NoopTracker extends RootErrorTracker<Long, byte[]> {
 
-    static final ErrorTrackerFactory<Long> FACTORY = NoopTracker::new;
+    static final ErrorTrackerFactory<Long, byte[]> FACTORY = NoopTracker::new;
 
     NoopTracker(final CapacityState capacityState) {
       super(capacityState);

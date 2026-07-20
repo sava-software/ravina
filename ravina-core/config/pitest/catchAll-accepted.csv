@@ -1,0 +1,5 @@
+software.sava.services.core.net.http.NotifyClientImpl,lambda$postMsg$1,66,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.net.http.NotifyClientImpl,lambda$postMsg$1,73,EmptyObjectReturnValsMutator,NO_COVERAGE
+software.sava.services.core.request_capacity.UriCapacityConfig$Parser,parseProperties,67,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.core.request_capacity.trackers.HttpErrorTracker,lambda$logResponse$0,59,EmptyObjectReturnValsMutator,SURVIVED
+software.sava.services.core.request_capacity.trackers.HttpErrorTracker,logResponse,49,VoidMethodCallMutator,SURVIVED

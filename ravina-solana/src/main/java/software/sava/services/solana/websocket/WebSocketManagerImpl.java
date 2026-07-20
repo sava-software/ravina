@@ -23,7 +23,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
   private final SolanaRpcWebsocket.OnClose onClose;
   private final BiConsumer<SolanaRpcWebsocket, Throwable> onError;
   private final AtomicInteger errorCount;
-  private final ReentrantLock lock;
+  final ReentrantLock lock; // package-private: tests assert the loop never leaks it
   private volatile SolanaRpcWebsocket webSocket;
   private volatile long connectionDelay;
   private volatile boolean needsConnect;

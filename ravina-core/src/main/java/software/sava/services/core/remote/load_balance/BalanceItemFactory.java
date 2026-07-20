@@ -9,6 +9,6 @@ import java.net.http.HttpResponse;
 public interface BalanceItemFactory<T> {
 
   BalancedItem<T> createItem(final URI endpoint,
-                             final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
+                             final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor,
                              final Backoff backoff);
 }

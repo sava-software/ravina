@@ -145,9 +145,7 @@ final class GoogleKMSClientFactoryTests {
     }
     // Parsing completed before the credentials failure: verify each property
     // was applied to the key version name builder.
-    final var builderField = GoogleKMSClientFactory.class.getDeclaredField("builder");
-    builderField.setAccessible(true);
-    final var builder = (com.google.cloud.kms.v1.CryptoKeyVersionName.Builder) builderField.get(factory);
+    final var builder = factory.builder;
     assertEquals("my-project", builder.getProject());
     assertEquals("us-east1", builder.getLocation());
     assertEquals("my-key-ring", builder.getKeyRing());
@@ -173,9 +171,7 @@ final class GoogleKMSClientFactoryTests {
       final var backoff = Backoff.single(1);
       assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, "", props));
     }
-    final var builderField = GoogleKMSClientFactory.class.getDeclaredField("builder");
-    builderField.setAccessible(true);
-    final var builder = (com.google.cloud.kms.v1.CryptoKeyVersionName.Builder) builderField.get(factory);
+    final var builder = factory.builder;
     assertNull(builder.getProject());
     assertNull(builder.getLocation());
     assertNull(builder.getKeyRing());
@@ -226,7 +222,7 @@ final class GoogleKMSClientFactoryTests {
           Backoff.single(1),
           null,
           keyVersionName,
-          (java.util.function.BiPredicate<Throwable, byte[]>) null
+          (java.util.function.BiPredicate<Throwable, Void>) null
       );
       assertNotNull(service);
       assertNull(service.capacityMonitor());
@@ -247,7 +243,7 @@ final class GoogleKMSClientFactoryTests {
         java.time.Duration.ofMillis(500),
         java.time.Duration.ofSeconds(1)
     );
-    final var monitor = config.<Throwable>createMonitor("kms", GoogleKMSErrorTrackerFactory.INSTANCE);
+    final var monitor = config.<Throwable, Void>createMonitor("kms", GoogleKMSErrorTrackerFactory.INSTANCE);
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
           executor,

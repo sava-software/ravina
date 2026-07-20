@@ -163,7 +163,7 @@ final class HttpKMSClientFactoryTests {
           httpClient,
           java.net.URI.create("http://localhost:65535/"),
           Backoff.single(1),
-          (java.util.function.BiPredicate<Throwable, byte[]>) null
+          (java.util.function.BiPredicate<Throwable, Void>) null
       );
       assertNotNull(service);
       assertNull(service.capacityMonitor());
@@ -183,7 +183,7 @@ final class HttpKMSClientFactoryTests {
         java.time.Duration.ofMillis(500),
         java.time.Duration.ofSeconds(1)
     );
-    final var monitor = config.<Throwable>createMonitor("kms", HttpKMSErrorTrackerFactory.INSTANCE);
+    final var monitor = config.<Throwable, Void>createMonitor("kms", HttpKMSErrorTrackerFactory.INSTANCE);
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var httpClient = java.net.http.HttpClient.newBuilder().executor(executor).build();
       final var service = HttpKMSClientFactory.createService(

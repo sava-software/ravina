@@ -50,7 +50,7 @@ final class BalancedCallTests {
     }
   }
 
-  private static final class NoopTracker extends RootErrorTracker<Long> {
+  private static final class NoopTracker extends RootErrorTracker<Long, byte[]> {
 
     NoopTracker(final CapacityState capacityState) {
       super(capacityState);
@@ -82,7 +82,7 @@ final class BalancedCallTests {
   }
 
   // maxCapacity 10 over PT1S replenishes 1 weight per 100ms.
-  private static ErrorTrackedCapacityMonitor<Long> createMonitor(final NanoClock clock) {
+  private static ErrorTrackedCapacityMonitor<Long, byte[]> createMonitor(final NanoClock clock) {
     final var resetDuration = Duration.ofSeconds(1);
     final var config = new CapacityConfig(0, 10, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
     return config.createMonitor("test", NoopTracker::new, clock);

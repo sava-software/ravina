@@ -67,10 +67,26 @@ parsing, and KMS-backed signing.
   non-zero origin so a mutated `start = 0` timestamp is distinguishable.
   `Epoch` instead exposes explicit-`now` overloads; test those, not the
   wall-clock delegates.
-- Still on raw wall-clock (deliberately unmigrated; they are I/O-driven event
-  loops that a clock alone would not make unit-testable):
-  `EpochInfoServiceImpl`, `WebSocketManagerImpl`, `TxCommitmentMonitorService`,
-  `LookupTableCacheMap`.
+- `EpochInfoServiceImpl` **takes a `NanoClock`** — every wall-clock read and
+  both sleeps (the loop's pacing sleep and the retry backoff) go through it,
+  so its tests assert pacing exactly instead of waiting. `EpochInfoService`
+  has a `createService(config, rpcCaller, clock)` overload; the two-arg form
+  defaults to `NanoClock.SYSTEM`. This was worth doing twice over: the epoch
+  test class went from 2.055s to 0.095s, and because PIT re-runs the suite per
+  mutant that took `pitestCatchAll` from ~80s to ~21s.
+- Still on raw wall-clock: `WebSocketManagerImpl`, `TxCommitmentMonitorService`,
+  `LookupTableCacheMap`. They are I/O-driven event loops, but "unmigrated" is
+  not the same as "untestable" — all three are now largely covered by in-memory
+  fakes (a `Proxy`-backed `SolanaRpcClient`, a scripted websocket, and running
+  the loops synchronously on the test thread). What a clock would still buy is
+  the residue: exact-millisecond boundaries and sleep-observable pacing. See
+  each module's `config/pitest/README.md` for the per-group cost.
+- Reach for **package-private over reflection** when a test needs an internal:
+  `EpochInfoServiceImpl.numSamples`/`lock`, `BaseTxMonitorService.workLock`,
+  `WebSocketManagerImpl.lock` and `GoogleKMSClientFactory.builder` are all
+  package-private for this reason. An exported package still hides non-public
+  members, so nothing widens outside the package, and unlike `setAccessible`
+  a rename then fails at compile time instead of at runtime.
 
 ## Hardening: mutation testing (PIT) and fuzzing (Jazzer)
 
@@ -108,6 +124,12 @@ block (all five modules). Full process contract: sava-build's `HARDENING.md`.
   deliberately carry the union of both modes; four such rows are known. Don't
   strip a row because one run shows it detected, and don't bulk-add every
   `TIMED_OUT` row either — that would blind the ratchet to real regressions.
+- The largest remaining block of accepted debt (~29 entries, both modules) is
+  blocked on there being **no two-thread test anywhere in the repo**: parked-waiter
+  handshakes, `signalAll` with no waiter, and CAS losers. A concurrency harness is
+  deliberately deferred — see "Deferred: a concurrency harness" in
+  `ravina-core/config/pitest/README.md` for the shapes, the determinism bar it has
+  to clear, and where to start. A flaky harness would be worse than the debt.
 - Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
 - **Randomized tests use fixed seeds**: the ratchet needs deterministic
   kills; per-run exploration is the fuzz targets' job.

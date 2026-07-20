@@ -43,7 +43,7 @@ public record UriCapacityConfig(URI endpoint,
     }
   }
 
-  public ErrorTrackedCapacityMonitor<HttpResponse<?>> createMonitor(final String serviceName,
+  public ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> createMonitor(final String serviceName,
                                                                          final CapacityConfig defaultCapacityConfig) {
     return requireNonNullElse(capacityConfig, defaultCapacityConfig).createHttpResponseMonitor(serviceName);
   }

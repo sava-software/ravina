@@ -60,8 +60,15 @@ record TransactionProcessorRecord(ExecutorService executor,
     } else {
       final var lookupTableMetas = lookupTableCache.getOrFetchTables(lookupTableKeys);
       if (lookupTableMetas.length < lookupTableKeys.size()) {
-        final var missingTableKeys = Arrays.stream(lookupTableMetas)
-            .filter(meta -> !lookupTableKeys.contains(meta.lookupTable().address()))
+        // The requested keys no returned meta covers. Filtering the returned
+        // metas instead yields the complement — tables that were not asked for
+        // — which is empty for any well-behaved cache, so the diagnostic named
+        // nothing at the one moment it is read.
+        final var fetchedAddresses = Arrays.stream(lookupTableMetas)
+            .map(meta -> meta.lookupTable().address())
+            .toList();
+        final var missingTableKeys = lookupTableKeys.stream()
+            .filter(lookupTableKey -> !fetchedAddresses.contains(lookupTableKey))
             .toList();
         throw new IllegalStateException("Failed to find lookup table(s): " + missingTableKeys);
       } else {

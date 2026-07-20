@@ -32,7 +32,7 @@ final class BaseKMSClientTests {
     }
   };
 
-  private static final ErrorTrackerFactory<Throwable> TRACKER_FACTORY =
+  private static final ErrorTrackerFactory<Throwable, Void> TRACKER_FACTORY =
       capacityState -> new RootErrorTracker<>(capacityState) {
         @Override
         protected boolean isServerError(final Throwable response) {
@@ -50,12 +50,12 @@ final class BaseKMSClientTests {
         }
 
         @Override
-        protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response, final byte[] body) {
+        protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response, final Void body) {
           return false;
         }
 
         @Override
-        protected void logResponse(final Throwable response, final byte[] body) {
+        protected void logResponse(final Throwable response, final Void body) {
         }
       };
 
@@ -65,8 +65,8 @@ final class BaseKMSClientTests {
 
     StubKMSClient(final ExecutorService executorService,
                   final Backoff backoff,
-                  final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                  final BiPredicate<Throwable, byte[]> errorTracker,
+                  final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor,
+                  final BiPredicate<Throwable, Void> errorTracker,
                   final PublicKey pubKey) {
       super(executorService, backoff, capacityMonitor, errorTracker);
       this.pubKey = pubKey;
@@ -104,7 +104,7 @@ final class BaseKMSClientTests {
     return Signer.createFromPrivateKey(privateKey).publicKey();
   }
 
-  private static ErrorTrackedCapacityMonitor<Throwable> createMonitor() {
+  private static ErrorTrackedCapacityMonitor<Throwable, Void> createMonitor() {
     final var config = new CapacityConfig(
         0,
         100,

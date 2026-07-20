@@ -23,7 +23,7 @@ final class RemoteHttpResourceConfigTests {
   );
 
   private static String serviceName(final RemoteHttpResourceConfig config) {
-    return ((CapacityMonitorRecord<?>) config.capacityMonitor()).serviceName();
+    return ((CapacityMonitorRecord<?, byte[]>) config.capacityMonitor()).serviceName();
   }
 
   @Test

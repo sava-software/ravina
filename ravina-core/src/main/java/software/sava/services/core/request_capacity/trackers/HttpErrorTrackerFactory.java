@@ -4,12 +4,12 @@ import software.sava.services.core.request_capacity.CapacityState;
 
 import java.net.http.HttpResponse;
 
-public final class HttpErrorTrackerFactory implements ErrorTrackerFactory<HttpResponse<?>> {
+public final class HttpErrorTrackerFactory implements ErrorTrackerFactory<HttpResponse<?>, byte[]> {
 
-  public static final ErrorTrackerFactory<HttpResponse<?>> INSTANCE = new HttpErrorTrackerFactory();
+  public static final ErrorTrackerFactory<HttpResponse<?>, byte[]> INSTANCE = new HttpErrorTrackerFactory();
 
   @Override
-  public ErrorTracker<HttpResponse<?>> createTracker(final CapacityState capacityState) {
+  public ErrorTracker<HttpResponse<?>, byte[]> createTracker(final CapacityState capacityState) {
     return new HttpErrorTracker(capacityState);
   }
 }

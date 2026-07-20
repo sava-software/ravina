@@ -29,7 +29,7 @@ public record RpcCaller(ExecutorService executor,
   public <T> T courteousGet(final Function<SolanaRpcClient, CompletableFuture<T>> call,
                             final CallContext callContext,
                             final String retryLogContext) {
-    return Call.createCourteousCall(rpcClients, call, retryLogContext).get();
+    return Call.createCourteousCall(rpcClients, call, callContext, retryLogContext).get();
   }
 
   public <T> T courteousGet(final Function<SolanaRpcClient, CompletableFuture<T>> call,

@@ -17,7 +17,7 @@ hardening {
       // covers nested/anonymous classes inside test classes
       "software.sava.kms.core.signing.*Tests*",
       // fuzz harnesses share the recompiled root
-      "software.sava.kms.core.signing.*Fuzz"
+      "software.sava.kms.core.signing.*Fuzz*"
     )
     targetTests = "software.sava.kms.core.signing.*Test*"
   }

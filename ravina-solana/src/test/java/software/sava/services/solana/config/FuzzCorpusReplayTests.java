@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,9 +22,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /// build if its fix regresses, without waiting on a fuzz run.
 final class FuzzCorpusReplayTests {
 
-  @Test
-  void configsSeedCorpusReplays() throws IOException, URISyntaxException {
-    final var url = FuzzCorpusReplayTests.class.getResource("/fuzz/configs");
+  private static void replay(final String target, final Consumer<byte[]> harness)
+      throws IOException, URISyntaxException {
+    final var url = FuzzCorpusReplayTests.class.getResource("/fuzz/" + target);
     assumeTrue(url != null && "file".equals(url.getProtocol()), "seed corpus not on the classpath as a directory");
     final var dir = Path.of(url.toURI());
     try (final var files = Files.list(dir)) {
@@ -31,8 +32,20 @@ final class FuzzCorpusReplayTests {
       assertFalse(seeds.isEmpty(), "empty seed corpus at " + dir);
       for (final var seed : seeds) {
         final byte[] data = Files.readAllBytes(seed);
-        assertDoesNotThrow(() -> SolanaConfigsFuzz.fuzzerTestOneInput(data), seed.getFileName().toString());
+        assertDoesNotThrow(() -> harness.accept(data), target + '/' + seed.getFileName());
       }
     }
+  }
+
+  @Test
+  void configsSeedCorpusReplays() throws IOException, URISyntaxException {
+    replay("configs", SolanaConfigsFuzz::fuzzerTestOneInput);
+  }
+
+  /// Differential: JSON and Properties must parse the same logical config to
+  /// equal values, or both reject it.
+  @Test
+  void configParitySeedCorpusReplays() throws IOException, URISyntaxException {
+    replay("configParity", SolanaConfigParityFuzz::fuzzerTestOneInput);
   }
 }

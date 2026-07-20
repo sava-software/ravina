@@ -19,17 +19,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Flow;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.function.BiPredicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -38,19 +29,9 @@ final class HttpKMSClientTests {
 
   private static final URI ENDPOINT = URI.create("http://localhost:65535/");
   private static final byte[] SIGNATURE = {9, 8, 7, 6, 5};
-  private static final BiPredicate<Throwable, byte[]> NO_OP_TRACKER = (_, _) -> true;
+  private static final BiPredicate<Throwable, Void> NO_OP_TRACKER = (_, _) -> true;
 
-  private static final class StubResponse<T> implements HttpResponse<T> {
-
-    private final HttpRequest request;
-    private final HttpHeaders headers;
-    private final T body;
-
-    private StubResponse(final HttpRequest request, final HttpHeaders headers, final T body) {
-      this.request = request;
-      this.headers = headers;
-      this.body = body;
-    }
+  private record StubResponse<T>(HttpRequest request, HttpHeaders headers, T body) implements HttpResponse<T> {
 
     @Override
     public int statusCode() {
@@ -58,23 +39,8 @@ final class HttpKMSClientTests {
     }
 
     @Override
-    public HttpRequest request() {
-      return request;
-    }
-
-    @Override
     public Optional<HttpResponse<T>> previousResponse() {
       return Optional.empty();
-    }
-
-    @Override
-    public HttpHeaders headers() {
-      return headers;
-    }
-
-    @Override
-    public T body() {
-      return body;
     }
 
     @Override

@@ -18,7 +18,7 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
   public HeliusConfig(final URI endpoint,
-                      final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
+                      final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor,
                       final Backoff backoff) {
     super(endpoint, capacityMonitor, backoff);
   }

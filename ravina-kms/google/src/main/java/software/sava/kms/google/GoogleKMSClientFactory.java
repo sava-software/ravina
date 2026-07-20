@@ -22,7 +22,7 @@ import java.util.function.BiPredicate;
 
 public final class GoogleKMSClientFactory implements SigningServiceFactory, FieldBufferPredicate {
 
-  private CryptoKeyVersionName.Builder builder;
+  CryptoKeyVersionName.Builder builder; // package-private: tests assert the parsed key name
   private CapacityConfig capacityConfig;
 
   public GoogleKMSClientFactory() {
@@ -32,7 +32,7 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
                                              final Backoff backoff,
                                              final KeyManagementServiceClient kmsClient,
                                              final CryptoKeyVersionName keyVersionName,
-                                             final BiPredicate<Throwable, byte[]> errorTracker) {
+                                             final BiPredicate<Throwable, Void> errorTracker) {
     return new GoogleKMSClient(
         executorService,
         backoff,
@@ -47,7 +47,7 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
                                              final Backoff backoff,
                                              final KeyManagementServiceClient kmsClient,
                                              final CryptoKeyVersionName keyVersionName,
-                                             final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor) {
+                                             final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor) {
     return new GoogleKMSClient(
         executorService,
         backoff,
@@ -62,7 +62,7 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
   public SigningService createService(final ExecutorService executorService,
                                       final Backoff backoff,
                                       final JsonIterator ji,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     this.builder = CryptoKeyVersionName.newBuilder();
     ji.testObject(this);
     final var capacityMonitor = capacityConfig.createMonitor("Google KMS", errorTrackerFactory);
@@ -92,7 +92,7 @@ public final class GoogleKMSClientFactory implements SigningServiceFactory, Fiel
                                       final Backoff backoff,
                                       final String prefix,
                                       final Properties properties,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     final var p = PropertiesParser.propertyPrefix(prefix);
     this.builder = CryptoKeyVersionName.newBuilder();
     final var project = PropertiesParser.getProperty(properties, p, "project");

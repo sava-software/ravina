@@ -31,7 +31,7 @@ public interface CachedAddressLookupTable extends AddressLookupTable {
     }
     return new CachedAddressLookupTableRecord(
         address,
-        ByteUtil.getInt64LE(data, DEACTIVATION_SLOT_OFFSET) == -1L,
+        ByteUtil.getInt64LE(data, offset + DEACTIVATION_SLOT_OFFSET) == -1L,
         numAccounts,
         distinctAccounts,
         length,

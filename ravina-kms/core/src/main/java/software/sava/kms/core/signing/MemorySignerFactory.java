@@ -14,7 +14,7 @@ public final class MemorySignerFactory implements SigningServiceFactory {
   public SigningService createService(final ExecutorService executorService,
                                       final Backoff backoff,
                                       final JsonIterator ji,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     final var signer = PrivateKeyEncoding.fromJsonPrivateKey(ji);
     return new MemorySigner(signer);
   }
@@ -31,7 +31,7 @@ public final class MemorySignerFactory implements SigningServiceFactory {
                                       final Backoff backoff,
                                       final String prefix,
                                       final Properties properties,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     final var signer = PrivateKeyEncoding.fromProperties(prefix, properties);
     return new MemorySigner(signer);
   }

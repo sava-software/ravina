@@ -48,7 +48,7 @@ public final class MemorySignerFromFilePointerFactory implements SigningServiceF
   public SigningService createService(final ExecutorService executorService,
                                       final Backoff backoff,
                                       final JsonIterator ji,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     ji.testObject(this);
     return signerFromFile(filePath);
   }
@@ -65,7 +65,7 @@ public final class MemorySignerFromFilePointerFactory implements SigningServiceF
                                       final Backoff backoff,
                                       final String prefix,
                                       final Properties properties,
-                                      final ErrorTrackerFactory<Throwable> errorTrackerFactory) {
+                                      final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
     final var p = PropertiesParser.propertyPrefix(prefix);
     final var filePathStr = PropertiesParser.getProperty(properties, p, "filePath");
     if (filePathStr == null) {

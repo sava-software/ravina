@@ -34,7 +34,7 @@ final class GoogleKMSClientTests {
       "my-project", "us-east1", "my-key-ring", "my-crypto-key", "1"
   );
 
-  private static ErrorTrackedCapacityMonitor<Throwable> createMonitor() {
+  private static ErrorTrackedCapacityMonitor<Throwable, Void> createMonitor() {
     final var config = new CapacityConfig(
         0,
         100,
@@ -84,7 +84,7 @@ final class GoogleKMSClientTests {
   void publicKeyFailureWithoutErrorTracker() {
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
-          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, byte[]>) null);
+          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, Void>) null);
       assertNotNull(service);
       assertNull(service.capacityMonitor());
       assertFailedOnKmsClient(service.publicKey());
@@ -125,7 +125,7 @@ final class GoogleKMSClientTests {
   void signFailureWithoutCapacityStateOrErrorTracker() {
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
-          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, byte[]>) null);
+          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, Void>) null);
       assertFailedOnKmsClient(service.sign(new byte[]{1, 2, 3}));
     }
   }
@@ -134,7 +134,7 @@ final class GoogleKMSClientTests {
   void closeDelegatesToKmsClient() {
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
-          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, byte[]>) null);
+          executor, Backoff.single(1), null, KEY_VERSION_NAME, (BiPredicate<Throwable, Void>) null);
       // The kms client is null, so a delegating close must throw.
       assertThrows(NullPointerException.class, service::close);
     }

@@ -5,7 +5,7 @@ import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 
 import static java.lang.System.Logger.Level.ERROR;
 
-public final class GoogleKMSErrorTracker extends RootErrorTracker<Throwable> {
+public final class GoogleKMSErrorTracker extends RootErrorTracker<Throwable, Void> {
 
   private static final System.Logger logger = System.getLogger(GoogleKMSErrorTracker.class.getName());
 
@@ -29,12 +29,12 @@ public final class GoogleKMSErrorTracker extends RootErrorTracker<Throwable> {
   }
 
   @Override
-  protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response, final byte[] body) {
+  protected boolean updateGroupedErrorResponseCount(final long now, final Throwable response, final Void body) {
     return false;
   }
 
   @Override
-  protected void logResponse(final Throwable response, final byte[] body) {
+  protected void logResponse(final Throwable response, final Void body) {
     logger.log(ERROR, "Call to Google KMS failed: ", response);
   }
 }

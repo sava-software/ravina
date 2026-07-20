@@ -10,6 +10,7 @@ import software.sava.services.core.remote.load_balance.LoadBalancer;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -133,13 +134,15 @@ final class LookupTableCacheMap implements LookupTableCache {
           : new LookupTableAccountMeta[0];
     } else {
       final var lookupTableMetas = new LookupTableAccountMeta[numTables];
-      int fetchBitset = 0;
+      // A BitSet rather than an int: `1 << i` wraps at i == 32, which silently
+      // aliased key 32 onto key 0 and dropped every key past the 31st.
+      final var fetchBitset = new BitSet(numTables);
       int c = 0;
       for (int i = 0; i < numTables; ++i) {
         final var lookupTableKey = lookupTableKeys.get(i);
         final var entry = lookupTableCache.get(lookupTableKey);
         if (entry == null) {
-          fetchBitset |= 1 << i;
+          fetchBitset.set(i);
         } else {
           final var lookupTable = entry.table;
           if (lookupTable.isActive()) {
@@ -150,21 +153,18 @@ final class LookupTableCacheMap implements LookupTableCache {
         }
       }
 
-      final int numToFetch = Integer.bitCount(fetchBitset);
+      final int numToFetch = fetchBitset.cardinality();
       if (numToFetch > 0) {
         if (numToFetch == 1) {
-          final var lookupTableKey = lookupTableKeys.get(Integer.numberOfTrailingZeros(fetchBitset));
+          final var lookupTableKey = lookupTableKeys.get(fetchBitset.nextSetBit(0));
           final var lookupTable = fetchLookupTable(lookupTableKey);
           if (lookupTable != null) {
             lookupTableMetas[c++] = LookupTableAccountMeta.createMeta(lookupTable, defaultMaxAccounts);
           }
         } else {
           final var fetchKeys = new ArrayList<PublicKey>(numToFetch);
-          final int to = Integer.SIZE - Integer.numberOfLeadingZeros(fetchBitset);
-          for (int i = Integer.numberOfTrailingZeros(fetchBitset), m = 1 << i; i < to; ++i, m <<= 1) {
-            if ((fetchBitset & m) == m) {
-              fetchKeys.add(lookupTableKeys.get(i));
-            }
+          for (int i = fetchBitset.nextSetBit(0); i >= 0; i = fetchBitset.nextSetBit(i + 1)) {
+            fetchKeys.add(lookupTableKeys.get(i));
           }
 
           final var lookupTableAccounts = Call.createCourteousCall(

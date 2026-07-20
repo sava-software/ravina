@@ -7,7 +7,7 @@ import java.util.stream.Collectors;
 
 import static java.lang.System.Logger.Level.DEBUG;
 
-public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>> {
+public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>, byte[]> {
 
   private static final System.Logger logger = System.getLogger(HttpErrorTracker.class.getName());
 

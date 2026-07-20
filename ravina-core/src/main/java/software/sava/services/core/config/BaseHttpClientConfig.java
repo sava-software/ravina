@@ -20,11 +20,11 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
 
   protected final URI endpoint;
-  protected final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor;
+  protected final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor;
   protected final Backoff backoff;
 
   protected BaseHttpClientConfig(final URI endpoint,
-                                 final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor,
+                                 final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor,
                                  final Backoff backoff) {
     this.endpoint = endpoint;
     this.capacityMonitor = capacityMonitor;
@@ -37,7 +37,7 @@ public abstract class BaseHttpClientConfig<C> implements HttpClientConfig<C> {
   }
 
   @Override
-  public final ErrorTrackedCapacityMonitor<HttpResponse<?>> capacityMonitor() {
+  public final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor() {
     return capacityMonitor;
   }
 

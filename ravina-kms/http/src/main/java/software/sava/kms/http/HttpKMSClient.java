@@ -38,8 +38,8 @@ final class HttpKMSClient extends BaseKMSClient {
 
   public HttpKMSClient(final ExecutorService executorService,
                        final Backoff backoff,
-                       final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                       final BiPredicate<Throwable, byte[]> errorTracker,
+                       final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor,
+                       final BiPredicate<Throwable, Void> errorTracker,
                        final HttpClient httpClient,
                        final URI endpoint) {
     super(executorService, backoff, capacityMonitor, errorTracker);

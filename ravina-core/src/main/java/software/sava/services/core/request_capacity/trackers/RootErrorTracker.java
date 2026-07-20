@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
-public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
+public abstract class RootErrorTracker<R, D> implements ErrorTracker<R, D> {
 
   protected static final Function<String, ConcurrentLinkedQueue<ErrorResponseRecord>> INIT_ERROR_RESPONSE_GROUP = _ -> new ConcurrentLinkedQueue<>();
 
@@ -48,15 +48,15 @@ public abstract class RootErrorTracker<R> implements ErrorTracker<R> {
     return true;
   }
 
-  protected abstract boolean updateGroupedErrorResponseCount(final long now, final R response, final byte[] body);
+  protected abstract boolean updateGroupedErrorResponseCount(final long now, final R response, final D body);
 
-  protected final boolean updateGroupedErrorResponseCount(final R response, final byte[] body) {
+  protected final boolean updateGroupedErrorResponseCount(final R response, final D body) {
     return updateGroupedErrorResponseCount(clock.currentTimeMillis(), response, body);
   }
 
-  protected abstract void logResponse(final R response, final byte[] body);
+  protected abstract void logResponse(final R response, final D body);
 
-  public boolean test(final R response, final byte[] body) {
+  public boolean test(final R response, final D body) {
     if (isServerError(response)) {
       capacityState.addCapacity(serverErrorBackOffCapacity);
       logResponse(response, body);

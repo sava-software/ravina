@@ -49,7 +49,7 @@ final class RootErrorTrackerTests {
   private record TestErrorRecord(long timestamp, int errorCode) implements ErrorResponseRecord {
   }
 
-  private static final class IntErrorTracker extends RootErrorTracker<Integer> {
+  private static final class IntErrorTracker extends RootErrorTracker<Integer, byte[]> {
 
     private long now;
     private int loggedResponses;
@@ -90,7 +90,7 @@ final class RootErrorTrackerTests {
   }
 
   // maxCapacity 100 over PT1S: server errors dock 50, rate limits 100, grouped errors 200.
-  private static ErrorTrackedCapacityMonitor<Integer> createMonitor(final Duration maxGroupedErrorExpiration) {
+  private static ErrorTrackedCapacityMonitor<Integer, byte[]> createMonitor(final Duration maxGroupedErrorExpiration) {
     final var config = new CapacityConfig(
         0,
         100,
@@ -104,7 +104,7 @@ final class RootErrorTrackerTests {
     return config.createMonitor("test", IntErrorTracker::new, FIXED_CLOCK);
   }
 
-  private static ErrorTrackedCapacityMonitor<Integer> createMonitor(final Duration maxGroupedErrorExpiration,
+  private static ErrorTrackedCapacityMonitor<Integer, byte[]> createMonitor(final Duration maxGroupedErrorExpiration,
                                                                     final NanoClock clock) {
     final var config = new CapacityConfig(
         0,

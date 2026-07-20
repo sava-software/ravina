@@ -23,8 +23,8 @@ final class GoogleKMSClient extends BaseKMSClient {
                   final Backoff backoff,
                   final KeyManagementServiceClient kmsClient,
                   final CryptoKeyVersionName keyVersionName,
-                  final ErrorTrackedCapacityMonitor<Throwable> capacityMonitor,
-                  final BiPredicate<Throwable, byte[]> errorTracker) {
+                  final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor,
+                  final BiPredicate<Throwable, Void> errorTracker) {
     super(executorService, backoff, capacityMonitor, errorTracker);
     this.kmsClient = kmsClient;
     this.keyVersionName = keyVersionName;

@@ -55,13 +55,13 @@ public record CapacityConfig(int minCapacity,
     }
   }
 
-  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,
-                                                          final ErrorTrackerFactory<R> errorTrackerFactory) {
+  public <R, D> ErrorTrackedCapacityMonitor<R, D> createMonitor(final String serviceName,
+                                                                final ErrorTrackerFactory<R, D> errorTrackerFactory) {
     return createMonitor(serviceName, errorTrackerFactory, NanoClock.SYSTEM);
   }
 
-  public <R> ErrorTrackedCapacityMonitor<R> createMonitor(final String serviceName,
-                                                          final ErrorTrackerFactory<R> errorTrackerFactory,
+  public <R, D> ErrorTrackedCapacityMonitor<R, D> createMonitor(final String serviceName,
+                                                                final ErrorTrackerFactory<R, D> errorTrackerFactory,
                                                           final NanoClock clock) {
     final var capacityState = new CapacityStateVal(this, clock);
     return new CapacityMonitorRecord<>(
@@ -71,7 +71,7 @@ public record CapacityConfig(int minCapacity,
     );
   }
 
-  public ErrorTrackedCapacityMonitor<HttpResponse<?>> createHttpResponseMonitor(final String serviceName) {
+  public ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> createHttpResponseMonitor(final String serviceName) {
     final var capacityState = new CapacityStateVal(this, NanoClock.SYSTEM);
     return new CapacityMonitorRecord<>(
         serviceName,
