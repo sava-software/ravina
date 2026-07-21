@@ -69,20 +69,36 @@ safe direction to fail.
 anywhere: log output is not part of any behavioral contract, and asserting on
 it would couple tests to message wording.
 
-**Saturation absorbs the off-by-one** (`backoff`) — every surviving
-`ConditionalsBoundaryMutator`/`MathMutator` on a *max-error-count* computation:
-`Backoff.fibonacci` lines 50 and 69, `ExponentialBackoffErrorHandler.<init>`
-line 14, `LinearBackoffErrorHandler.<init>` line 13 and `.calculateDelay`
-line 18. Each shifts the saturation index by one, but the delay at that index
-is already clamped — `min(maxDelay, …)` for the linear and exponential
-handlers, and a force-clamped tail for the fibonacci sequence — so every error
-count yields the identical delay. This is one principle, not five
-coincidences: the boundary is a *fast path into* saturation, and saturation is
-enforced independently.
+**Saturation absorbs the off-by-one** (`backoff`) — surviving
+`ConditionalsBoundaryMutator`/`RemoveConditionalMutator_ORDER_IF` on a
+*max-error-count* computation: `Backoff.fibonacci` lines 50 and 69,
+`ExponentialBackoffErrorHandler.<init>` line 14. Each shifts the saturation
+index, but the delay at that index is already clamped — `min(maxDelay, …)` for
+the exponential handler, a force-clamped tail for the fibonacci sequence — so
+every error count yields the identical delay. **Verified by differential
+sweep, not argued** (2026-07-21): both variants reimplemented outside the
+codebase with exact 64-bit semantics and diffed over initial 1..40 ×
+max ..500 exhaustively plus nano-scale configs (10⁹..10¹⁰, ±√Long.MAX
+boundaries), error counts through both variants' saturation points plus
+`Long.MAX_VALUE`/`Long.MIN_VALUE`/`-1` — zero differences.
+
+The sweep is also why two former members of this family are *gone*: the
+`LinearBackoffErrorHandler` `<init>` MathMutator and `calculateDelay` boundary
+rows were **falsified** by it. The `+ initialRetryDelay` term in the old guard
+was a bug — for nano-scale delays it inflated saturation by billions and
+`errorCount * initialRetryDelay` overflowed to a *negative delay* before the
+`min` clamp (`linear(NANOSECONDS, 3_037_000_499, 30_370_004_990)` at error
+count 3 037 000 507). The guard is now `+ 1` (identical behaviour outside the
+overflow domain), the counter-example is pinned in
+`linearSaturationGuardAvoidsOverflowAtNanoScaleDelays`, the widened
+`BackoffFuzz` probes saturation boundaries at 40-bit configs
+(`regression-linear-saturation-overflow` seed), and both mutants are killed.
+The lesson: this family's membership test is the sweep, not the prose.
 
 **Index paths that coincide** (`backoff`) —
 `FibonacciBackoffErrorHandler.calculateDelay` line 21 `errorCount < 1` → `<=`:
-at `errorCount == 1` both branches resolve to `sequence[0]`.
+at `errorCount == 1` both branches resolve to `sequence[0]`. Covered by the
+same sweep: zero differences over the domain above.
 
 **Degenerate single-item pool** (`calls`) — `CourteousBalancedCall.call`
 line 31 `size() > 1` → `>= 1` and the forced-true variant. At size 1 the

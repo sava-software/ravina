@@ -111,6 +111,8 @@ its unknown-field throw, and `super.test` only ever returns true.
 tracing len == 3: the separation loop writes indices 3, 2, 1 of a 4-char
 buffer, exits with `j == 1`, and returns `new String(sep, 1, 3)` — exactly the
 input. The guard is an allocation-avoiding shortcut, not a correctness check.
+Also verified by differential sweep (2026-07-21): both variants agree on every
+input length 0..40 — zero differences.
 
 **Selection-invariant set-cover bookkeeping** (`alt`) — `ScoredTable` /
 `ScoredTableMeta` `usedMask` mutants (`<<=` → `>>=`, the `(mask & usedMask)`

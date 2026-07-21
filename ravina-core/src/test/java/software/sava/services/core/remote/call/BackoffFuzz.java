@@ -14,8 +14,16 @@ public final class BackoffFuzz {
     }
     final int strategy = data[0] & 3;
     final var unit = UNITS[data[1] & 1];
-    final long a = 1 + (((data[2] & 0xFF) << 8) | (data[3] & 0xFF));
-    final long b = 1 + (((data[4] & 0xFF) << 8) | (data[5] & 0xFF));
+    long a = 1 + (((data[2] & 0xFF) << 8) | (data[3] & 0xFF));
+    long b = 1 + (((data[4] & 0xFF) << 8) | (data[5] & 0xFF));
+    if (data.length >= 12) {
+      // Extended form: three more bytes per bound raise the range to 40 bits so
+      // nano-scale delay magnitudes are reachable — that is where a mis-sized
+      // saturation guard overflows errorCount * initialDelay. Six-byte seeds
+      // keep their exact original meaning.
+      a += (((long) (data[6] & 0xFF) << 16) | ((data[7] & 0xFF) << 8) | (data[8] & 0xFF)) << 16;
+      b += (((long) (data[9] & 0xFF) << 16) | ((data[10] & 0xFF) << 8) | (data[11] & 0xFF)) << 16;
+    }
     final long initial = Math.min(a, b);
     final long max = Math.max(a, b);
 
@@ -52,6 +60,21 @@ public final class BackoffFuzz {
     }
     if (backoff.delay(-1, unit) != maxDelay) {
       throw new AssertionError("an unsigned max error count must return the max delay");
+    }
+    // Saturation-boundary probes: the ramp loop above cannot reach error counts
+    // near max/initial for large configs, which is exactly where a mis-sized
+    // saturation guard overflows errorCount * initialDelay (an equivalence sweep
+    // found the linear guard doing so at nano-scale configs; pinned here).
+    final long quotient = max / initial;
+    final long[] probes = {quotient - 1, quotient, quotient + 1, quotient + initial - 1, quotient + initial, Long.MAX_VALUE, Long.MIN_VALUE};
+    for (final long errorCount : probes) {
+      final long delay = backoff.delay(errorCount, unit);
+      if (delay < 0 || delay > maxDelay) {
+        throw new AssertionError(String.format(
+            "delay(%d) returned %d, outside [0, %d], for strategy %d with initial %d and max %d",
+            errorCount, delay, maxDelay, strategy, initial, max
+        ));
+      }
     }
     if (backoff.delay(1, unit) != backoff.initialDelay(unit)) {
       throw new AssertionError("delay(1) must equal the initial delay");

@@ -11,21 +11,32 @@ changes, the rules in `AGENTS.md` are enough.
 
 ## Plugin version gap
 
-This repo pins `software.sava.build` **21.5.7**. Two things the shared
-`HARDENING.md` describes are implemented in sava-build's `main` but **not in
-any released tag**, so they are absent here until the plugin is bumped:
+This repo pins `software.sava.build` **21.5.7**. The shared `HARDENING.md`
+(and its companion `HARDENING_CASEBOOK.md`, which holds the incidents behind
+the rules) describes several things implemented in sava-build's `main` but
+**not in any released tag**, so they are absent here until the plugin is
+bumped:
 
 - `pitest<Suite>` printing a `detected/total (n%) — x survived, y no_coverage`
-  summary. Until then, get the split yourself:
+  summary (with `run_error` named and *not* counted as detected). Until then,
+  get the split yourself:
   `awk -F, '{print $6}' build/reports/pitest/<suite>/mutations.csv | sort | uniq -c`.
 - `pitest<Suite>Verify` warning when a suite mutates classes from its own test
   source set. Until then that check is manual — cross-reference the mutated
   class list against `src/test/java`. It is worth running after registering or
   widening any suite; doing it here found two nested fakes being mutated as
   production code because an exclusion was missing its trailing wildcard.
+- `agentsTemplateInSync`, wired into `check`: fails unless `AGENTS.md`
+  carries a `<!-- hardening-template sha256:… -->` marker acknowledging the
+  current agent-instructions template. **This repo's marker is already in
+  place** (added ahead of the bump, after syncing the block), so the bump
+  should not break `check` — but if the shared template changes between now
+  and then, the failure message prints the new digest; re-diff the block and
+  **act on** changed bullets before updating the marker.
+- arcmutate incremental-analysis wiring (see below).
 
 The *directives* in the shared doc apply regardless of plugin version; only
-these two conveniences are gated on it.
+these conveniences are gated on it.
 
 Provided by the `software.sava.build.feature.hardening` plugin; suites and
 targets are registered in each module's `build.gradle.kts` `hardening {}`
@@ -41,6 +52,16 @@ being killed, while the ratchet reported green. One suite even named a class
 that does not exist in its module (`HttpClientConfig`), so `HeliusConfig` was
 never mutated at all. If a `catchAll` exclusion goes stale the class is merely
 mutated twice — slow, not blind, which is the safe direction to fail.
+
+Suite composition is part of the cost, not just the coverage:
+`EpochInfoServiceImpl` has its own `epochService` suite in `ravina-solana`
+(excluded from `catchAll`) because it was the slowest thing in a shared suite,
+and `fees` restricts `targetTests` to the one class that covers it. Both are
+commented at the registration. Two suites also override the mutator set —
+`fees` adds `EXPERIMENTAL_BIG_DECIMAL`, `catchAll` adds
+`EXPERIMENTAL_BIG_INTEGER`, since `BigDecimal`/`BigInteger` math is method
+calls and invisible to `STRONGER`. The per-suite trial numbers behind those
+choices are in `ravina-solana/config/pitest/README.md`.
 
 Two mechanical points that cost real time to rediscover:
 
@@ -242,69 +263,83 @@ reaches a log string", check whether the *values* are incidental or whether
 real logic has been parked in an output method. Here it was the latter, and the
 give-away was a return type that turned out to be the identity function.
 
-## PIT incremental analysis is not available to us
+## The equivalence sweep paid for itself here (2026-07-21)
 
-Measured 2026-07-21, because it looked like the biggest possible win and the
-evidence for it was misleading.
+Applying the shared doc's "when equivalence is cheap to verify, verify it" to
+the backoff saturation family (both variants reimplemented with exact 64-bit
+semantics, diffed over ~2 800 configs × error counts through every saturation
+point plus the unsigned extremes):
 
-`pitest-entry` **does** ship an `org.pitest.mutationtest.incremental` package,
-and the CLI **does** accept `--historyInputLocation` / `--historyOutputLocation`.
-Both facts are easy to check and both suggest incremental analysis is a wiring
-job. It is not: the only history factory registered in open-source PIT is
-`ErroringHistoryFactory`, whose entire implementation throws
+- **One acceptance was false.** `LinearBackoffErrorHandler`'s guard used
+  `+ initialRetryDelay` where it meant `+ 1` — a real bug: nano-scale configs
+  overflow `errorCount * initialRetryDelay` before the clamp and `delay()`
+  goes *negative* (`linear(NANOSECONDS, 3_037_000_499, 30_370_004_990)`,
+  error count 3 037 000 507). Fixed; both formerly-accepted linear rows are
+  now killed; the counter-example is pinned in `BackoffTests` and as the
+  `regression-linear-saturation-overflow` fuzz seed. `fuzzBackoff` had
+  asserted exactly the violated properties all along but capped configs at
+  16 bits and error counts at 128 — the harness now reads 40-bit configs and
+  probes the saturation boundary, because **a harness's input domain bounds
+  what its properties can protect**, the same way the mutator set bounds the
+  ratchet.
+- The rest of the family — fib construction, exponential guard, fib handler
+  index, `commaSeparateInteger` — verified equivalent with zero differences;
+  the notes now record the domain instead of only the argument.
+- **Known unfixed edge**: `Backoff.fibonacci` never terminates when
+  `initialRetryDelay` exceeds the largest 63-bit fibonacci number
+  (≈ 7.54e18 — 239 years in nanos): the start-selection loop's fib values
+  wrap negative and `initial <= current` can no longer be reached. Absurd
+  domain, but it hangs rather than throws; fixing it means choosing a
+  validation policy for the public factories, which is a maintainer call.
 
-> History has been enabled but no history plugin has been installed/activated.
-> If you are using https://www.arcmutate.com remember to activate the history
-> plugin with +arcmutate_history
+## Making this repo's loop faster: what was measured
 
-So the flags are accepted, the run then dies in `EntryPoint.pickHistoryStore`.
-Real history needs the commercial arcmutate plugin. json-iterator's
-`config/pitest/README.md` said exactly this; an earlier pass here "corrected"
-it on the strength of the CLI options existing, and was wrong.
+The shared doc has the cost model (`mutants × covering-test time`) and the
+generic levers. Ravina's numbers, so the next person knows what has already
+been tried here:
 
-**The trap worth remembering** is how the failed prototype presented: the
-second run finished in 2.2s against 24.5s, which reads as an 11× speedup. It
-was PIT throwing immediately and doing no work at all, while the *stale* report
-from the previous run stayed on disk — so the verify step still printed a
-full, plausible `58/94 detected (61%)` line. A fast green-looking result from a
-run that did nothing is the exact shape "verify by the absence of failures, not
-the presence of passes" exists to catch, and the exit code was the only honest
-signal.
+| Change | Effect |
+|---|---|
+| Split `EpochInfoServiceImpl` out of `ravina-solana`'s `catchAll` into its own `epochService` suite (and exclude it there) | `catchAll` **46.7s → 20.9s**; most edits to that class now owe only the small suite |
+| Narrow `fees` `targetTests` to `SimulationFuturesTests` | **10.6s → 6.1s** |
+| PIT `threads` | Not a lever — 8 threads bought ~10%, 10 was *slower* than 8. Don't spend time here. |
+| `NanoClock` migration (see above) | `pitestCatchAll` ~80s → ~21s |
 
-Do not re-attempt this without an arcmutate licence. What *is* available is in
-the section above: scope the suite, and keep the covering tests fast.
+**PIT incremental analysis needs arcmutate — free for open source, and the
+plugin (sava-build `main`, unreleased) now pre-wires it.** Open-source PIT
+alone cannot do it: the CLI accepts the history flags but registers only
+`ErroringHistoryFactory`, which throws — prototyped and abandoned here on
+2026-07-21 *(casebook: the 11× "speedup" that did no work)*. Once the plugin
+bump lands, activation is dropping `arcmutate-licence.txt` at the repo root
+(free OSS licences exist — obtaining one is a maintainer decision); history
+then lives at `<module>/.pitest-history/<suite>.hist` (already git-ignored
+here). Two rules come with it: the pre-release `qualityGate`, baseline
+refreshes, and convergence runs all take `-PnoMutationHistory` — anything
+that writes or certifies the record is re-earned from scratch — and a
+`[history]`-marked summary means fast is expected; suspicion transfers to
+the exit code and the marker.
 
-## Convergence check: how to run it, and the 2026-07-21 result
+## Convergence: the 2026-07-21 result
 
-The headline kill count agreeing across runs is a weak check — two runs can
-match in total while disagreeing about *which* mutants died. Compare
-per-mutator sub-totals instead, or better, per-mutant status.
+The shared doc has the method (run, copy the CSVs aside, **delete the report
+directories**, re-run, diff per-mutant, then repeat under `qualityGate` —
+and, once arcmutate history is active, every run takes `-PnoMutationHistory`,
+since two assisted runs agree by construction).
+Ravina's result, which is the part worth keeping locally:
 
-Method (all 17 suites, scripted rather than by eye): run every `pitest<Suite>`
-task, copy each `build/reports/pitest/<suite>/mutations.csv` aside, **delete
-the report directories**, run again, and diff. Deleting is not optional —
-Gradle serves an up-to-date task without re-running PIT, so a second run
-without it compares a file to itself and converges trivially. Key each row on
-`(class, method, line, mutator)` and compare status; flag any flip that crosses
-the `SURVIVED`/`NO_COVERAGE` boundary, since only those can move the ratchet.
+**2297 mutants, 17 suites, zero divergence** across all three comparisons —
+run-to-run, and each solo run against `qualityGate`. Not one status flip, so
+none crossing the unkilled boundary. A companion sweep found **0** accepted
+rows across every suite that failed to match a real unkilled mutant, so the
+baselines are exactly tight: every accepted row is load-bearing and nothing is
+silently widening the gate.
 
-Then repeat under `qualityGate`, which is the mode that matters: the documented
-`TIMED_OUT` flapping only ever appeared between solo and multi-suite runs,
-never between two solo runs.
+One caveat on the four `TIMED_OUT` rows unioned into baselines earlier: they
+did not flap here. They are not stale — they matched as `SURVIVED` — but the
+flapping they insure against was not reproducible at this load, most likely
+because the `NanoClock` migration and the `epochService` split removed the real
+waits that caused it. Treat them as cheap insurance, not as evidence that these
+suites are timing-sensitive today.
 
-Result — **2297 mutants, 17 suites, zero divergence** on all three
-comparisons: run-to-run, and each solo run against `qualityGate`. Not one
-status flip, so also none crossing the unkilled boundary.
-
-Two things follow. First, the four `TIMED_OUT` rows unioned into baselines
-earlier did not flap here; they are not stale (they matched as `SURVIVED`, and
-a separate sweep found **0** accepted rows across all suites that failed to
-match a real unkilled mutant), but the flapping they were unioned for was not
-reproducible on this machine at this load. Treat them as cheap insurance, not
-as evidence the suites are timing-sensitive today. The `NanoClock` migration
-and the `epochService` split both removed real waits, which is the likely
-reason. Second, the baselines are exactly tight: every accepted row is
-load-bearing, and nothing is silently widening the gate.
-
-Re-run this after any change to suite composition, `targetTests`, or the
+Re-run the check after any change to suite composition, `targetTests`, or the
 mutator set — those are what perturb load and coverage.

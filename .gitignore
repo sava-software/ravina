@@ -33,3 +33,4 @@ Integ.*
 # Machine-specific agent context (see AGENTS.local.md)
 AGENTS.local.md
 CLAUDE.local.md
+.pitest-history/

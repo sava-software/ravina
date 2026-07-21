@@ -147,7 +147,36 @@ timeouts).
 7. **Verify by the absence of failures, not the presence of passes.** Counting
    `PASSED` lines hides a failure sitting beside them, and a green build can
    mean Gradle skipped the task rather than that anything ran — check the
-   failure count and confirm the task actually executed.
+   failure count and confirm the task actually executed. PIT has a second
+   version of this: a *failed* run leaves the previous run's report in
+   `build/reports/pitest/<suite>/`, so the summary you read can describe a run
+   that never happened. Trust the exit code, and delete the report directory
+   when comparing two runs — Gradle will otherwise serve an up-to-date task
+   and you will diff a file against itself.
+8. **A suite that got faster without getting narrower is a bug report.** Real
+   speedups come from fewer mutants or faster covering tests; anything else
+   usually means the run did less than you think. `HARDENING.md` records what
+   has already been tried here — suite splitting and `targetTests` narrowing
+   pay, PIT's `threads` does not. (Exception, once the plugin bump lands: a
+   summary carrying the `[history]` marker is arcmutate incremental reuse and
+   fast is expected — but the pre-release gate still runs
+   `-PnoMutationHistory` to re-earn every status from scratch.)
+9. **Transient infra failures are not results.** PIT `MINION_DIED` fails
+   before writing a report, so it cannot corrupt one — re-run the suite; a
+   Gradle-worker `EOFException` death is the same shape, and a per-mutant
+   `RUN_ERROR` under load is the same shape smaller. The daemon log
+   (`~/.gradle/daemon/<version>/daemon-<pid>.out.log`) keeps a failed build's
+   full output even when the shell discarded it — read it before calling a
+   failure unexplained.
+10. **A wandering unkilled count is a defect, not noise** — chase it before
+    refreshing any baseline. Known causes: real waits, `TIMED_OUT` load
+    flips, and coverage attributed to field initializers (exercise factories
+    from inside a `@Test`). This repo has no `@Execution`/`@TestInstance`
+    annotations or abstract test bases, so that cause is currently absent —
+    if one is introduced, whether the annotation reaches subclasses is
+    JUnit-version-dependent; `javap` the resolved jar before restructuring.
+
+<!-- hardening-template sha256:96ddf18dcc3a -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

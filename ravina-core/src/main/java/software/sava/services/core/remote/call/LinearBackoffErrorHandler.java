@@ -10,7 +10,10 @@ final class LinearBackoffErrorHandler extends RootBackoff {
                             final long initialRetryDelay,
                             final long maxRetryDelay) {
     super(timeUnit, initialRetryDelay, maxRetryDelay);
-    this.maxErrorCount = (maxRetryDelay / initialRetryDelay) + initialRetryDelay;
+    // +1, not +initialRetryDelay: the guard must saturate as soon as
+    // errorCount * initialRetryDelay can reach maxRetryDelay, or the else
+    // branch overflows for nano-scale delays and returns a negative delay.
+    this.maxErrorCount = (maxRetryDelay / initialRetryDelay) + 1;
   }
 
   @Override

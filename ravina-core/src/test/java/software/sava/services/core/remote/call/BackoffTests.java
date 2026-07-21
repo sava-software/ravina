@@ -104,9 +104,34 @@ final class BackoffTests {
   }
 
   @Test
+  void linearSaturationGuardAvoidsOverflowAtNanoScaleDelays() {
+    // The guard used to be (maxRetryDelay / initialRetryDelay) + initialRetryDelay,
+    // inflating it by billions for nano-scale delays; errorCount * initialRetryDelay
+    // then overflowed before the min clamp and delay() returned a negative number.
+    // The exact counter-example the equivalence sweep produced:
+    final var backoff = Backoff.linear(NANOSECONDS, 3_037_000_499L, 30_370_004_990L);
+    final long maxDelay = backoff.maxDelay(NANOSECONDS);
+    assertEquals(30_370_004_990L, maxDelay);
+    assertEquals(maxDelay, backoff.delay(3_037_000_507L, NANOSECONDS));
+    assertEquals(maxDelay, backoff.delay(Long.MAX_VALUE, NANOSECONDS));
+    assertEquals(maxDelay, backoff.delay(-1, NANOSECONDS));
+    // The ramp below saturation is unaffected.
+    assertEquals(3_037_000_499L, backoff.delay(1, NANOSECONDS));
+    assertEquals(2L * 3_037_000_499L, backoff.delay(2, NANOSECONDS));
+    assertEquals(maxDelay, backoff.delay(10, NANOSECONDS));
+    assertEquals(maxDelay, backoff.delay(11, NANOSECONDS));
+    // A mis-computed guard also overflows at the largest representable config,
+    // where saturation must engage at the first multiplying error count.
+    final var extreme = Backoff.linear(NANOSECONDS, Long.MAX_VALUE, Long.MAX_VALUE);
+    assertEquals(Long.MAX_VALUE, extreme.delay(1, NANOSECONDS));
+    assertEquals(Long.MAX_VALUE, extreme.delay(2, NANOSECONDS));
+    assertEquals(Long.MAX_VALUE, extreme.delay(3, NANOSECONDS));
+  }
+
+  @Test
   void linearRampsEveryStepBeforeSaturatingAtTheMaxDelay() {
-    // maxRetryDelay / initialRetryDelay + initialRetryDelay = 5 + 2 = 7 steps: every
-    // error count below 7 must ramp rather than saturate.
+    // maxRetryDelay / initialRetryDelay + 1 = 5 + 1 = 6 steps: every
+    // error count below 6 must ramp rather than saturate.
     final var backoff = Backoff.linear(MILLISECONDS, 2, 10);
     assertEquals(2, backoff.delay(0));
     assertEquals(2, backoff.delay(1));
