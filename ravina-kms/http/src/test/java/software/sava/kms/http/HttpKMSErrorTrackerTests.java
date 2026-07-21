@@ -38,10 +38,14 @@ final class HttpKMSErrorTrackerTests {
     final var tracker = monitor.errorTracker();
 
     assertEquals(100, monitor.capacityState().capacity());
-    assertTrue(tracker.test(new RuntimeException("boom"), null));
-    assertEquals(50, monitor.capacityState().capacity());
-    assertTrue(tracker.test(new RuntimeException("boom"), null));
-    assertEquals(0, monitor.capacityState().capacity());
+    // The tracker logs every throwable it classifies at SEVERE. Only the two
+    // test() calls do that; the surrounding assertions stay unsilenced.
+    try (var ignored = LogSilencer.silenced(HttpKMSErrorTracker.class)) {
+      assertTrue(tracker.test(new RuntimeException("boom"), null));
+      assertEquals(50, monitor.capacityState().capacity());
+      assertTrue(tracker.test(new RuntimeException("boom"), null));
+      assertEquals(0, monitor.capacityState().capacity());
+    }
 
     assertEquals(0, tracker.maxGroupedErrorCount());
     assertFalse(tracker.hasExceededMaxAllowedGroupedErrorResponses());

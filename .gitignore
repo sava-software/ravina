@@ -29,3 +29,7 @@ configs
 Integ.*
 /symlinks/
 /.junie/
+
+# Machine-specific agent context (see AGENTS.local.md)
+AGENTS.local.md
+CLAUDE.local.md

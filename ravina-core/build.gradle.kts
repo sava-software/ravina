@@ -4,6 +4,9 @@ plugins {
 
 testModuleInfo {
   requires("org.junit.jupiter.api")
+  // LogSilencer pins expected-failure loggers through the JDK logging backend;
+  // a declared dependency beats the reflection this used to need.
+  requires("java.logging")
   runtimeOnly("org.junit.jupiter.engine")
 }
 
@@ -77,6 +80,9 @@ hardening {
       // also cover their nested types
       "software.sava.services.core.*Tests*",
       "software.sava.services.core.*Fuzz*",
+      // test-only logging scope; named for what it does rather than *Tests*,
+      // so it needs an exclusion of its own (trailing * covers nested types)
+      "software.sava.services.core.LogSilencer*",
       // owned by 'backoff'
       "software.sava.services.core.remote.call.Backoff",
       "software.sava.services.core.remote.call.RootBackoff",

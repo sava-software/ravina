@@ -1,6 +1,7 @@
 package software.sava.services.core.request_capacity.trackers;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.core.LogSilencer;
 import software.sava.services.core.NanoClock;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -15,6 +16,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Level;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static org.junit.jupiter.api.Assertions.*;
@@ -272,10 +274,14 @@ final class HttpErrorTrackerTests {
     assertEquals(CLOCK_MILLIS, records.getLast().timestamp());
   }
 
+  /// Both logging tests **set** the level rather than reading whatever the JVM
+  /// happens to be configured with. The ratchet needs deterministic kills: an
+  /// assertion that branches on ambient configuration kills the `isLoggable`
+  /// mutants only in the configuration the developer happens to run, and would
+  /// silently stop killing them under a `logging.properties` that enables FINE.
   @Test
-  void responseIsNotFormattedWhenDebugLoggingIsDisabled() throws Exception {
-    final var restoreLogLevel = withLogLevel("INFO");
-    try {
+  void responseIsNotFormattedWhenDebugLoggingIsDisabled() {
+    try (var ignored = LogSilencer.forceLevel(HttpErrorTracker.class, Level.INFO)) {
       final var logger = System.getLogger(HttpErrorTracker.class.getName());
       assertFalse(logger.isLoggable(DEBUG), "the level must be forced, not inherited from the environment");
       final var monitor = createMonitor();
@@ -289,40 +295,14 @@ final class HttpErrorTrackerTests {
       final var ok = new StubHttpResponse(200, "https://api.example.com/rpc", "fine".getBytes());
       assertTrue(tracker.test(ok, ok.body()));
       assertEquals(0, ok.logFormatAccesses);
-    } finally {
-      restoreLogLevel.close();
     }
   }
 
-  /// Raises the tracker logger to DEBUG through the JDK's default
-  /// `java.util.logging` backend so the logging branches become reachable.
-  /// The module does not `requires java.logging`, so this goes through
-  /// reflection plus a runtime `addReads` rather than a compile-time
-  /// dependency. The backend is a JVM-wide singleton: the returned handle
-  /// restores the previous level, and the captured logger reference keeps the
-  /// JUL logger from being collected (which would discard the level).
-  /// Both logging tests **set** the level rather than reading whatever the
-  /// JVM happens to be configured with. The ratchet needs deterministic kills:
-  /// an assertion that branches on ambient configuration kills the
-  /// `isLoggable` mutants only in the configuration the developer happens to
-  /// run, and would silently stop killing them under a `logging.properties`
-  /// that enables FINE.
-  private static AutoCloseable withLogLevel(final String levelName) throws ReflectiveOperationException {
-    final var loggerClass = Class.forName("java.util.logging.Logger");
-    HttpErrorTrackerTests.class.getModule().addReads(loggerClass.getModule());
-    final var levelClass = Class.forName("java.util.logging.Level");
-    final var setLevel = loggerClass.getMethod("setLevel", levelClass);
-    final var julLogger = loggerClass.getMethod("getLogger", String.class)
-        .invoke(null, HttpErrorTracker.class.getName());
-    final var previousLevel = loggerClass.getMethod("getLevel").invoke(julLogger);
-    setLevel.invoke(julLogger, levelClass.getField(levelName).get(null));
-    return () -> setLevel.invoke(julLogger, previousLevel);
-  }
-
   @Test
-  void debugLoggingFormatsOnlyErrorResponsesThatCarryABody() throws Exception {
-    final var restoreLogLevel = withLogLevel("FINE");
-    try {
+  void debugLoggingFormatsOnlyErrorResponsesThatCarryABody() {
+    // Raises the tracker logger to DEBUG through the JDK's default
+    // java.util.logging backend so the logging branches become reachable.
+    try (var ignored = LogSilencer.forceLevel(HttpErrorTracker.class, Level.FINE)) {
       assertTrue(System.getLogger(HttpErrorTracker.class.getName()).isLoggable(DEBUG));
       final var monitor = createMonitor();
       final var tracker = monitor.errorTracker();
@@ -344,8 +324,6 @@ final class HttpErrorTrackerTests {
       final var ok = new StubHttpResponse(200, "https://api.example.com/rpc", "fine".getBytes());
       assertTrue(tracker.test(ok, ok.body()));
       assertEquals(0, ok.logFormatAccesses, "successful responses are never logged");
-    } finally {
-      restoreLogLevel.close();
     }
   }
 }

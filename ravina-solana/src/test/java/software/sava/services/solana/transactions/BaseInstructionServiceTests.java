@@ -16,6 +16,7 @@ import software.sava.rpc.json.http.response.TxResult;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.solana.LogSilencer;
 import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.Epoch;
@@ -507,13 +508,18 @@ final class BaseInstructionServiceTests {
     final var ixs = instructions(2);
     final var futures = successfulSimulation(ixs);
 
-    final var sendContext = service.sendTransaction(
-        BaseInstructionService.NO_OP,
-        futures,
-        futures.simulationFuture().join(),
-        MAX_FEE,
-        123_456
-    );
+    // The abandoned send is logged at WARNING with the throwable; only the
+    // sendTransaction call itself does that.
+    final SendTxContext sendContext;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      sendContext = service.sendTransaction(
+          BaseInstructionService.NO_OP,
+          futures,
+          futures.simulationFuture().join(),
+          MAX_FEE,
+          123_456
+      );
+    }
 
     assertNull(sendContext, "a non-positive block height must take the failing fallback and abandon the send");
     assertTrue(processor.sentTransactions.isEmpty(), "nothing may be sent without a block hash");
@@ -573,9 +579,14 @@ final class BaseInstructionServiceTests {
     final var service = service(processor, monitor);
 
     final var ixs = instructions(2);
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
-    );
+    // The block hash failure is logged at WARNING with the throwable; only this
+    // call reaches that path.
+    final TransactionResult result;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      result = service.processInstructions(
+          CU_MULTIPLIER, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+      );
+    }
 
     assertNotNull(result);
     assertSame(TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH, result.error());

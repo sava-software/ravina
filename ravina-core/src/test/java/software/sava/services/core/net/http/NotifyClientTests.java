@@ -1,6 +1,7 @@
 package software.sava.services.core.net.http;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.core.LogSilencer;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.call.ClientCaller;
@@ -13,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -201,24 +203,33 @@ final class NotifyClientTests {
     assertSame(msg, postAndCapture(hook, msg));
   }
 
+  /// The expected hook failure is logged at WARNING **with the throwable**, by
+  /// an `exceptionally` stage that runs on whichever thread completes the post.
+  /// `join()` can therefore return before the log is written, which is why the
+  /// stack trace used to surface against whichever test class happened to be
+  /// running next. Silencing has to stay in force until the executor has
+  /// drained, so the shutdown and the wait sit inside the silenced scope.
   @Test
-  void failedHookStillYieldsAFutureInTheReturnedList() {
+  void failedHookStillYieldsAFutureInTheReturnedList() throws InterruptedException {
     final var executorService = Executors.newSingleThreadExecutor();
-    try {
-      final var hook = new RecordingWebHookClient(ENDPOINT_A, true);
-      final var notifyClient = NotifyClient.createClient(
-          executorService,
-          List.of(new DirectCaller(hook)),
-          CallContext.DEFAULT_CALL_CONTEXT
-      );
-      final var futures = notifyClient.postMsg("boom \"quoted\"");
-      assertEquals(1, futures.size());
-      final var future = futures.getFirst();
-      assertThrows(RuntimeException.class, future::join);
-      assertTrue(future.isCompletedExceptionally());
-      assertEquals(List.of("boom \\\"quoted\\\""), hook.received);
-    } finally {
-      executorService.shutdownNow();
+    try (var ignored = LogSilencer.silenced(NotifyClientImpl.class)) {
+      try {
+        final var hook = new RecordingWebHookClient(ENDPOINT_A, true);
+        final var notifyClient = NotifyClient.createClient(
+            executorService,
+            List.of(new DirectCaller(hook)),
+            CallContext.DEFAULT_CALL_CONTEXT
+        );
+        final var futures = notifyClient.postMsg("boom \"quoted\"");
+        assertEquals(1, futures.size());
+        final var future = futures.getFirst();
+        assertThrows(RuntimeException.class, future::join);
+        assertTrue(future.isCompletedExceptionally());
+        assertEquals(List.of("boom \\\"quoted\\\""), hook.received);
+      } finally {
+        executorService.shutdownNow();
+        assertTrue(executorService.awaitTermination(10, TimeUnit.SECONDS));
+      }
     }
   }
 }

@@ -6,6 +6,7 @@ import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.response.TxResult;
+import software.sava.services.solana.LogSilencer;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -171,10 +172,15 @@ final class BaseBatchInstructionServiceTests {
     processor.missingBlockHashCalls = 1;
     final var service = service(processor, confirmingMonitor(), 2, 1);
 
-    final var results = service.batchProcess(
-        1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
-    );
+    // The block hash failure is logged at WARNING with the throwable by
+    // BaseInstructionService, which owns the logger for the send path.
+    final List<TransactionResult> results;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      results = service.batchProcess(
+          1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
+          BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+      );
+    }
 
     assertEquals(1, results.size(), "the block hash failure must not surface as a result");
     assertNull(results.getFirst().error());
@@ -280,10 +286,14 @@ final class BaseBatchInstructionServiceTests {
     final var accountsMap = accounts(2);
     final var batchFactory = new RecordingBatchFactory();
 
-    final var results = service.batchProcess(
-        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
-    );
+    // See aBatchThatCouldNotRetrieveABlockHashIsRetriedWithoutBeingReported.
+    final List<TransactionResult> results;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      results = service.batchProcess(
+          1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
+          BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
+      );
+    }
 
     assertEquals(1, results.size());
     assertNull(results.getFirst().error());

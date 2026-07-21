@@ -6,9 +6,9 @@ import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.remote.call.Backoff;
 
+import software.sava.services.solana.LogSilencer;
+
 import java.io.IOException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -344,17 +344,10 @@ final class WebSocketManagerTests {
   /// The manager logs an expected failure at WARNING **with the throwable**, so
   /// exercising its error handler prints a stack trace that reads like a real
   /// one. Silence it for the duration of the call rather than leaving noise a
-  /// future reader has to recognise as harmless. The level is restored in a
-  /// `finally`, and it is *set* rather than assumed, so this does not depend on
-  /// the ambient logging configuration.
+  /// future reader has to recognise as harmless.
   private static void withoutManagerLogging(final Runnable body) {
-    final var julLogger = Logger.getLogger(WebSocketManagerImpl.class.getName());
-    final var previousLevel = julLogger.getLevel();
-    julLogger.setLevel(Level.OFF);
-    try {
+    try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
       body.run();
-    } finally {
-      julLogger.setLevel(previousLevel);
     }
   }
 

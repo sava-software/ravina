@@ -4,8 +4,8 @@ plugins {
 
 testModuleInfo {
   requires("org.junit.jupiter.api")
-  // WebSocketManagerTests silences the manager's expected-failure WARNING via
-  // the JDK logging backend; a declared dependency beats reflection here.
+  // LogSilencer pins expected-failure loggers through the JDK logging backend;
+  // a declared dependency beats reflection here.
   requires("java.logging")
   runtimeOnly("org.junit.jupiter.engine")
 }
@@ -63,6 +63,9 @@ hardening {
     excludedClasses = listOf(
       "software.sava.services.solana.*Tests*",
       "software.sava.services.solana.*Fuzz*",
+      // test-only logging scope; named for what it does rather than *Tests*,
+      // so it needs an exclusion of its own (trailing * covers nested types)
+      "software.sava.services.solana.LogSilencer*",
       // owned by 'epoch'
       "software.sava.services.solana.epoch.Epoch",
       "software.sava.services.solana.epoch.SlotPerformanceStats",

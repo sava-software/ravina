@@ -2,6 +2,10 @@
 
 Guidance for AI coding agents (and humans) working in this repository.
 
+Everything here is portable — true of any checkout. Machine-specific context
+(local sibling checkouts, credentials, observed timings) belongs in the
+untracked `AGENTS.local.md`, not here.
+
 ## What this repository is
 
 Ravina provides Java service components for building resilient remote-service
@@ -16,6 +20,12 @@ parsing, and KMS-backed signing.
     core state machine (capacity replenishes as a function of elapsed nanos,
     claims CAS against an `AtomicInteger`). `trackers/RootErrorTracker` docks
     capacity on server errors / rate limits / grouped-error thresholds.
+    `ErrorTracker<R, D> extends BiPredicate<R, D>`: `R` is the response wrapper,
+    `D` the payload the wrapper does not carry. HTTP trackers are
+    `<HttpResponse<?>, byte[]>` — sava-rpc reads the body itself and hands it
+    over separately, which is why the response is `HttpResponse<?>` and not
+    `HttpResponse<byte[]>`. KMS trackers key on a throwable and have no payload
+    at all: `<Throwable, Void>`.
   - `remote/call/` — the `Call` hierarchy. `ComposedCall` (retry with backoff)
     → `GreedyCall` (claims capacity unconditionally) → `CourteousCall` (waits
     for capacity). Balanced variants (`UncheckedBalancedCall` →
@@ -31,15 +41,20 @@ parsing, and KMS-backed signing.
   - `config/` — JSON (json-iterator) + properties config parsing.
 - `ravina-solana/` — epoch tracking and skip-rate estimation (`epoch/`),
   transaction send/monitor/priority-fee (`transactions/`), address-lookup-table
-  greedy set-cover selection (`alt/ScoredTable*`), RPC load-balancer glue,
-  websocket manager.
+  greedy set-cover selection (`alt/ScoredTable*`) and cache (`alt/LookupTableCache*`),
+  RPC load-balancer glue, websocket manager.
+  - `helius/client/http/` — the Helius priority-fee and `getProgramAccountsV2`
+    client. **Vendored**: it used to live in the `solana-web2` dependency, which
+    was dropped; the code moved here and into this repo's namespace, so it is
+    ours to maintain. Only the Helius half was carried over — Jito was
+    unreferenced and deliberately left behind.
 - `ravina-kms/core|http|google` — signing-service abstraction, HTTP-backed and
   Google Cloud KMS implementations.
 
 ## Build & test
 
 - Java 25, full JPMS, Gradle wrapper. Build logic comes from the external
-  `software.sava.build` convention plugin (sibling repo `sava-build`; version
+  `software.sava.build` convention plugin (separate repo `sava-build`; version
   pinned in `settings.gradle.kts`). There is no root `build.gradle.kts` and no
   in-repo version catalog; JUnit etc. come from the `solana-version-catalog`
   BOM (`gradle/sava.properties`).
@@ -67,20 +82,20 @@ parsing, and KMS-backed signing.
   non-zero origin so a mutated `start = 0` timestamp is distinguishable.
   `Epoch` instead exposes explicit-`now` overloads; test those, not the
   wall-clock delegates.
-- `EpochInfoServiceImpl` **takes a `NanoClock`** — every wall-clock read and
-  both sleeps (the loop's pacing sleep and the retry backoff) go through it,
-  so its tests assert pacing exactly instead of waiting. `EpochInfoService`
-  has a `createService(config, rpcCaller, clock)` overload; the two-arg form
-  defaults to `NanoClock.SYSTEM`. This was worth doing twice over: the epoch
-  test class went from 2.055s to 0.095s, and because PIT re-runs the suite per
-  mutant that took `pitestCatchAll` from ~80s to ~21s.
-- Still on raw wall-clock: `WebSocketManagerImpl`, `TxCommitmentMonitorService`,
-  `LookupTableCacheMap`. They are I/O-driven event loops, but "unmigrated" is
-  not the same as "untestable" — all three are now largely covered by in-memory
-  fakes (a `Proxy`-backed `SolanaRpcClient`, a scripted websocket, and running
-  the loops synchronously on the test thread). What a clock would still buy is
-  the residue: exact-millisecond boundaries and sleep-observable pacing. See
-  each module's `config/pitest/README.md` for the per-group cost.
+- `NanoClock` carries **two** readings: monotonic `nanoTime()` for pacing, and
+  `currentTimeMillis()` for wall-clock age comparisons. `SYSTEM` overrides the
+  latter with the real epoch clock; the interface default derives it from
+  `nanoTime()`, so a `TestClock` implementing only `nanoTime()` still advances
+  both coherently. Treat those values as comparable to each other, not as an
+  epoch, unless the clock is `SYSTEM`.
+- `EpochInfoServiceImpl` takes a `NanoClock` too (`EpochInfoService` has a
+  `createService(config, rpcCaller, clock)` overload; the two-arg form defaults
+  to `SYSTEM`). `WebSocketManagerImpl`, `TxCommitmentMonitorService` and
+  `LookupTableCacheMap` are still on the raw wall clock — but unmigrated is not
+  untestable: all three are covered by in-memory fakes (a `Proxy`-backed
+  `SolanaRpcClient`, a scripted websocket, loops run synchronously on the test
+  thread). Copy those seams rather than reaching for a real clock or a sleep.
+  [`HARDENING.md`](HARDENING.md) records what a clock would still buy.
 - Reach for **package-private over reflection** when a test needs an internal:
   `EpochInfoServiceImpl.numSamples`/`lock`, `BaseTxMonitorService.workLock`,
   `WebSocketManagerImpl.lock` and `GoogleKMSClientFactory.builder` are all
@@ -90,80 +105,33 @@ parsing, and KMS-backed signing.
 
 ## Hardening: mutation testing (PIT) and fuzzing (Jazzer)
 
-Provided by the `software.sava.build.feature.hardening` plugin; suites and
-targets are registered in each module's `build.gradle.kts` `hardening {}`
-block (all five modules). Full process contract: sava-build's `HARDENING.md`.
+Every module registers PIT mutation suites and Jazzer fuzz targets via the
+`software.sava.build.feature.hardening` plugin. Four rules cover ordinary work;
+**[`HARDENING.md`](HARDENING.md) has the rest** — suite targeting, the accepted
+mutant groups and their reasons, the fuzz-harness contract, and the mechanical
+traps (nested-class exclusions, baseline normalisation, load-dependent
+timeouts).
 
-- **Run `./gradlew qualityGate` after changing main sources** — unit tests
-  plus every PIT suite, each diffed against its accepted baseline in the
-  module's `config/pitest/`. It is the definition of "safe to commit". While
-  iterating, run only the `pitest<Suite>` that owns the code you touched —
-  `qualityGate` is the before-commit command, not the inner-loop one.
-- A new unkilled mutant has exactly three legal outcomes: **kill it** with a
-  test (prefer asserting the property it breaks — pacing as a function of
-  requested delays, capacity after a dock — over restating the
-  implementation), **refactor** it out of existence, or **accept it** with a
-  written reason in the module's `config/pitest/README.md`. Never run
-  `-PupdateMutationBaseline` just to make the build pass.
-- Line-number churn from editing a mutated file shows up as paired stale +
-  "new" baseline entries; confirm they're the shifted old ones before
-  refreshing.
-- The baselines are triaged: every accepted entry has a written reason in the
-  module's `config/pitest/README.md`, except the `backoff` and `calls` suites
-  which still carry their originally-seeded population. Shrinking any of them
-  is always an improvement. Recurring *equivalent* groups (do not chase):
-  `logger.log` removals; `sort()` calls on the no-op `ArrayLoadBalancer`
-  inside `CourteousBalancedCall` (the comparator ignores capacity so order
-  cannot change mid-call); timer mutations unobservable when
-  `measureCallTime` is false; builder `parseProperties` null-guards that
-  assign null over an already-null field; and `return super.test(...)`
-  return-value mutations where the supertype only ever returns true.
-- **A few mutants are detected only by PIT's timeout, and that is
-  load-dependent** — the same mutant can report `SURVIVED` when its suite runs
-  alone and `TIMED_OUT` (detected) under `qualityGate`. The baselines
-  deliberately carry the union of both modes; four such rows are known. Don't
-  strip a row because one run shows it detected, and don't bulk-add every
-  `TIMED_OUT` row either — that would blind the ratchet to real regressions.
-- The largest remaining block of accepted debt (~29 entries, both modules) is
-  blocked on there being **no two-thread test anywhere in the repo**: parked-waiter
-  handshakes, `signalAll` with no waiter, and CAS losers. A concurrency harness is
-  deliberately deferred — see "Deferred: a concurrency harness" in
-  `ravina-core/config/pitest/README.md` for the shapes, the determinism bar it has
-  to clear, and where to start. A flaky harness would be worse than the debt.
-- Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
-- **Randomized tests use fixed seeds**: the ratchet needs deterministic
-  kills; per-run exploration is the fuzz targets' job.
-- Fuzz: `./gradlew :ravina-core:fuzzBackoff -PmaxFuzzTime=60` (etc. —
-  `fuzz<Target>`; default 60s). Harnesses are `*Fuzz.java` in the ordinary
-  test sources: a `final` class exposing only
-  `public static void fuzzerTestOneInput(byte[] data)`, **no Jazzer imports**.
-  Contract: garbage in → `RuntimeException` out (catch and return); invariant
-  violations throw `AssertionError`/`IllegalStateException` and are findings.
-  Multi-parser harnesses (`ConfigsFuzz`, `SolanaConfigsFuzz`) use byte 0 to
-  select the parser. Seed corpora live in `src/test/resources/fuzz/<name>/`;
-  every registered target has one. Jazzer writes `crash-*` / `Crash_*.java`
-  reproducers into the module dir on a finding — use them, then delete them
-  (never commit).
-- **Every fuzz finding becomes two artifacts**: the minimized input committed
-  to the seed corpus as `regression-<what>`, and a named regression test. A
-  crash fixed without both is a crash that can return.
-- `FuzzCorpusReplayTests` (one per module) replays every committed seed
-  through its harness inside `check`, so seeds face PIT's mutants and a
-  promoted finding keeps failing in the ordinary build without waiting on a
-  fuzz run. New seeds are picked up automatically — no registration. This is
-  what makes fuzzing pay off between fuzz runs; `regression-clamp-arg-order`
-  is the worked example (see below).
-- When adding a new parser, algorithm, or strategy: add unit tests, register
-  it in (or add) a mutation suite, and extend a fuzz harness if it consumes
-  external input. History justifies the effort — this setup found and fixed a
-  fibonacci backoff exceeding its declared max, an even-count median crash in
-  `SlotPerformanceStats`, `RootErrorTracker` silently dropping unexpired
-  error records, and `CapacityStateVal`'s capacity accumulator calling
-  `Math.clamp(value, min, max)` with the arguments transposed — which threw
-  `IllegalArgumentException` from the token bucket as soon as replenishment
-  carried the running sum above `maxCapacity`. `fuzzCapacityState` reproduced
-  that one in 21 seconds from an 8-byte input, through a `durationUntil` path
-  no unit test reached.
+1. **Run `./gradlew qualityGate` after changing main sources.** Unit tests plus
+   every PIT suite, each diffed against its accepted baseline. It is the
+   definition of "safe to commit"; `./gradlew check` is what CI runs and is not
+   the same bar. While iterating, run just the `pitest<Suite>` owning your code.
+2. **A new unkilled mutant has three legal outcomes**: kill it with a test that
+   asserts the property it breaks, refactor it out of existence, or accept it
+   with a written reason in the module's `config/pitest/README.md`. Never run
+   `-PupdateMutationBaseline` just to make the build pass.
+3. **Line-number churn is the one routine exception** — editing a mutated file
+   shifts entries. Confirm the "new" rows are the shifted old ones before
+   refreshing.
+4. **Determinism is the whole point.** Fixed seeds, no sleep-based or
+   timing-tolerance tests, no reliance on PIT's timeout to detect a mutant. A
+   flapping ratchet is worse than recorded debt, and this repo has twice paid
+   to re-learn that.
+
+When adding a parser, algorithm or strategy: add unit tests, put it in a
+mutation suite, and extend a fuzz harness if it consumes external input. That
+habit has found eight real bugs so far — six of them silent — and
+`HARDENING.md` lists them, because the list is the argument for the effort.
 
 ## Gotchas & invariants worth knowing
 
@@ -182,5 +150,15 @@ block (all five modules). Full process contract: sava-build's `HARDENING.md`.
   both updated when adding fields. Unknown JSON fields throw
   `IllegalStateException` on purpose.
 - `ServiceConfigUtil.parseDuration` accepts `"PT13S"` or bare `"13S"`.
+- Every config here parses **two ways** — JSON and `java.util.Properties` — from
+  two independently maintained field lists. Nothing but review keeps them in
+  step, so `ConfigParityFuzz` / `SolanaConfigParityFuzz` render one logical
+  config both ways and require the parses to agree (or both to reject). Add new
+  configs there; a renamed property key or a `FieldMatcher` ordinal shift shows
+  up as a concrete counter-example rather than a silent divergence.
+- Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
+  goes in via `.testResponse(...)`, which takes a
+  `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and
+  passes it alongside the response.
 - PIT silently discards classpath roots whose path contains the string
   "pitest" — never name directories that (plugin already handles this).

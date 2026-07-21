@@ -12,6 +12,7 @@ import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
+import software.sava.services.solana.LogSilencer;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.remote.call.RpcCaller;
 
@@ -499,7 +500,11 @@ final class EpochInfoServiceTests {
     );
     final var service = serviceFor(fake);
 
-    service.run();
+    // The retry path logs each expected failure at WARNING with the throwable.
+    // Only run() drives that loop; the assertions after it stay unsilenced.
+    try (var ignored = LogSilencer.silenced(EpochInfoService.class)) {
+      service.run();
+    }
 
     assertEquals(4, fake.epochCalls, "the failed fetch must be retried, not treated as a shutdown");
     final var latest = service.epochInfo();
@@ -525,7 +530,11 @@ final class EpochInfoServiceTests {
     );
     final var service = serviceFor(fake);
 
-    service.run();
+    // The retry path logs each expected failure at WARNING with the throwable.
+    // Only run() drives that loop; the assertions after it stay unsilenced.
+    try (var ignored = LogSilencer.silenced(EpochInfoService.class)) {
+      service.run();
+    }
 
     // Error count 1, 2, 3 -> the first three fibonacci delays, in order and
     // non-decreasing. Pins both the escalation and that the count is not reset
@@ -553,7 +562,11 @@ final class EpochInfoServiceTests {
     );
     final var service = serviceFor(fake);
 
-    service.run();
+    // The retry path logs each expected failure at WARNING with the throwable.
+    // Only run() drives that loop; the assertions after it stay unsilenced.
+    try (var ignored = LogSilencer.silenced(EpochInfoService.class)) {
+      service.run();
+    }
 
     assertEquals(3, fake.epochCalls, "only a closed client stops the service");
     final var latest = service.epochInfo();

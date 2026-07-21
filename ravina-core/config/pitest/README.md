@@ -101,8 +101,11 @@ line-32 `sort()` itself is **not** accepted: it is killed by
 **Discarded `exceptionally` handler** (`catchAll`) —
 `NotifyClientImpl.lambda$postMsg$1` line 73 `EmptyObjectReturnVals`: the future
 derived from `exceptionally(...)` is never stored or returned, so the handler's
-return value is unobservable. The path itself is covered by
-`failedHookStillYieldsAFutureInTheReturnedList`.
+return value is unobservable. The path is covered by
+`failedHookStillYieldsAFutureInTheReturnedList`, which drains the executor
+before returning — the row is `SURVIVED` rather than `NO_COVERAGE` for that
+reason. Without that barrier the handler can run after the test finishes, and
+its stack trace gets attributed to whichever test Gradle prints next.
 
 **Log-message-only values** (`catchAll`) —
 `HttpErrorTracker.lambda$logResponse$0` line 59 `EmptyObjectReturnVals`: the

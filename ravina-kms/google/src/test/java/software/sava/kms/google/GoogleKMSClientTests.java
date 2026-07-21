@@ -66,7 +66,11 @@ final class GoogleKMSClientTests {
   @Test
   void publicKeyFailureDocksCapacity() {
     final var monitor = createMonitor();
-    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    // The error tracker logs the expected NPE at SEVERE, from the virtual
+    // thread that runs the call. The silencer is declared first so it is
+    // restored *after* the executor's close() has awaited that thread.
+    try (var ignored = LogSilencer.silenced(GoogleKMSErrorTracker.class);
+         final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
           executor, Backoff.single(1), null, KEY_VERSION_NAME, monitor);
       assertNotNull(service);
@@ -94,7 +98,9 @@ final class GoogleKMSClientTests {
   @Test
   void signFailureClaimsAndDocksCapacity() {
     final var monitor = createMonitor();
-    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    // See publicKeyFailureDocksCapacity: silencer first, executor second.
+    try (var ignored = LogSilencer.silenced(GoogleKMSErrorTracker.class);
+         final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
           executor, Backoff.single(1), null, KEY_VERSION_NAME, monitor);
       assertEquals(100, monitor.capacityState().capacity());
@@ -110,7 +116,9 @@ final class GoogleKMSClientTests {
   @Test
   void signRangeFailureClaimsAndDocksCapacity() {
     final var monitor = createMonitor();
-    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+    // See publicKeyFailureDocksCapacity: silencer first, executor second.
+    try (var ignored = LogSilencer.silenced(GoogleKMSErrorTracker.class);
+         final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       final var service = GoogleKMSClientFactory.createService(
           executor, Backoff.single(1), null, KEY_VERSION_NAME, monitor);
       assertEquals(100, monitor.capacityState().capacity());
