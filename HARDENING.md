@@ -285,12 +285,19 @@ point plus the unsigned extremes):
 - The rest of the family — fib construction, exponential guard, fib handler
   index, `commaSeparateInteger` — verified equivalent with zero differences;
   the notes now record the domain instead of only the argument.
-- **Known unfixed edge**: `Backoff.fibonacci` never terminates when
-  `initialRetryDelay` exceeds the largest 63-bit fibonacci number
-  (≈ 7.54e18 — 239 years in nanos): the start-selection loop's fib values
-  wrap negative and `initial <= current` can no longer be reached. Absurd
-  domain, but it hangs rather than throws; fixing it means choosing a
-  validation policy for the public factories, which is a maintainer call.
+- **Fixed the day after finding it**: `Backoff.fibonacci` overflowed past
+  F(92), the largest fibonacci that fits in a long. Three flavors, all
+  measured: a cap in (7.54e18, ~9.2e18) built sequences with *negative
+  delays*; `Long.MAX_VALUE` as the cap — the natural "no ceiling" spelling —
+  **hung the constructor** (live-reproduced, killed after 10s); an initial
+  past F(92) hung the same way. Fixed by overflow-detect-and-saturate (the
+  first wrapped sum is always negative), pinned by
+  `fibonacciSaturatesInsteadOfOverflowingPastTheLargestRepresentableFibonacci`
+  and the `regression-fibonacci-overflow-hang` seed; `BackoffFuzz` gained a
+  third tier reaching the full positive long range. The new guards' own
+  mutants are sweep-verified equivalents (see the backoff README); the one
+  that deletes the hang guard is timeout-detected, unavoidably — a removed
+  termination guard has no other observable.
 
 ## Making this repo's loop faster: what was measured
 

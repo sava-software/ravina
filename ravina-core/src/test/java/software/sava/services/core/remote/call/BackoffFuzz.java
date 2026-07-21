@@ -24,6 +24,21 @@ public final class BackoffFuzz {
       a += (((long) (data[6] & 0xFF) << 16) | ((data[7] & 0xFF) << 8) | (data[8] & 0xFF)) << 16;
       b += (((long) (data[9] & 0xFF) << 16) | ((data[10] & 0xFF) << 8) | (data[11] & 0xFF)) << 16;
     }
+    if (data.length >= 18) {
+      // Third tier: 23 more bits reach the full positive long range, past
+      // F(92) ~ 7.54e18 (the largest fibonacci that fits in a long) — the
+      // overflow-saturation domain for every strategy's guard math. The top
+      // bit of each tier is masked to 0x7F so only the exact sum 2^63 can
+      // wrap, clamped below.
+      a += (((long) (data[12] & 0x7F) << 16) | ((data[13] & 0xFF) << 8) | (data[14] & 0xFF)) << 40;
+      b += (((long) (data[15] & 0x7F) << 16) | ((data[16] & 0xFF) << 8) | (data[17] & 0xFF)) << 40;
+      if (a < 0) {
+        a = Long.MAX_VALUE;
+      }
+      if (b < 0) {
+        b = Long.MAX_VALUE;
+      }
+    }
     final long initial = Math.min(a, b);
     final long max = Math.max(a, b);
 

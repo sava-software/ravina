@@ -57,16 +57,30 @@ public interface Backoff {
         startCurrent = current;
         break;
       }
+      if (current < 0) {
+        // The sum wrapped: the initial delay exceeds F(92), the largest
+        // fibonacci number that fits in a long. Start at F(92) and let the
+        // sequence saturate immediately. The first wrapped sum always lands
+        // in [2^63, 2^64), so it is reliably negative.
+        startPrevious = previous;
+        startCurrent = current;
+        break;
+      }
     }
 
-    // Calculate array size.
+    // Calculate array size. A wrapped (negative) current means the walk is
+    // past F(92): stop growing and let the forced tail below cap the
+    // sequence, so a max delay beyond F(92) saturates instead of walking
+    // wrapped garbage (or, for Long.MAX_VALUE, never terminating).
     int steps = 2;
-    do {
-      mark = current;
-      current += previous;
-      previous = mark;
-      ++steps;
-    } while (maxRetryDelay > current);
+    if (current > 0) {
+      do {
+        mark = current;
+        current += previous;
+        previous = mark;
+        ++steps;
+      } while (current > 0 && maxRetryDelay > current);
+    }
 
     final long[] sequence = new long[steps];
     previous = startPrevious;

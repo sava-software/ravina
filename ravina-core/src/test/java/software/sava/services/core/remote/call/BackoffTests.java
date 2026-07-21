@@ -104,6 +104,50 @@ final class BackoffTests {
   }
 
   @Test
+  void fibonacciSaturatesInsteadOfOverflowingPastTheLargestRepresentableFibonacci() {
+    // F(92), the largest fibonacci number that fits in a signed long; the next
+    // sum wraps negative. Each config below previously either hung the
+    // constructor or built a sequence containing negative delays.
+    final long f92 = 7_540_113_804_746_346_429L;
+
+    // A cap above F(92): the size loop used to keep walking wrapped values and
+    // emit 17 negative sequence entries (delay(83) was -6.2e18). Now the ramp
+    // is every real fibonacci number, then the cap.
+    final long bigCap = 8_000_000_000_000_000_000L;
+    final var capped = Backoff.fibonacci(NANOSECONDS, 100, bigCap);
+    assertEquals(bigCap, capped.maxDelay(NANOSECONDS));
+    long previous = 0;
+    for (long errorCount = 0; errorCount <= 128; ++errorCount) {
+      final long delay = capped.delay(errorCount, NANOSECONDS);
+      assertTrue(delay >= previous, "delay(" + errorCount + ") shrank to " + delay + " from " + previous);
+      previous = delay;
+    }
+    assertEquals(bigCap, capped.delay(-1, NANOSECONDS));
+
+    // Long.MAX_VALUE as "no ceiling" used to hang the constructor: the size
+    // loop's exit needed a wrapped value to reach Long.MAX_VALUE exactly,
+    // which practically never happens.
+    final var unbounded = Backoff.fibonacci(SECONDS, 1, Long.MAX_VALUE);
+    assertEquals(1, unbounded.delay(1, SECONDS));
+    assertEquals(f92, unbounded.delay(91, SECONDS));
+    assertEquals(Long.MAX_VALUE, unbounded.delay(92, SECONDS));
+    assertEquals(Long.MAX_VALUE, unbounded.maxDelay(SECONDS));
+
+    // An initial delay past F(92) hung the start-selection loop the same way.
+    // The nearest representable fibonacci is F(92): start there, saturate at
+    // the second error.
+    final var extreme = Backoff.fibonacci(NANOSECONDS, Long.MAX_VALUE, Long.MAX_VALUE);
+    assertEquals(f92, extreme.initialDelay(NANOSECONDS));
+    assertEquals(f92, extreme.delay(1, NANOSECONDS));
+    assertEquals(Long.MAX_VALUE, extreme.delay(2, NANOSECONDS));
+
+    // Initial past F(92) with a finite cap: same two-entry saturated shape.
+    final var inverted = Backoff.fibonacci(NANOSECONDS, Long.MAX_VALUE, bigCap);
+    assertEquals(f92, inverted.delay(1, NANOSECONDS));
+    assertEquals(bigCap, inverted.delay(2, NANOSECONDS));
+  }
+
+  @Test
   void linearSaturationGuardAvoidsOverflowAtNanoScaleDelays() {
     // The guard used to be (maxRetryDelay / initialRetryDelay) + initialRetryDelay,
     // inflating it by billions for nano-scale delays; errorCount * initialRetryDelay

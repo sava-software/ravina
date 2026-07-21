@@ -71,7 +71,7 @@ it would couple tests to message wording.
 
 **Saturation absorbs the off-by-one** (`backoff`) — surviving
 `ConditionalsBoundaryMutator`/`RemoveConditionalMutator_ORDER_IF` on a
-*max-error-count* computation: `Backoff.fibonacci` lines 50 and 69,
+*max-error-count* computation: `Backoff.fibonacci` lines 50 and 82,
 `ExponentialBackoffErrorHandler.<init>` line 14. Each shifts the saturation
 index, but the delay at that index is already clamped — `min(maxDelay, …)` for
 the exponential handler, a force-clamped tail for the fibonacci sequence — so
@@ -94,6 +94,33 @@ overflow domain), the counter-example is pinned in
 `BackoffFuzz` probes saturation boundaries at 40-bit configs
 (`regression-linear-saturation-overflow` seed), and both mutants are killed.
 The lesson: this family's membership test is the sweep, not the prose.
+
+**Fibonacci overflow-saturation guards** (`backoff`) — the guards added
+2026-07-21 so `Backoff.fibonacci` saturates at F(92) (the largest fibonacci
+that fits in a long) instead of hanging or walking wrapped values:
+
+- Lines 60, 76 and 82 `ConditionalsBoundaryMutator` (`current < 0` → `<= 0`,
+  `current > 0` → `>= 0`): `current == 0` is unreachable — pre-wrap fibonacci
+  values are ≥ 2 and the first wrapped sum lands in [2^63, 2^64), so it is
+  strictly negative.
+- Line 82 `RemoveConditionalMutator_ORDER_ELSE` — forces the size loop to run
+  until the wrap regardless of `maxRetryDelay`. The array grows to the full
+  representable fibonacci walk, but every extra entry is min-clamped to
+  `maxRetryDelay` and the forced tail is unchanged, so the delay function is
+  identical: allocation-size only.
+
+All four **verified by differential sweep** (2026-07-21): both variants diffed
+over 2 787 configs — small exhaustive plus F(92)±1, 8e18 and `Long.MAX_VALUE`
+on both parameters — across error counts through every saturation point plus
+the unsigned extremes; zero differences. The same sweep checked the fixed
+original satisfies 0 ≤ delay ≤ maxDelay at every point.
+
+Line 60 `RemoveConditionalMutator_ORDER_ELSE` (removing the start-loop wrap
+guard entirely) is `TIMED_OUT`, not accepted: deleting a termination guard
+reintroduces the constructor hang, and a hang is only observable as a timeout
+— there is no collaborator to turn it into a deterministic assertion. It is
+detected, so it never enters the baseline; if it ever flips to `SURVIVED`
+under load, union it with this paragraph as the reason.
 
 **Index paths that coincide** (`backoff`) —
 `FibonacciBackoffErrorHandler.calculateDelay` line 21 `errorCount < 1` → `<=`:
