@@ -6,8 +6,26 @@ how the suites are targeted, which mutant groups are accepted and why, and the
 mechanical traps that have cost time here.
 
 Read this when you are working on the hardening setup itself, chasing a
-`qualityGate` failure, or adding a parser/algorithm that needs coverage. For
-ordinary changes, the four rules in `AGENTS.md` are enough.
+ratchet failure, or adding a parser/algorithm that needs coverage. For ordinary
+changes, the rules in `AGENTS.md` are enough.
+
+## Plugin version gap
+
+This repo pins `software.sava.build` **21.5.7**. Two things the shared
+`HARDENING.md` describes are implemented in sava-build's `main` but **not in
+any released tag**, so they are absent here until the plugin is bumped:
+
+- `pitest<Suite>` printing a `detected/total (n%) — x survived, y no_coverage`
+  summary. Until then, get the split yourself:
+  `awk -F, '{print $6}' build/reports/pitest/<suite>/mutations.csv | sort | uniq -c`.
+- `pitest<Suite>Verify` warning when a suite mutates classes from its own test
+  source set. Until then that check is manual — cross-reference the mutated
+  class list against `src/test/java`. It is worth running after registering or
+  widening any suite; doing it here found two nested fakes being mutated as
+  production code because an exclusion was missing its trailing wildcard.
+
+The *directives* in the shared doc apply regardless of plugin version; only
+these two conveniences are gated on it.
 
 Provided by the `software.sava.build.feature.hardening` plugin; suites and
 targets are registered in each module's `build.gradle.kts` `hardening {}`
@@ -38,11 +56,14 @@ Two mechanical points that cost real time to rediscover:
 - PIT's conditional mutators, verified empirically here: `*_IF` forces the
   condition **true**, `*_ELSE` forces it **false**.
 
-- **Run `./gradlew qualityGate` after changing main sources** — unit tests
-  plus every PIT suite, each diffed against its accepted baseline in the
-  module's `config/pitest/`. It is the definition of "safe to commit". While
-  iterating, run only the `pitest<Suite>` that owns the code you touched —
-  `qualityGate` is the before-commit command, not the inner-loop one.
+- **Scale verification to the change.** Iterate with the module's `test`;
+  before handing off, run only the `pitest<Suite>`(s) whose mutated code the
+  change can reach. `./gradlew qualityGate` — unit tests plus every PIT
+  suite, each diffed against its accepted baseline in the module's
+  `config/pitest/` — is the **pre-release** check, owned by the local release
+  checklist: CI deliberately runs only `check` (serialized PIT suites are too
+  slow for hosted runners), so run the gate locally before deciding to
+  release, not per commit.
 - A new unkilled mutant has exactly three legal outcomes: **kill it** with a
   test (prefer asserting the property it breaks — pacing as a function of
   requested delays, capacity after a dock — over restating the
@@ -53,8 +74,11 @@ Two mechanical points that cost real time to rediscover:
   "new" baseline entries; confirm they're the shifted old ones before
   refreshing.
 - The baselines are fully triaged: **every** accepted entry has a written
-  reason in the module's `config/pitest/README.md`. Shrinking them is always an
-  improvement; growing them needs a reason in that file, not just a refresh.
+  reason in the module's `config/pitest/README.md`. An entry with a reason is a
+  finished outcome, not debt waiting to be cleared — do not chase a suite's
+  percentage upward for its own sake. Growing a baseline needs a reason in that
+  file, not just a refresh; the entries worth revisiting are the ones that say
+  "hard to test" rather than why the mutant cannot change behaviour.
   Recurring *equivalent* groups (do not chase):
   `logger.log` removals; `sort()` calls on the no-op `ArrayLoadBalancer`
   inside `CourteousBalancedCall` (the comparator ignores capacity so order
@@ -151,3 +175,136 @@ remain on the wall clock. All three are nonetheless well covered by in-memory
 fakes; what a clock would still buy them is only the residue —
 exact-millisecond boundaries and sleep-observable pacing. Each module's
 `config/pitest/README.md` prices that per group.
+
+## Equivalence families
+
+The shared doc names the recurring shapes so acceptance notes stay consistent
+across repos. Ravina's accepted entries map onto them as follows — use these
+names in new notes rather than inventing a phrasing:
+
+| Family | Ravina examples |
+|---|---|
+| Allocation-size only | `HeliusJsonRpcClient` `StringBuilder` pre-size; `HttpKMSClient.sign` copy elision; `LookupTableCacheMap` empty-list guard |
+| Fast-path / alternate-path routing | `ArrayLoadBalancer.peek`/`withContext` zero-error fall-through; `CourteousBalancedCall` degenerate single-item pool; `ChainItemFormatter.commaSeparateInteger` `len <= 3` |
+| Equal but not identical | `LookupTableCacheMap` line 188 and `BaseBatchInstructionService` line 142 whole-collection shortcuts over an internal copy |
+| Defensive code unreachable in context | `UriCapacityConfig$Parser` `!url.isBlank()`; `SigningServiceConfig$Parser` mark sentinel; `ServiceConfigUtil` `Class.getModule()` |
+
+Two ravina-specific families the shared list does not cover, both legitimate:
+
+- **Log-text only** — the value reaches only a log message. Asserting it would
+  pin wording that is not a contract.
+- **Not deterministically reachable** — real divergence a deterministic test
+  cannot provoke (concurrency, exact-millisecond boundaries). Kept in a
+  separate README section precisely because it is *not* equivalence.
+
+## A cluster on logging is a design signal, not a family
+
+The shared doc's rule — several unkillable mutants in one place usually means a
+side effect is in the wrong layer — was applied here, and it held.
+
+`EpochInfoServiceImpl.logEpoch` carried **12 accepted entries**, filed as
+"log-text only". Reading the method showed that description was wrong about
+what it *was*, if not about where the values went:
+
+```java
+private static Epoch logEpoch(final Epoch previousSample, final Epoch latestSample) {
+  ...                       // three branches, a delta, a percentage, a sign word
+  logger.log(INFO, log);
+  return latestSample;      // its own argument
+}
+```
+
+Only one of the twelve was a logging removal. The other eleven were branch
+selection and arithmetic — the new-epoch comparison, the remaining-duration
+delta, its percentage, and the `over`/`under`/`""` three-way — unkillable purely
+because their sole consumer was a string. And the pass-through return had made
+it look like a compute method, which is why an earlier pass justified keeping
+it: *"it also returns the sample the loop consumes."* It does not. It returns
+what the caller already had.
+
+The fix was not a test. Extracting a pure
+`epochLogMessage(previous, latest, now)` and moving `logger.log` to the two
+call sites killed all twelve, and took the module's baseline from 91 to 81
+accepted entries. Two secondary wins came free:
+
+- the formatter takes an explicit `now`, where the old code called
+  `millisRemaining()` **twice** — so the reported delta had been carrying
+  whatever clock jitter fell between the two reads;
+- `previousSample = latestSample` at the call site says what the loop does.
+
+The tests assert the *computed* parts — delta, percentage, sign word — with
+`contains` rather than whole-string equality, so rewording the template does
+not break them but breaking the arithmetic does. That is the line to hold when
+a pure formatter is the thing under test.
+
+**The transferable part**: when a cluster is filed under "the value only
+reaches a log string", check whether the *values* are incidental or whether
+real logic has been parked in an output method. Here it was the latter, and the
+give-away was a return type that turned out to be the identity function.
+
+## PIT incremental analysis is not available to us
+
+Measured 2026-07-21, because it looked like the biggest possible win and the
+evidence for it was misleading.
+
+`pitest-entry` **does** ship an `org.pitest.mutationtest.incremental` package,
+and the CLI **does** accept `--historyInputLocation` / `--historyOutputLocation`.
+Both facts are easy to check and both suggest incremental analysis is a wiring
+job. It is not: the only history factory registered in open-source PIT is
+`ErroringHistoryFactory`, whose entire implementation throws
+
+> History has been enabled but no history plugin has been installed/activated.
+> If you are using https://www.arcmutate.com remember to activate the history
+> plugin with +arcmutate_history
+
+So the flags are accepted, the run then dies in `EntryPoint.pickHistoryStore`.
+Real history needs the commercial arcmutate plugin. json-iterator's
+`config/pitest/README.md` said exactly this; an earlier pass here "corrected"
+it on the strength of the CLI options existing, and was wrong.
+
+**The trap worth remembering** is how the failed prototype presented: the
+second run finished in 2.2s against 24.5s, which reads as an 11× speedup. It
+was PIT throwing immediately and doing no work at all, while the *stale* report
+from the previous run stayed on disk — so the verify step still printed a
+full, plausible `58/94 detected (61%)` line. A fast green-looking result from a
+run that did nothing is the exact shape "verify by the absence of failures, not
+the presence of passes" exists to catch, and the exit code was the only honest
+signal.
+
+Do not re-attempt this without an arcmutate licence. What *is* available is in
+the section above: scope the suite, and keep the covering tests fast.
+
+## Convergence check: how to run it, and the 2026-07-21 result
+
+The headline kill count agreeing across runs is a weak check — two runs can
+match in total while disagreeing about *which* mutants died. Compare
+per-mutator sub-totals instead, or better, per-mutant status.
+
+Method (all 17 suites, scripted rather than by eye): run every `pitest<Suite>`
+task, copy each `build/reports/pitest/<suite>/mutations.csv` aside, **delete
+the report directories**, run again, and diff. Deleting is not optional —
+Gradle serves an up-to-date task without re-running PIT, so a second run
+without it compares a file to itself and converges trivially. Key each row on
+`(class, method, line, mutator)` and compare status; flag any flip that crosses
+the `SURVIVED`/`NO_COVERAGE` boundary, since only those can move the ratchet.
+
+Then repeat under `qualityGate`, which is the mode that matters: the documented
+`TIMED_OUT` flapping only ever appeared between solo and multi-suite runs,
+never between two solo runs.
+
+Result — **2297 mutants, 17 suites, zero divergence** on all three
+comparisons: run-to-run, and each solo run against `qualityGate`. Not one
+status flip, so also none crossing the unkilled boundary.
+
+Two things follow. First, the four `TIMED_OUT` rows unioned into baselines
+earlier did not flap here; they are not stale (they matched as `SURVIVED`, and
+a separate sweep found **0** accepted rows across all suites that failed to
+match a real unkilled mutant), but the flapping they were unioned for was not
+reproducible on this machine at this load. Treat them as cheap insurance, not
+as evidence the suites are timing-sensitive today. The `NanoClock` migration
+and the `epochService` split both removed real waits, which is the likely
+reason. Second, the baselines are exactly tight: every accepted row is
+load-bearing, and nothing is silently widening the gate.
+
+Re-run this after any change to suite composition, `targetTests`, or the
+mutator set — those are what perturb load and coverage.

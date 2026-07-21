@@ -370,6 +370,100 @@ final class EpochInfoServiceTests {
   /// Three scripted epochs and then a closed client. Each loop iteration is due
   /// for both a sample refresh and an epoch refresh, so the call counts are an
   /// exact function of the script.
+  // ---------------------------------------------------------- epochLogMessage
+  //
+  // `epochLogMessage` is pure and takes an explicit `now`, so the branch
+  // selection and the delta arithmetic are assertable. These assert the
+  // *computed* parts — the delta, its percentage, and which of over/under/""
+  // was chosen — with `contains`, not the whole sentence: rewording the
+  // template must not break them, breaking the arithmetic must.
+
+  private static EpochInfo logInfo(final long epochNumber, final int slotIndex) {
+    return new EpochInfo(0, 1_000, epochNumber, slotIndex, 432_000, 0);
+  }
+
+  private static Epoch logSample(final long epochNumber, final int slotIndex, final long sampledAt) {
+    return Epoch.create(null, null, logInfo(epochNumber, slotIndex), 400, null, sampledAt);
+  }
+
+  @Test
+  void theFirstSampleLogsTheEpochWithoutADelta() {
+    final var latest = logSample(500, 100, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(null, latest, 1_000_000);
+
+    assertEquals(latest.logFormat(1_000_000), message);
+    assertFalse(message.startsWith("New "), "there is no previous epoch to have advanced from");
+    assertFalse(message.contains("difference"), "no previous sample means no delta to report");
+  }
+
+  @Test
+  void advancingToANewEpochIsAnnouncedRatherThanDiffed() {
+    final var previous = logSample(500, 100, 1_000_000);
+    final var latest = logSample(501, 10, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(previous, latest, 1_000_000);
+
+    assertEquals("New " + latest.logFormat(1_000_000), message);
+    assertFalse(message.contains("difference"), "a new epoch reports no delta against the old one");
+  }
+
+  @Test
+  void aLaterSampleOfTheSameEpochReportsTheDeltaAndItsPercentage() {
+    // Same epoch, fewer slots left: 100 slots x 400ms = 40_000ms nearer the end.
+    final var previous = logSample(500, 100, 1_000_000);
+    final var latest = logSample(500, 200, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(previous, latest, 1_000_000);
+
+    final long previousRemaining = previous.millisRemaining(1_000_000);
+    final long delta = latest.millisRemaining(1_000_000) - previousRemaining;
+    assertEquals(-40_000L, delta);
+    assertTrue(message.contains("40000 ms"), message);
+    // 40_000 / 172_760_000 -> 0.0%, and the sign word is what distinguishes it.
+    assertTrue(message.contains("difference over estimating"), message);
+    assertFalse(message.contains("under estimating"), message);
+  }
+
+  @Test
+  void anIdenticalSampleReportsNeitherOverNorUnder() {
+    final var previous = logSample(500, 100, 1_000_000);
+    final var latest = logSample(500, 100, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(previous, latest, 1_000_000);
+
+    assertEquals(0L, latest.millisRemaining(1_000_000) - previous.millisRemaining(1_000_000));
+    assertTrue(message.contains("0 ms | 0.0% difference estimating"), message);
+    assertFalse(message.contains(" over "), message);
+    assertFalse(message.contains(" under "), message);
+  }
+
+  @Test
+  void aSampleFurtherFromTheEndUnderEstimatedAndReportsTheAbsoluteValues() {
+    // Fewer slots elapsed than before: the estimate moved later, so delta > 0.
+    final var previous = logSample(500, 200, 1_000_000);
+    final var latest = logSample(500, 100, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(previous, latest, 1_000_000);
+
+    assertEquals(40_000L, latest.millisRemaining(1_000_000) - previous.millisRemaining(1_000_000));
+    // Math.abs on both the delta and the percentage: no minus sign is printed.
+    assertTrue(message.contains("40000 ms"), message);
+    assertFalse(message.contains("-40000"), message);
+    assertFalse(message.contains("-0.0"), message);
+    assertTrue(message.contains("difference under estimating"), message);
+  }
+
+  @Test
+  void theDeltaPercentageIsRelativeToThePreviousRemainingDuration() {
+    // Contrive a large relative move: previous has 2 slots left, latest 1.
+    final var previous = logSample(500, 431_998, 1_000_000);
+    final var latest = logSample(500, 431_999, 1_000_000);
+    final var message = EpochInfoServiceImpl.epochLogMessage(previous, latest, 1_000_000);
+
+    final long previousRemaining = previous.millisRemaining(1_000_000);
+    final long delta = latest.millisRemaining(1_000_000) - previousRemaining;
+    assertEquals(800L, previousRemaining);
+    assertEquals(-400L, delta);
+    // 400/800 = 50%: pins the percentage formula, not just the raw delta.
+    assertTrue(message.contains("400 ms | 50.0% difference over estimating"), message);
+  }
+
   @Test
   void everySampleBeingFilteredOutDoesNotKillTheLoop() {
     // calculateStats returns null when no sample survives its filter. The

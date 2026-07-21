@@ -34,7 +34,12 @@ hardening {
   }
   mutation.register("fees") {
     targetClasses = listOf("software.sava.services.solana.transactions.SimulationFutures")
-    targetTests = "software.sava.services.solana.transactions.*Test*"
+    targetTests = "software.sava.services.solana.transactions.SimulationFuturesTests"
+    // capCuPrice is BigDecimal arithmetic, which MathMutator cannot see: it
+    // rewrites primitive opcodes and BigDecimal math is method calls. Trialled
+    // 2026-07-21: BIG_DECIMAL fires once and is killed; BIG_INTEGER fires zero
+    // times here, so it is not enabled.
+    mutators = "STRONGER,EXPERIMENTAL_BIG_DECIMAL"
   }
   mutation.register("config") {
     targetClasses = listOf(
@@ -58,6 +63,18 @@ hardening {
   /// transactions/ and the vendored helius client). Exclusions name what
   /// another suite already owns; a stale one costs a duplicate run, not a
   /// blind spot.
+  // Split out of catchAll deliberately: its 94 mutants each re-run
+  // EpochInfoServiceTests, the module's slowest class, so leaving it in made
+  // every solana mutation run pay ~26s for it. Separated, catchAll is ~21s and
+  // epoch work iterates against ~24s instead of ~47s.
+  mutation.register("epochService") {
+    targetClasses = listOf(
+      "software.sava.services.solana.epoch.EpochInfoServiceImpl",
+      "software.sava.services.solana.epoch.EpochInfoServiceImpl\$*"
+    )
+    targetTests = "software.sava.services.solana.epoch.*Test*"
+  }
+
   mutation.register("catchAll") {
     targetClasses = listOf("software.sava.services.solana.*")
     excludedClasses = listOf(
@@ -66,6 +83,9 @@ hardening {
       // test-only logging scope; named for what it does rather than *Tests*,
       // so it needs an exclusion of its own (trailing * covers nested types)
       "software.sava.services.solana.LogSilencer*",
+      // owned by 'epochService'
+      "software.sava.services.solana.epoch.EpochInfoServiceImpl",
+      "software.sava.services.solana.epoch.EpochInfoServiceImpl\$*",
       // owned by 'epoch'
       "software.sava.services.solana.epoch.Epoch",
       "software.sava.services.solana.epoch.SlotPerformanceStats",
@@ -90,6 +110,10 @@ hardening {
       "software.sava.services.solana.remote.call.CallWeights\$*"
     )
     targetTests = "software.sava.services.solana.*Test*"
+    // Block-height arithmetic in the tx monitors is BigInteger. Trialled
+    // 2026-07-21: BIG_INTEGER fires 3 times, all killed by existing tests;
+    // BIG_DECIMAL fires zero times here, so it is not enabled.
+    mutators = "STRONGER,EXPERIMENTAL_BIG_INTEGER"
   }
 
   fuzz.register("configs") {

@@ -5,7 +5,8 @@ run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
 baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
 format: `class,method,line,mutator,status`. The full process contract is
 sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests and is the definition of "safe to commit".
+unit tests — the pre-release check, run locally before deciding to release
+(CI deliberately runs only `check`; it is not a per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes:
 

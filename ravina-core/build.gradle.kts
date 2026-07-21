@@ -32,7 +32,7 @@ hardening {
   }
   mutation.register("loadBalance") {
     targetClasses = listOf("software.sava.services.core.remote.load_balance.*")
-    excludedClasses = listOf("software.sava.services.core.remote.load_balance.*Tests")
+    excludedClasses = listOf("software.sava.services.core.remote.load_balance.*Tests*")
     targetTests = "software.sava.services.core.remote.load_balance.*Test*"
   }
   mutation.register("calls") {
@@ -57,7 +57,7 @@ hardening {
       "software.sava.services.core.remote.load_balance.LoadBalancerConfig\$*"
     )
     excludedClasses = listOf(
-      "software.sava.services.core.config.*Tests",
+      "software.sava.services.core.config.*Tests*",
       "software.sava.services.core.config.*Fuzz*"
     )
     targetTests = "software.sava.services.core.config.*Test*,software.sava.services.core.net.http.*Test*,software.sava.services.core.remote.call.*Test*,software.sava.services.core.remote.load_balance.*Test*"

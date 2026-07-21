@@ -5,7 +5,8 @@ run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
 baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
 format: `class,method,line,mutator,status`. The full process contract is
 sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests and is the definition of "safe to commit".
+unit tests — the pre-release check, run locally before deciding to release
+(CI deliberately runs only `check`; it is not a per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes:
 
@@ -68,6 +69,25 @@ failures, forced false → 0) and `CachedAddressLookupTable.read` line 38 (force
 true → 6 failures, forced false → 0). Both baselines carry the `_ELSE` row as
 `SURVIVED`, which matches. Reasons below are written against this meaning; no
 row needs swapping.
+
+## Mutator set: the experimental BigDecimal/BigInteger trial
+
+`MathMutator` rewrites primitive arithmetic opcodes, so `BigDecimal` and
+`BigInteger` math — which is method calls — is invisible to `STRONGER`. This
+module has both: fee arithmetic in `SimulationFutures.capCuPrice`, block-height
+arithmetic in the tx monitors. Trialled 2026-07-21 per suite, enabling only
+what fires:
+
+| Suite | `EXPERIMENTAL_BIG_DECIMAL` | `EXPERIMENTAL_BIG_INTEGER` | Enabled |
+|---|---|---|---|
+| `fees` | 1 mutant, killed | 0 | `BIG_DECIMAL` |
+| `catchAll` | 0 | 3 mutants, all killed | `BIG_INTEGER` |
+| others | not trialled — no big-number arithmetic in target classes | | — |
+
+All four new mutants were killed by tests written under `STRONGER` that had
+never seen these operators, so enabling them added coverage without adding a
+single accepted entry. Recorded so the omitted mutator in each suite reads as
+measured rather than forgotten.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
@@ -137,15 +157,28 @@ the record the else branch already produces. Only the log line differs.
 (`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188):
 the equal case reassigns the value already held.
 
-## Equivalent by testing convention (accepted)
+## Uncovered by testing convention (accepted, and *not* an equivalence claim)
 
-**Wall-clock delegates** (`epoch`) — eight `NO_COVERAGE` mutants on
+These are `NO_COVERAGE`: no test executes the line, so nothing has been
+observed about the mutant's behaviour and calling it "equivalent" would be a
+claim we have not earned. They are accepted because the convention says not to
+test this shape, which is a coverage decision — a different thing.
+
+**Wall-clock delegates** (`epoch`) — `NO_COVERAGE` mutants on
 `Epoch.millisRemaining`, `timeRemaining`, `estimatedSlot`,
 `estimatedBlockHeight`, `percentComplete`, and `logFormat`. Per the repo's
 testing conventions, `Epoch` is tested through its explicit-`now` overloads;
 the no-arg delegates only supply `System.currentTimeMillis()` and are
 deliberately not unit-tested. Covering them would pin the system clock, not
 the arithmetic — the arithmetic is already pinned through the `now` overloads.
+
+`logFormat()` and `millisRemaining()` joined this group when `logEpoch` was
+replaced by the pure `epochLogMessage(previous, latest, now)`: the formatter
+calls the explicit-`now` overloads, so nothing exercises the no-arg delegates
+any more and their rows moved `SURVIVED` → `NO_COVERAGE`. That is the group
+becoming *consistent* rather than a coverage loss — every delegate is now
+uncovered for the same stated reason, where before two happened to be executed
+incidentally.
 
 ## Not deterministically reachable (accepted, but not "equivalent")
 
@@ -164,37 +197,30 @@ fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a scripted
 websocket, and running the loops synchronously on the test thread. Only the two
 classes below retain real debt.
 
-**`EpochInfoServiceImpl` (40)** — still the largest single block, but the
-groups are now known rather than assumed. Each was verified by hand-applying
-the mutant, not inferred:
-- *Log text only* (15): every value reaches only the `String log` in
-  `logEpoch`, plus two `logger.log` removals in `getAndSetEpochInfo` and one in
-  `run`. `logEpoch`'s **return** value is consumed by the loop and is pinned;
-  none of these affect it.
-- *Needs a second thread parked in `awaitInitialized`* (10): including
-  `run`'s and `fetchEpochNow`'s `signalAll`, which is a no-op with no waiter.
-  This and the group below are part of the repo-wide concurrency-harness block
-  deferred in `../../ravina-core/config/pitest/README.md` — read that before
-  attempting either.
-  Covering the wait path needs entry while `initialized` is false followed by
-  it turning true — the waiter can always take the fast path instead, so
-  coverage itself would flap between `NO_COVERAGE` and `SURVIVED`.
-- *`fetchEpochNow == true` not deterministically producible* (8):
+**`EpochInfoServiceImpl` (30)** — still the largest single block. The
+*log-text-only* group that used to dominate it is gone: `logEpoch` both
+formatted a message and logged it, and returned its own argument, so eleven
+branch-selection and arithmetic mutants were unkillable purely because their
+only consumer was a string. Extracting a pure `epochLogMessage(previous,
+latest, now)` and moving the `logger.log` to the call sites killed all twelve.
+See "A cluster on logging is a design signal" in `../../HARDENING.md`.
+
+What remains, verified by hand-applying each mutant:
+- *Needs a second thread parked in `awaitInitialized`* (8, plus `run`'s and
+  `fetchEpochNow`'s `signalAll`, which is a no-op with no waiter). Part of the
+  repo-wide concurrency-harness block deferred in
+  `../../ravina-core/config/pitest/README.md` — read that before attempting it.
+- *`fetchEpochNow == true` not deterministically producible*:
   `Condition.await(timeout)` returns true only on a signal delivered while
-  parked. The condition is private and the service holds the lock only inside
-  its own critical section, so producing it means a signalling loop — a race or
-  a busy-wait. The gate's forced-*true* form is killed, via asserting
-  `clock.sleeps` is empty.
-- *Only observable as a longer or shorter `await`* (1): `run` line 202. The
-  value feeds only `await(Math.max(mean, sleep))`, and `await` is deliberately
-  not clock-routed.
-- *Distinguishable only by whether the service spins* (2): `now > endsAt` is
-  evaluated only when both prior terms are false, and in that state nothing
-  advances the clock — so whichever side is mutated, the run that declines to
-  fetch is the one that hangs.
-- *Equivalent at every call site* (1): both callers of `getAndSetEpochInfo`
-  pass exactly one of `samplesFuture`/`slotStats`, so forcing the null check
-  changes nothing.
+  parked, so producing it means a signalling loop — a race or a busy-wait.
+- *Only observable as a longer or shorter `await`*: the pacing `sleep` feeds
+  only `await(Math.max(mean, sleep))`, and `await` is deliberately not
+  clock-routed because it is signallable.
+- *Distinguishable only by whether the service spins*: `now > endsAt` is
+  evaluated only when the two prior terms are false, and in that state nothing
+  advances the clock.
+- *Logging removals* on the two relocated `logger.log` call sites and the exit
+  message — the documented equivalent family.
 
 **`WebSocketManagerImpl` (12)** — double-checked-locking re-reads whose
 condition is already true at the point they are re-evaluated, two

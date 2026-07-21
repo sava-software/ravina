@@ -106,27 +106,48 @@ parsing, and KMS-backed signing.
 ## Hardening: mutation testing (PIT) and fuzzing (Jazzer)
 
 Every module registers PIT mutation suites and Jazzer fuzz targets via the
-`software.sava.build.feature.hardening` plugin. Four rules cover ordinary work;
+`software.sava.build.feature.hardening` plugin. These rules cover ordinary work;
 **[`HARDENING.md`](HARDENING.md) has the rest** — suite targeting, the accepted
 mutant groups and their reasons, the fuzz-harness contract, and the mechanical
 traps (nested-class exclusions, baseline normalisation, load-dependent
 timeouts).
 
-1. **Run `./gradlew qualityGate` after changing main sources.** Unit tests plus
-   every PIT suite, each diffed against its accepted baseline. It is the
-   definition of "safe to commit"; `./gradlew check` is what CI runs and is not
-   the same bar. While iterating, run just the `pitest<Suite>` owning your code.
+1. **Scale verification to the change.** Iterate with the module's `test`;
+   before handing off, run only the `pitest<Suite>`(s) whose mutated code the
+   change can reach — including a suite in a *dependent* module that calls a
+   changed API, and the owning suite for test-only edits, since a weakened test
+   is exactly what the ratchet catches. Doc, comment and build-script changes
+   owe no suite. `qualityGate` (every suite, serialized) is the pre-release
+   check, not the inner loop: its cost scales with the repo's whole mutant
+   population, not with your diff. It is owned by the local release checklist
+   — CI deliberately runs only `check` (serialized PIT is too slow for hosted
+   runners), so run the gate locally before deciding to release; don't wire
+   it into CI.
 2. **A new unkilled mutant has three legal outcomes**: kill it with a test that
    asserts the property it breaks, refactor it out of existence, or accept it
    with a written reason in the module's `config/pitest/README.md`. Never run
    `-PupdateMutationBaseline` just to make the build pass.
-3. **Line-number churn is the one routine exception** — editing a mutated file
+3. **`SURVIVED` and `NO_COVERAGE` are different problems.** A survivor ran the
+   line and the test could not tell — a judgment call about equivalence. A
+   no-coverage mutant was never executed — mechanical work, and **never
+   acceptable as "equivalent"**, because you have not observed its behaviour.
+   If accepting one is right, say *why it is unreachable*, not that it is
+   equivalent.
+4. **Line-number churn is the one routine exception** — editing a mutated file
    shifts entries. Confirm the "new" rows are the shifted old ones before
    refreshing.
-4. **Determinism is the whole point.** Fixed seeds, no sleep-based or
+5. **Determinism is the whole point.** Fixed seeds, no sleep-based or
    timing-tolerance tests, no reliance on PIT's timeout to detect a mutant. A
    flapping ratchet is worse than recorded debt, and this repo has twice paid
    to re-learn that.
+6. **A suite's percentage is not a target.** An accepted mutant with a written
+   reason is finished work, not debt. Before trying to raise a number, check
+   whether what remains is `NO_COVERAGE` (real work) or documented equivalents
+   (already closed).
+7. **Verify by the absence of failures, not the presence of passes.** Counting
+   `PASSED` lines hides a failure sitting beside them, and a green build can
+   mean Gradle skipped the task rather than that anything ran — check the
+   failure count and confirm the task actually executed.
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

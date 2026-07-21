@@ -5,7 +5,8 @@ run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
 baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
 format: `class,method,line,mutator,status`. The full process contract is
 sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests and is the definition of "safe to commit".
+unit tests — the pre-release check, run locally before deciding to release
+(CI deliberately runs only `check`; it is not a per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes: **kill it** with a
 test, **refactor** it out of existence, or **accept it** with a written reason
@@ -30,10 +31,11 @@ No untriaged debt: both accepted entries have a reason below.
 `RemoveConditionalMutator_EQUAL_ELSE` on
 `offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(...)`.
 Forcing the copy branch always produces a byte-identical array; only the
-allocation differs, and the signed output is the same. This is killable in
-principle, and `HARDENING.md` names the technique: assert an allocation bound
-via `com.sun.management.ThreadMXBean#getCurrentThreadAllocatedBytes`, which
-would turn "avoid a copy for the whole-array case" from an intention into an
-enforced invariant. Worth doing if this path is touched again; not worth
-adding the `java.management` test plumbing to this module for one mutant
-today.
+allocation differs, and the signed output is the same. An allocation bound via
+`com.sun.management.ThreadMXBean#getCurrentThreadAllocatedBytes` could kill it,
+but **do not**: the shared `HARDENING.md` reserves that machinery for
+properties that are a stated design goal, and avoiding one copy on the
+whole-array path is not one here — no contract, javadoc or caller depends on
+it. Such harnesses also re-run once per mutant, need a `volatile` sink so
+escape analysis cannot delete what they measure, and flap when the margin is
+thin. This entry is the documented outcome, not a deferred task.

@@ -139,26 +139,28 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     }
   }
 
-  private static Epoch logEpoch(final Epoch previousSample, final Epoch latestSample) {
-    final String log;
+  /// Builds the epoch log line. Pure and takes an explicit `now` so the whole
+  /// message — branch selection, the remaining-duration delta and its
+  /// percentage — is a function of its arguments. Previously this both
+  /// formatted and logged, and read the wall clock once per sample, so the
+  /// delta carried whatever jitter fell between the two reads.
+  static String epochLogMessage(final Epoch previousSample, final Epoch latestSample, final long now) {
     if (previousSample == null) {
-      log = latestSample.logFormat();
+      return latestSample.logFormat(now);
     } else if (Long.compareUnsigned(latestSample.epoch(), previousSample.epoch()) > 0) {
-      log = "New " + latestSample.logFormat();
+      return "New " + latestSample.logFormat(now);
     } else {
-      final long previousMillisRemaining = previousSample.millisRemaining();
-      final long delta = latestSample.millisRemaining() - previousMillisRemaining;
+      final long previousMillisRemaining = previousSample.millisRemaining(now);
+      final long delta = latestSample.millisRemaining(now) - previousMillisRemaining;
       final double percentDelta = 100 * (delta / (double) previousMillisRemaining);
-      log = String.format("""
+      return String.format("""
               %s
               %d ms | %.1f%% difference%s estimating the duration until the end of the epoch.
               """,
-          latestSample.logFormat(), Math.abs(delta), Math.abs(percentDelta),
+          latestSample.logFormat(now), Math.abs(delta), Math.abs(percentDelta),
           delta < 0 ? " over" : delta == 0 ? "" : " under"
       );
     }
-    logger.log(INFO, log);
-    return latestSample;
   }
 
   @Override
@@ -189,7 +191,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
         lock.unlock();
       }
 
-      var previousSample = logEpoch(null, epoch);
+      logger.log(INFO, epochLogMessage(null, epoch, clock.currentTimeMillis()));
+      var previousSample = epoch;
       var latestSample = previousSample;
       var slotStats = latestSample.slotStats();
       // calculateStats yields null when every sample is filtered out - notably
@@ -232,7 +235,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
           if (latestSample == null) {
             return;
           }
-          previousSample = logEpoch(previousSample, latestSample);
+          logger.log(INFO, epochLogMessage(previousSample, latestSample, clock.currentTimeMillis()));
+          previousSample = latestSample;
           endsAt = latestSample.endsAt();
           if (latestSample.epoch() > earliestEpochInfo.epoch()) {
             earliestEpochInfo = latestSample;
