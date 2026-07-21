@@ -1,5 +1,14 @@
 # Changelog
 
+## [25.5.1](https://github.com/sava-software/ravina/compare/25.5.0...25.5.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **backoff:** Check for delay overflow on fibonacci backoff ([e88e05b](https://github.com/sava-software/ravina/commit/e88e05b6814a5ac384feabc335894f9e8a5a052b))
+* **backoff:** Check for delay overflow on fibonacci backoff ([dac8472](https://github.com/sava-software/ravina/commit/dac84727b7bd7e112fd2b1194d565f3f41fb578b))
+* **hardening:** Sync latest hardening context. ([a8acb6e](https://github.com/sava-software/ravina/commit/a8acb6ef70588dcd53380d4e6a6f2d667c8629dc))
+
 ## [25.5.0](https://github.com/sava-software/ravina/compare/25.4.1...25.5.0) (2026-07-21)
 
 
