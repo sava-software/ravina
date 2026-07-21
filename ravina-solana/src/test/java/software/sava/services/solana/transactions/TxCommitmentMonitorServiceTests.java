@@ -10,6 +10,7 @@ import software.sava.rpc.json.http.response.JsonRpcException;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxResult;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
+import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.websocket.WebSocketManager;
 import systems.comodal.jsoniter.JsonIterator;
@@ -220,6 +221,12 @@ final class TxCommitmentMonitorServiceTests {
   private RecordingPublisher publisher;
 
   private TxCommitmentMonitorService service(final Duration retrySendDelay, final int minBlocksRemainingToResend) {
+    return service(retrySendDelay, minBlocksRemainingToResend, NanoClock.SYSTEM);
+  }
+
+  private TxCommitmentMonitorService service(final Duration retrySendDelay,
+                                             final int minBlocksRemainingToResend,
+                                             final NanoClock clock) {
     this.rpcClient = new FakeRpcClient();
     this.rpcClient.blockHeight = CONFIRMED_HEIGHT;
     this.epochInfoService = new FakeEpochInfoService();
@@ -240,7 +247,8 @@ final class TxCommitmentMonitorServiceTests {
         WEB_SOCKET_TIMEOUT,
         publisher,
         retrySendDelay,
-        minBlocksRemainingToResend
+        minBlocksRemainingToResend,
+        clock
     );
   }
 
@@ -728,5 +736,51 @@ final class TxCommitmentMonitorServiceTests {
 
     assertSame(confirmed, settled.sigStatusFuture().getNow(null));
     assertEquals(List.of(missing), List.copyOf(service.pendingTransactions));
+  }
+
+  /// Advances only when told to; non-zero origin so a `publishedAt` computed
+  /// against it is distinguishable from a zeroed timestamp.
+  private static final class TestClock implements NanoClock {
+
+    private long nanos = 3_141_592_653L;
+
+    @Override
+    public long nanoTime() {
+      return nanos;
+    }
+
+    @Override
+    public void sleep(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
+  }
+
+  /// The resend pacing is `now - publishedAt >= retrySendDelay` on the
+  /// service's own clock: due at *exactly* the delay, not due one millisecond
+  /// younger. The wall-clock sentinels above cannot pin this boundary; an
+  /// injected clock makes it an equality.
+  @Test
+  void aResendBecomesDueAtExactlyTheRetryDelay() {
+    final var clock = new TestClock();
+    final long now = clock.currentTimeMillis();
+    final long retryDelayMillis = 1_000;
+
+    // Published one millisecond inside the delay: not resent.
+    var service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
+    var original = sendTxContext(HORIZON + 10, now - retryDelayMillis + 1);
+    var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
+    service.pendingTransactions.add(context);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    service.processTransactions(contextMap(context));
+    assertTrue(publisher.retried.isEmpty(), "one millisecond younger than the delay must not resend");
+
+    // Published exactly the delay ago: resent.
+    service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
+    original = sendTxContext(HORIZON + 10, now - retryDelayMillis);
+    context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
+    service.pendingTransactions.add(context);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    service.processTransactions(contextMap(context));
+    assertEquals(List.of(original), publisher.retried, "exactly the delay is due");
   }
 }

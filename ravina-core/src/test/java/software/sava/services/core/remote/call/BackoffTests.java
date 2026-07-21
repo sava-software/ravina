@@ -6,6 +6,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class BackoffTests {
@@ -141,10 +142,29 @@ final class BackoffTests {
     assertEquals(f92, extreme.delay(1, NANOSECONDS));
     assertEquals(Long.MAX_VALUE, extreme.delay(2, NANOSECONDS));
 
-    // Initial past F(92) with a finite cap: same two-entry saturated shape.
-    final var inverted = Backoff.fibonacci(NANOSECONDS, Long.MAX_VALUE, bigCap);
-    assertEquals(f92, inverted.delay(1, NANOSECONDS));
-    assertEquals(bigCap, inverted.delay(2, NANOSECONDS));
+    // An initial past F(92) with a finite cap above it: same saturated shape,
+    // with the ramp clamped to the cap from the first error.
+    final var invertedCap = Backoff.fibonacci(NANOSECONDS, 7_600_000_000_000_000_000L, bigCap);
+    assertEquals(f92, invertedCap.delay(1, NANOSECONDS));
+    assertEquals(bigCap, invertedCap.delay(2, NANOSECONDS));
+  }
+
+  @Test
+  void anInitialDelayAboveTheMaxDelayIsRejected() {
+    // Never validated before: linear returned delay(0) = 10 > maxDelay = 5 and
+    // the sequence *decreased* — violating both documented invariants. Now the
+    // misconfiguration is loud at construction.
+    for (final var factory : java.util.List.<java.util.function.BiFunction<Long, Long, Backoff>>of(
+        (initial, max) -> Backoff.linear(SECONDS, initial, max),
+        (initial, max) -> Backoff.exponential(SECONDS, initial, max),
+        (initial, max) -> Backoff.fibonacci(SECONDS, initial, max))) {
+      final var rejected = assertThrows(IllegalArgumentException.class, () -> factory.apply(6L, 5L));
+      // Pin the guard's own message so a different throw site cannot pass for it.
+      assertTrue(rejected.getMessage().contains("initialRetryDelay 6"), rejected.getMessage());
+      assertTrue(rejected.getMessage().contains("maxRetryDelay 5"), rejected.getMessage());
+      // Equal delays are legal: the boundary is > , not >=.
+      assertEquals(5, factory.apply(5L, 5L).delay(9, SECONDS));
+    }
   }
 
   @Test

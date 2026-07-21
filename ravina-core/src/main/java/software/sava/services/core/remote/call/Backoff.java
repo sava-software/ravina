@@ -4,6 +4,14 @@ import java.util.concurrent.TimeUnit;
 
 public interface Backoff {
 
+  private static void validateDelays(final long initialRetryDelay, final long maxRetryDelay) {
+    if (initialRetryDelay > maxRetryDelay) {
+      throw new IllegalArgumentException(
+          "initialRetryDelay " + initialRetryDelay + " must not exceed maxRetryDelay " + maxRetryDelay
+      );
+    }
+  }
+
   static Backoff single(final TimeUnit timeUnit, final long retryDelay) {
     return new SingleBackoffErrorHandler(timeUnit, retryDelay);
   }
@@ -16,6 +24,7 @@ public interface Backoff {
   static Backoff linear(final TimeUnit timeUnit,
                         final long initialRetryDelay,
                         final long maxRetryDelay) {
+    validateDelays(initialRetryDelay, maxRetryDelay);
     return new LinearBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
@@ -26,6 +35,7 @@ public interface Backoff {
   static Backoff exponential(final TimeUnit timeUnit,
                              final long initialRetryDelay,
                              final long maxRetryDelay) {
+    validateDelays(initialRetryDelay, maxRetryDelay);
     return new ExponentialBackoffErrorHandler(timeUnit, initialRetryDelay, maxRetryDelay);
   }
 
@@ -36,6 +46,7 @@ public interface Backoff {
   static Backoff fibonacci(final TimeUnit timeUnit,
                            final long initialRetryDelay,
                            final long maxRetryDelay) {
+    validateDelays(initialRetryDelay, maxRetryDelay);
     long mark;
     long previous = 1;
     long current = 1;

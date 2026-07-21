@@ -2,6 +2,7 @@ package software.sava.services.solana.websocket;
 
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
 
 import java.net.URI;
@@ -12,12 +13,20 @@ public interface WebSocketManager extends AutoCloseable {
 
   static WebSocketManager createManager(final Backoff backoff,
                                         final SolanaRpcWebsocket.Builder builderPrototype,
-                                        final Consumer<SolanaRpcWebsocket> onNewWebSocket) {
+                                        final Consumer<SolanaRpcWebsocket> onNewWebSocket,
+                                        final NanoClock clock) {
     return new WebSocketManagerImpl(
         backoff,
         builderPrototype,
-        onNewWebSocket
+        onNewWebSocket,
+        clock
     );
+  }
+
+  static WebSocketManager createManager(final Backoff backoff,
+                                        final SolanaRpcWebsocket.Builder builderPrototype,
+                                        final Consumer<SolanaRpcWebsocket> onNewWebSocket) {
+    return createManager(backoff, builderPrototype, onNewWebSocket, NanoClock.SYSTEM);
   }
 
   static WebSocketManager createManager(final HttpClient httpClient,

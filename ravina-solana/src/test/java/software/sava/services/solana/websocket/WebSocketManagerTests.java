@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
 
 import software.sava.services.solana.LogSilencer;
@@ -330,7 +331,7 @@ final class WebSocketManagerTests {
   @Test
   void aPrototypeWithoutHandlersInstallsTheManagerItself() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
 
     assertNotNull(manager.webSocket());
 
@@ -362,7 +363,7 @@ final class WebSocketManagerTests {
     builder.onClose((ws, statusCode, reason) -> closed.add(statusCode + ":" + reason));
     builder.onError((ws, throwable) -> failed.add(throwable));
 
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
     final var webSocket = manager.webSocket();
     assertNotNull(webSocket);
     final var fake = builder.only();
@@ -397,7 +398,7 @@ final class WebSocketManagerTests {
   void aSuccessfulOpenResetsTheErrorCount() {
     final var builder = new FakeBuilder();
     final var backoff = new TestBackoff(-1, -1, NEVER);
-    final var manager = new WebSocketManagerImpl(backoff, builder, null);
+    final var manager = new WebSocketManagerImpl(backoff, builder, null, NanoClock.SYSTEM);
 
     manager.checkConnection();
     assertEquals(1, builder.created.size());
@@ -426,7 +427,7 @@ final class WebSocketManagerTests {
   void checkConnectionCreatesAndConnectsWhenTheDelayHasElapsed() {
     final var handedOut = new ArrayList<SolanaRpcWebsocket>();
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, handedOut::add);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, handedOut::add, NanoClock.SYSTEM);
 
     manager.checkConnection();
 
@@ -448,7 +449,7 @@ final class WebSocketManagerTests {
   @Test
   void checkConnectionDoesNotConnectBeforeTheDelayElapses() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(NEVER, NEVER), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(NEVER, NEVER), builder, null, NanoClock.SYSTEM);
 
     manager.checkConnection();
 
@@ -460,7 +461,7 @@ final class WebSocketManagerTests {
   @Test
   void theWebSocketAccessorConnectsWhenTheDelayHasElapsed() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
 
     final var webSocket = manager.webSocket();
     assertNotNull(webSocket);
@@ -479,7 +480,7 @@ final class WebSocketManagerTests {
   @Test
   void theWebSocketAccessorDefersTheConnectBeforeTheDelayElapses() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(NEVER, NEVER), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(NEVER, NEVER), builder, null, NanoClock.SYSTEM);
 
     final var webSocket = manager.webSocket();
     assertNotNull(webSocket);
@@ -505,7 +506,7 @@ final class WebSocketManagerTests {
   void theReconnectTestMeasuresElapsedTimeNotTheSumOfTwoClockReadings() {
     final var builder = new FakeBuilder();
     final var backoff = new TestBackoff(-1, TWICE_THE_EPOCH);
-    final var manager = new WebSocketManagerImpl(backoff, builder, null);
+    final var manager = new WebSocketManagerImpl(backoff, builder, null, NanoClock.SYSTEM);
 
     manager.checkConnection();
     final var first = builder.only();
@@ -528,7 +529,7 @@ final class WebSocketManagerTests {
   @Test
   void aManagerWithoutANewWebSocketConsumerStillBuildsSockets() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
     assertNotNull(manager.webSocket());
     assertEquals(1, builder.created.size());
   }
@@ -536,7 +537,7 @@ final class WebSocketManagerTests {
   @Test
   void closeClosesTheLiveSocketAndIsANoOpWithoutOne() {
     final var builder = new FakeBuilder();
-    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
 
     // Nothing built yet.
     assertDoesNotThrow(manager::close);
@@ -545,5 +546,90 @@ final class WebSocketManagerTests {
     assertNotNull(manager.webSocket());
     manager.close();
     assertEquals(1, builder.only().closeCount);
+  }
+
+  /// Advances only when told to, so elapsed-time comparisons are exact.
+  /// Non-zero origin: `lastWebSocketConnect` legitimately starts at 0, so the
+  /// first elapsed reading is the clock's own value.
+  private static final class TestClock implements NanoClock {
+
+    private long nanos;
+
+    private TestClock(final long originMillis) {
+      this.nanos = originMillis * 1_000_000L;
+    }
+
+    @Override
+    public long nanoTime() {
+      return nanos;
+    }
+
+    @Override
+    public void sleep(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
+
+    private void advanceMillis(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
+  }
+
+  /// The re-connect delay must *strictly* elapse on the injected clock: at
+  /// exactly `connectionDelay` since the last connect the manager keeps
+  /// waiting, one millisecond later it connects.
+  @Test
+  void theReconnectDelayMustStrictlyElapseOnTheClock() {
+    final var clock = new TestClock(20);
+    final var builder = new FakeBuilder();
+    final var manager = new WebSocketManagerImpl(new TestBackoff(10, 10), builder, null, clock);
+
+    // Fresh manager: 20ms since the zero origin exceeds the 10ms delay.
+    manager.checkConnection();
+    assertEquals(1, builder.created.getFirst().connectCount);
+
+    // A failure re-arms the 10ms delay from the connect at clock 20.
+    withoutManagerLogging(() -> manager.accept(builder.created.getFirst().proxy, new IOException("drop")));
+    manager.checkConnection();
+    assertEquals(2, builder.created.size());
+    assertEquals(0, builder.created.get(1).connectCount);
+
+    // Exactly the delay: 10 > 10 is false, so still waiting.
+    clock.advanceMillis(10);
+    manager.checkConnection();
+    assertEquals(0, builder.created.getLast().connectCount);
+
+    // Strictly past it: connects.
+    clock.advanceMillis(1);
+    manager.checkConnection();
+    assertEquals(1, builder.created.getLast().connectCount);
+    assertUnlocked(manager);
+  }
+
+  /// A deferred socket is retained with its connect pending; once the delay
+  /// strictly elapses, `checkConnection` connects that same socket rather than
+  /// building another. The deferral itself sits on the same strict boundary.
+  @Test
+  void aRetainedPendingConnectFiresOnceTheDelayElapses() {
+    // Clock origin exactly equal to the initial delay: 25 > 25 is false.
+    final var clock = new TestClock(25);
+    final var builder = new FakeBuilder();
+    final var manager = new WebSocketManagerImpl(new TestBackoff(25, 25), builder, null, clock);
+
+    final var webSocket = manager.webSocket();
+    assertNotNull(webSocket);
+    final var fake = builder.only();
+    assertEquals(0, fake.connectCount);
+
+    // Still exactly on the boundary from the accessor's own reading.
+    manager.checkConnection();
+    assertEquals(1, builder.created.size());
+    assertEquals(0, fake.connectCount);
+
+    // The retained socket connects; no new socket is built.
+    clock.advanceMillis(1);
+    manager.checkConnection();
+    assertEquals(1, builder.created.size());
+    assertEquals(1, fake.connectCount);
+    assertUnlocked(manager);
   }
 }

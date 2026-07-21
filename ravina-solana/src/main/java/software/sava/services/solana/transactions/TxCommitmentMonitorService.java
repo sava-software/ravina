@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
+import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
@@ -28,6 +29,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   private final TxPublisher transactionPublisher;
   private final long retrySendDelayMillis;
   private final int minBlocksRemainingToResend;
+  private final NanoClock clock;
 
   TxCommitmentMonitorService(final ChainItemFormatter formatter,
                              final RpcCaller rpcCaller,
@@ -37,7 +39,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                              final Duration webSocketConfirmationTimeout,
                              final TxPublisher transactionPublisher,
                              final Duration retrySendDelay,
-                             final int minBlocksRemainingToResend) {
+                             final int minBlocksRemainingToResend,
+                             final NanoClock clock) {
     super(
         formatter,
         rpcCaller,
@@ -55,6 +58,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     this.webSocketConfirmationTimeoutMillis = webSocketConfirmationTimeout.toMillis();
     this.retrySendDelayMillis = retrySendDelay.toMillis();
     this.minBlocksRemainingToResend = minBlocksRemainingToResend;
+    this.clock = clock;
   }
 
   @Override
@@ -154,7 +158,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
               final long blocksRemaining = bigBlockHeight.subtract(expiredBlockHeight).longValue();
               if (blocksRemaining > minBlocksRemainingToResend) {
                 final var previousSendContext = txContext.sendTxContext();
-                if ((System.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
+                if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
                   final var sendContext = transactionPublisher.retry(previousSendContext);
                   final var nexContext = txContext.resent(sendContext);
                   pendingTransactions.remove(txContext);

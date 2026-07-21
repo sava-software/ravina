@@ -39,15 +39,32 @@ public final class BackoffFuzz {
         b = Long.MAX_VALUE;
       }
     }
-    final long initial = Math.min(a, b);
-    final long max = Math.max(a, b);
+    // Deliberately unsorted: an initial delay above the max must be rejected,
+    // and that rejection is itself a fuzzed invariant.
+    final long initial = a;
+    final long max = b;
 
-    final var backoff = switch (strategy) {
-      case 0 -> Backoff.single(unit, initial);
-      case 1 -> Backoff.linear(unit, initial, max);
-      case 2 -> Backoff.exponential(unit, initial, max);
-      default -> Backoff.fibonacci(unit, initial, max);
-    };
+    final Backoff backoff;
+    try {
+      backoff = switch (strategy) {
+        case 0 -> Backoff.single(unit, initial);
+        case 1 -> Backoff.linear(unit, initial, max);
+        case 2 -> Backoff.exponential(unit, initial, max);
+        default -> Backoff.fibonacci(unit, initial, max);
+      };
+    } catch (final IllegalArgumentException rejected) {
+      if (initial <= max || strategy == 0) {
+        throw new AssertionError(String.format(
+            "strategy %d rejected a valid config: initial %d, max %d", strategy, initial, max
+        ), rejected);
+      }
+      return;
+    }
+    if (initial > max && strategy != 0) {
+      throw new AssertionError(String.format(
+          "strategy %d accepted initial %d above max %d", strategy, initial, max
+      ));
+    }
 
     final long maxDelay = backoff.maxDelay(unit);
     long previous = 0;

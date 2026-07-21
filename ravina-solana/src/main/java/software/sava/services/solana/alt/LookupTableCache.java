@@ -4,6 +4,7 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 
 import java.time.Duration;
@@ -25,13 +26,22 @@ public interface LookupTableCache {
   static LookupTableCache createCache(final ExecutorService executorService,
                                       final int initialCapacity,
                                       final LoadBalancer<SolanaRpcClient> rpcClients,
-                                      final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory) {
+                                      final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory,
+                                      final NanoClock clock) {
     return new LookupTableCacheMap(
         executorService,
         initialCapacity,
         rpcClients,
         tableFactory,
-        AddressLookupTable.LOOKUP_TABLE_MAX_ADDRESSES);
+        AddressLookupTable.LOOKUP_TABLE_MAX_ADDRESSES,
+        clock);
+  }
+
+  static LookupTableCache createCache(final ExecutorService executorService,
+                                      final int initialCapacity,
+                                      final LoadBalancer<SolanaRpcClient> rpcClients,
+                                      final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory) {
+    return createCache(executorService, initialCapacity, rpcClients, tableFactory, NanoClock.SYSTEM);
   }
 
   LoadBalancer<SolanaRpcClient> rpcClients();

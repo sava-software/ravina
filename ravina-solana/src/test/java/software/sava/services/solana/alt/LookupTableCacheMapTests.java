@@ -8,6 +8,7 @@ import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
 import software.sava.rpc.json.http.response.Context;
 import software.sava.services.core.remote.call.Backoff;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.core.request_capacity.CapacityConfig;
@@ -199,14 +200,41 @@ final class LookupTableCacheMapTests {
     return LoadBalancer.createBalancer(BalancedItem.createItem(client, monitor, Backoff.single(MILLISECONDS, 1)));
   }
 
-  private static LookupTableCacheMap cache(final LoadBalancer<SolanaRpcClient> balancer) {
+  private static LookupTableCacheMap cache(final LoadBalancer<SolanaRpcClient> balancer, final NanoClock clock) {
     return new LookupTableCacheMap(
         EXECUTOR,
         16,
         balancer,
         AddressLookupTable.FACTORY,
-        LOOKUP_TABLE_MAX_ADDRESSES
+        LOOKUP_TABLE_MAX_ADDRESSES,
+        clock
     );
+  }
+
+  private static LookupTableCacheMap cache(final LoadBalancer<SolanaRpcClient> balancer) {
+    return cache(balancer, NanoClock.SYSTEM);
+  }
+
+  /// Advances only when told to, so staleness comparisons are exact. Non-zero
+  /// origin so an entry stamped through the cache's own clock is
+  /// distinguishable from a zeroed timestamp.
+  private static final class TestClock implements NanoClock {
+
+    private long nanos = 3_141_592_653L;
+
+    @Override
+    public long nanoTime() {
+      return nanos;
+    }
+
+    @Override
+    public void sleep(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
+
+    private void advanceMillis(final long millis) {
+      nanos += millis * 1_000_000L;
+    }
   }
 
   private static LookupTableCacheMap cache(final FakeRpcClient handler) {
@@ -664,5 +692,57 @@ final class LookupTableCacheMapTests {
     final var handler = new FakeRpcClient();
     assertEquals(0, cache(handler).refreshOldestAccounts(10));
     assertEquals(0, handler.numRequests(), "an empty key list must not be sent");
+  }
+
+  /// Staleness is `now - fetchedAt >= threshold` on the cache's own clock: an
+  /// entry is refreshed at *exactly* the threshold age, and left alone one
+  /// millisecond younger. The entry is stamped through the clock-driven
+  /// `mergeTable` overload, so the whole comparison runs on injected time.
+  @Test
+  void refreshStaleAccountsRefreshesAtExactlyTheThresholdAge() {
+    final var handler = new FakeRpcClient();
+    final var clock = new TestClock();
+    final var cache = cache(balancer(handler), clock);
+    cache.mergeTable(5, activeTable(1));
+    handler.batch = keys -> keys.stream().map(key -> new Account(key, tableData(true, 2), 42)).toList();
+
+    // One millisecond younger than the threshold: untouched.
+    clock.advanceMillis(9);
+    cache.refreshStaleAccounts(Duration.ofMillis(10), 10);
+    assertEquals(0, handler.numRequests());
+
+    // Exactly the threshold age: refreshed.
+    clock.advanceMillis(1);
+    cache.refreshStaleAccounts(Duration.ofMillis(10), 10);
+    assertEquals(List.of(List.of(key(1))), handler.batches);
+  }
+
+  /// The clock-driven `mergeTableIfPresent` overload: absent keys are ignored,
+  /// present keys merge and are stamped with the cache's clock — visible as
+  /// the entry going stale exactly the threshold after the merge, not after
+  /// the original insert.
+  @Test
+  void theClockDrivenMergeIfPresentStampsWithTheCacheClock() {
+    final var handler = new FakeRpcClient();
+    final var clock = new TestClock();
+    final var cache = cache(balancer(handler), clock);
+
+    assertNull(cache.mergeTableIfPresent(5, activeTable(1)), "an unknown key must not be inserted");
+
+    cache.mergeTable(5, activeTable(1));
+    clock.advanceMillis(4);
+    final var newer = activeTable(1);
+    assertSame(newer, cache.mergeTableIfPresent(6, newer));
+
+    // Aged from the re-merge, not the insert: 10ms after the insert is only
+    // 6ms after the re-merge, so the entry is still fresh.
+    clock.advanceMillis(6);
+    cache.refreshStaleAccounts(Duration.ofMillis(10), 10);
+    assertEquals(0, handler.numRequests());
+
+    handler.batch = keys -> keys.stream().map(key -> new Account(key, tableData(true, 2), 42)).toList();
+    clock.advanceMillis(4);
+    cache.refreshStaleAccounts(Duration.ofMillis(10), 10);
+    assertEquals(List.of(List.of(key(1))), handler.batches);
   }
 }

@@ -192,10 +192,21 @@ written against the injected clock. Second, `Condition.await` is deliberately
 the mutants that need a signal delivered to a parked thread stay out of reach.
 
 `WebSocketManagerImpl`, `TxCommitmentMonitorService` and `LookupTableCacheMap`
-remain on the wall clock. All three are nonetheless well covered by in-memory
-fakes; what a clock would still buy them is only the residue —
-exact-millisecond boundaries and sleep-observable pacing. Each module's
-`config/pitest/README.md` prices that per group.
+were migrated 2026-07-21: every `System.currentTimeMillis()` read goes through
+an injected `NanoClock` (clockless factory overloads default to `SYSTEM`, so
+nothing breaks), and `LookupTableCacheMap` overrides the interface's
+wall-clock default merges so cached `fetchedAt` stamps share the injected
+clock. The predicted residue was priced at exact-millisecond boundaries, and
+that is precisely what fell: five accepted rows killed, none added — the two
+websocket `elapsed == connectionDelay` boundaries, the cache staleness
+boundary and the monitor resend boundary all became strict-inequality
+equalities on a test clock, and the "requires real time to pass"
+`checkConnection` state became reachable by advancing one. `Condition.await`
+remains deliberately un-routed everywhere — it is signallable, so a clock
+cannot stand in for it. One producer-side stamp stays on the wall clock:
+`TransactionProcessorRecord.publishedAt` — coherent with the monitor under
+`SYSTEM`, and record components are public API, so threading a clock there
+was declined.
 
 ## Equivalence families
 

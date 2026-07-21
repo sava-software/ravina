@@ -5,6 +5,7 @@ import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.response.AccountInfo;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 
@@ -25,6 +26,7 @@ final class LookupTableCacheMap implements LookupTableCache {
   private static final BiFunction<Entry, Entry, Entry> MERGE_ENTRY = (e1, e2) -> Long.compareUnsigned(e2.slot, e1.slot) > 0 ? e2 : e1;
 
   private final ExecutorService executorService;
+  private final NanoClock clock;
   private final LoadBalancer<SolanaRpcClient> rpcClients;
   private final ConcurrentHashMap<PublicKey, Entry> lookupTableCache;
   private final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory;
@@ -35,8 +37,10 @@ final class LookupTableCacheMap implements LookupTableCache {
                       final int initialCapacity,
                       final LoadBalancer<SolanaRpcClient> rpcClients,
                       final BiFunction<PublicKey, byte[], AddressLookupTable> tableFactory,
-                      final int defaultMaxAccounts) {
+                      final int defaultMaxAccounts,
+                      final NanoClock clock) {
     this.executorService = executorService;
+    this.clock = clock;
     this.rpcClients = rpcClients;
     this.lookupTableCache = new ConcurrentHashMap<>(initialCapacity);
     this.tableFactory = tableFactory;
@@ -72,6 +76,16 @@ final class LookupTableCacheMap implements LookupTableCache {
       lookupTableCache.remove(lookupTableKey);
       return null;
     }
+  }
+
+  @Override
+  public AddressLookupTable mergeTable(final long slot, final AddressLookupTable lookupTable) {
+    return mergeTable(slot, lookupTable, clock.currentTimeMillis());
+  }
+
+  @Override
+  public AddressLookupTable mergeTableIfPresent(final long slot, final AddressLookupTable lookupTable) {
+    return mergeTableIfPresent(slot, lookupTable, clock.currentTimeMillis());
   }
 
   @Override
@@ -171,7 +185,7 @@ final class LookupTableCacheMap implements LookupTableCache {
               rpcClients, rpcClient -> rpcClient.getAccounts(fetchKeys),
               "rpcClient::getTableAccounts"
           ).get();
-          final long fetchedAt = System.currentTimeMillis();
+          final long fetchedAt = clock.currentTimeMillis();
           for (final var lookupTableAccount : lookupTableAccounts) {
             if (lookupTableAccount != null) {
               final var lookupTable = tableFactory.apply(lookupTableAccount.pubKey(), lookupTableAccount.data());
@@ -198,7 +212,7 @@ final class LookupTableCacheMap implements LookupTableCache {
 
   @Override
   public void refreshStaleAccounts(final Duration staleIfOlderThan, final int batchSize) {
-    final long now = System.currentTimeMillis();
+    final long now = clock.currentTimeMillis();
     final long staleDuration = staleIfOlderThan.toMillis();
     final var staleAccounts = lookupTableCache.values().stream()
         .filter(entry -> (now - entry.fetchedAt) >= staleDuration)
@@ -222,7 +236,7 @@ final class LookupTableCacheMap implements LookupTableCache {
           rpcClients, rpcClient -> rpcClient.getAccounts(fetchKeys),
           "rpcClient::getTableAccounts"
       ).get();
-      final long fetchedAt = System.currentTimeMillis();
+      final long fetchedAt = clock.currentTimeMillis();
       for (final var lookupTableAccount : lookupTableAccounts) {
         if (lookupTableAccount != null) {
           final var lookupTable = tableFactory.apply(lookupTableAccount.pubKey(), lookupTableAccount.data());

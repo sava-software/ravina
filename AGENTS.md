@@ -91,11 +91,12 @@ parsing, and KMS-backed signing.
 - `EpochInfoServiceImpl` takes a `NanoClock` too (`EpochInfoService` has a
   `createService(config, rpcCaller, clock)` overload; the two-arg form defaults
   to `SYSTEM`). `WebSocketManagerImpl`, `TxCommitmentMonitorService` and
-  `LookupTableCacheMap` are still on the raw wall clock — but unmigrated is not
-  untestable: all three are covered by in-memory fakes (a `Proxy`-backed
+  `LookupTableCacheMap` take a `NanoClock` too (clockless factory overloads
+  default to `SYSTEM`), and are covered by in-memory fakes (a `Proxy`-backed
   `SolanaRpcClient`, a scripted websocket, loops run synchronously on the test
-  thread). Copy those seams rather than reaching for a real clock or a sleep.
-  [`HARDENING.md`](HARDENING.md) records what a clock would still buy.
+  thread) plus per-class `TestClock`s for exact timing boundaries. Copy those
+  seams rather than reaching for a real clock or a sleep.
+  [`HARDENING.md`](HARDENING.md) records what the migration measurably bought.
 - Reach for **package-private over reflection** when a test needs an internal:
   `EpochInfoServiceImpl.numSamples`/`lock`, `BaseTxMonitorService.workLock`,
   `WebSocketManagerImpl.lock` and `GoogleKMSClientFactory.builder` are all

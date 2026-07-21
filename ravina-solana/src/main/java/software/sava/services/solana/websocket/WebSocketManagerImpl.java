@@ -1,6 +1,7 @@
 package software.sava.services.solana.websocket;
 
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
 
 import java.util.concurrent.TimeUnit;
@@ -16,6 +17,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
 
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
 
+  private final NanoClock clock;
   private final SolanaRpcWebsocket.Builder builderPrototype;
   private final Backoff backoff;
   private final Consumer<SolanaRpcWebsocket> onNewWebSocket;
@@ -31,7 +33,9 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
 
   WebSocketManagerImpl(final Backoff backoff,
                        final SolanaRpcWebsocket.Builder builderPrototype,
-                       final Consumer<SolanaRpcWebsocket> onNewWebSocket) {
+                       final Consumer<SolanaRpcWebsocket> onNewWebSocket,
+                       final NanoClock clock) {
+    this.clock = clock;
     this.builderPrototype = builderPrototype;
     this.backoff = backoff;
     this.onNewWebSocket = onNewWebSocket;
@@ -93,7 +97,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
   }
 
   private boolean canConnect() {
-    return (System.currentTimeMillis() - this.lastWebSocketConnect) > this.connectionDelay;
+    return (clock.currentTimeMillis() - this.lastWebSocketConnect) > this.connectionDelay;
   }
 
   @Override
@@ -112,7 +116,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
         if (needsConnect && canConnect()) {
           this.webSocket = webSocket;
           this.needsConnect = false;
-          this.lastWebSocketConnect = System.currentTimeMillis();
+          this.lastWebSocketConnect = clock.currentTimeMillis();
           webSocket.connect();
         }
       } finally {
@@ -130,7 +134,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
         webSocket = this.webSocket;
         if (webSocket == null) {
           webSocket = createWebSocket();
-          final long now = System.currentTimeMillis();
+          final long now = clock.currentTimeMillis();
           if ((now - this.lastWebSocketConnect) > this.connectionDelay) {
             this.needsConnect = false;
             this.lastWebSocketConnect = now;

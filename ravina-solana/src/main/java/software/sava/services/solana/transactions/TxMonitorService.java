@@ -3,6 +3,7 @@ package software.sava.services.solana.transactions;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxResult;
 import software.sava.rpc.json.http.response.TxStatus;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.Worker;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.EpochInfoService;
@@ -25,7 +26,8 @@ public interface TxMonitorService extends Worker {
                                         final Duration webSocketConfirmationTimeout,
                                         final TxPublisher transactionPublisher,
                                         final Duration retrySendDelay,
-                                        final int minBlocksRemainingToResend) {
+                                        final int minBlocksRemainingToResend,
+                                        final NanoClock clock) {
     return new TxCommitmentMonitorService(
         formatter,
         rpcCaller,
@@ -35,7 +37,32 @@ public interface TxMonitorService extends Worker {
         webSocketConfirmationTimeout,
         transactionPublisher,
         retrySendDelay,
-        minBlocksRemainingToResend
+        minBlocksRemainingToResend,
+        clock
+    );
+  }
+
+  /// If you do not intend to use the retry functionality transactionPublisher may be null.
+  static TxMonitorService createService(final ChainItemFormatter formatter,
+                                        final RpcCaller rpcCaller,
+                                        final EpochInfoService epochInfoService,
+                                        final WebSocketManager webSocketManager,
+                                        final Duration minSleepBetweenSigStatusPolling,
+                                        final Duration webSocketConfirmationTimeout,
+                                        final TxPublisher transactionPublisher,
+                                        final Duration retrySendDelay,
+                                        final int minBlocksRemainingToResend) {
+    return createService(
+        formatter,
+        rpcCaller,
+        epochInfoService,
+        webSocketManager,
+        minSleepBetweenSigStatusPolling,
+        webSocketConfirmationTimeout,
+        transactionPublisher,
+        retrySendDelay,
+        minBlocksRemainingToResend,
+        NanoClock.SYSTEM
     );
   }
 

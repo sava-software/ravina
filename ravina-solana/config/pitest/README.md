@@ -224,14 +224,17 @@ What remains, verified by hand-applying each mutant:
 - *Logging removals* on the two relocated `logger.log` call sites and the exit
   message — the documented equivalent family.
 
-**`WebSocketManagerImpl` (12)** — double-checked-locking re-reads whose
-condition is already true at the point they are re-evaluated, two
-`elapsed == connectionDelay` millisecond boundaries, and a `resetWebsocket`
-return value that only reaches log text. Distinguishing the remaining
-`canConnect()` pair needs `webSocket != null && needsConnect && canConnect()`
-simultaneously, but `connectionDelay` only changes in `resetWebsocket`, which
-nulls `webSocket` in the same breath — reaching that state requires real time
-to pass.
+**`WebSocketManagerImpl` (7)** — was 12: the 2026-07-21 `NanoClock`
+migration killed the two `elapsed == connectionDelay` millisecond boundaries
+(now exact strict-inequality tests on an injected clock), the
+`webSocket == null` re-check, and — together with the retained-pending-connect
+test — one of the `canConnect()` pair, whose blocking state ("requires real
+time to pass") a test clock now reaches deterministically. The same migration
+killed the staleness boundary in `LookupTableCacheMap.refreshStaleAccounts`
+and the resend-delay boundary in `TxCommitmentMonitorService` — five rows
+total, none replaced. What remains here: double-checked-locking re-reads
+whose condition is already true when re-evaluated, `resetWebsocket`'s
+return value that only reaches log text, and logging removals.
 
 **Loop-unbounding mutants detected only by timeout** (`catchAll`, a handful in
 `LookupTableCacheMap` and `BaseTxMonitorService.run`) — see the note in
