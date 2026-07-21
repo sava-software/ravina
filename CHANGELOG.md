@@ -1,5 +1,27 @@
 # Changelog
 
+## [25.5.0](https://github.com/sava-software/ravina/compare/25.4.1...25.5.0) (2026-07-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* ErrorTracker extends BiPredicate<R, byte[]>; implementors must update test(), logResponse() and updateGroupedErrorResponseCount() to accept the response body. HTTP capacity monitors and client configs are now typed on HttpResponse<?> instead of HttpResponse<byte[]>. HeliusClient and its request and response types moved from software.sava.solana.web2.helius.client.http to software.sava.services.solana.helius.client.http.
+
+### Features
+
+* migrate to sava 25.28.0 and vendor the Helius client ([9d92e53](https://github.com/sava-software/ravina/commit/9d92e53f5ebc289a6ba0be672c6cfe7c129e6c3c))
+* **tests:** add extensive unit tests for balanced calls and backoff strategies ([5fc99e6](https://github.com/sava-software/ravina/commit/5fc99e6d3d81a6817f3866825e2b756903830a0b))
+
+
+### Bug Fixes
+
+* Use NanoClock in RootErrorTracker instead of System.currentTimeMillis() ([216cf77](https://github.com/sava-software/ravina/commit/216cf771056f6d4b24d5508fe19d632926338606))
+
+
+### Miscellaneous Chores
+
+* release 25.5.0 ([90c90a5](https://github.com/sava-software/ravina/commit/90c90a502256f8d5f32c09271e2a8e90e84d75d0))
+
 ## [25.4.1](https://github.com/sava-software/ravina/compare/25.4.0...25.4.1) (2026-07-17)
 
 
