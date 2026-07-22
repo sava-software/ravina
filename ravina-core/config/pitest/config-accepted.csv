@@ -1,3 +1,5 @@
+software.sava.services.core.config.NetConfigRecord$Parser,parseProperties,95,NakedReceiverMutator,SURVIVED
+software.sava.services.core.config.NetConfigRecord$Parser,test,129,NakedReceiverMutator,SURVIVED
 software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,72,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,76,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,51,RemoveConditionalMutator_EQUAL_IF,SURVIVED
@@ -5,3 +7,4 @@ software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,5
 software.sava.services.core.config.ServiceConfigUtil,configFilePath,19,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.services.core.config.ServiceConfigUtil,configFilePaths,44,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.services.core.net.http.WebHookConfig$Parser,test,157,BooleanTrueReturnValsMutator,SURVIVED
+software.sava.services.core.remote.call.BackoffConfig,finer,82,ConditionalsBoundaryMutator,SURVIVED

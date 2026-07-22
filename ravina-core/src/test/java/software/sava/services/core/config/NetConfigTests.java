@@ -208,6 +208,18 @@ final class NetConfigTests {
   }
 
   @Test
+  void testParseJsonUnknownFieldIsSkippedEntirely() {
+    // The value after the unknown field only parses if the skip consumed it.
+    final var config = NetConfig.parseConfig(JsonIterator.parse("""
+        {
+          "junk": [1, 2],
+          "host": "example.com"
+        }"""));
+    assertNotNull(config);
+    assertEquals("example.com", config.host());
+  }
+
+  @Test
   void testParseJsonPortOnly() {
     final var config = NetConfig.parseConfig(JsonIterator.parse("""
         {

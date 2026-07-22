@@ -55,8 +55,12 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         epochInfoService,
         minSleepBetweenSigStatusPolling
     );
-    this.webSocketConfirmationTimeoutMillis = webSocketConfirmationTimeout.toMillis();
-    this.retrySendDelayMillis = retrySendDelay.toMillis();
+    // A truncated timeout means the service never waits for the websocket
+    // confirmation, and a truncated resend delay means it resends every pass.
+    this.webSocketConfirmationTimeoutMillis = requireMillis(
+        webSocketConfirmationTimeout, "websocket confirmation timeout"
+    );
+    this.retrySendDelayMillis = requireMillis(retrySendDelay, "retry send delay");
     this.minBlocksRemainingToResend = minBlocksRemainingToResend;
     this.clock = clock;
   }

@@ -24,6 +24,13 @@ No untriaged debt: every accepted entry has a reason below. This is the one
 module where a real share of the remainder is unreachable without live
 credentials — see the I/O section.
 
+## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
+
+Trialled 2026-07-22 (shared `HARDENING.md` protocol): fired 14 times in
+`googleKms`, 12 killed — five by new builder-state assertions on the JSON
+parse path, which had only ever been asserted through the properties path —
+and 2 accepted (see the credentials section). Enabled.
+
 ## Triaged equivalent mutants (accepted with reasons)
 
 **Logging removals** — `GoogleKMSErrorTracker.logResponse`
@@ -53,6 +60,14 @@ are the module's genuine I/O debt.
 - `GoogleKMSClient.lambda$publicKey$0` (line 46) and `lambda$sign$0`
   (line 68) `NullReturnValsMutator`: these map a live KMS response and cannot
   run without one.
+- `GoogleKMSClient.lambda$sign$0` lines 61/62 `NakedReceiverMutator` on the
+  `AsymmetricSignRequest` builder's `.setName(...)`/`.setData(...)`. The
+  error funnel, observed: `kmsClient` is null in every unit test, request
+  construction completes with or without the setters, and the very next
+  statement fails with the identical NPE naming `kmsClient` — the tests
+  cannot see the request. A difference exists only once a real
+  `KeyManagementServiceClient` receives the request (wrong key name / empty
+  payload), which is the same integration-test debt as the rows above.
 
 Closing these needs an integration test against a real or emulated KMS, not a
 unit test — deliberately out of scope for `check`.

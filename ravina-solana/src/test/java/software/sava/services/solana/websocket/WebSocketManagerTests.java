@@ -302,7 +302,11 @@ final class WebSocketManagerTests {
       try (final var manager = WebSocketManager.createManager(httpClient, WS_URI, BACKOFF, ws -> {
       })) {
         assertNotNull(manager);
-        assertInstanceOf(WebSocketManagerImpl.class, manager);
+        final var impl = assertInstanceOf(WebSocketManagerImpl.class, manager);
+        final var prototype = impl.builderPrototype;
+        assertEquals(WS_URI, prototype.wsUri());
+        assertEquals(Commitment.CONFIRMED, prototype.commitment());
+        assertNotNull(prototype.webSocketBuilder());
       }
     }
   }

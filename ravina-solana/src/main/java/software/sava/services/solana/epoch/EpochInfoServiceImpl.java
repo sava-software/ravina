@@ -22,6 +22,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private static final System.Logger logger = System.getLogger(EpochInfoService.class.getName());
 
   static final int SECONDS_PER_SAMPLE = 60;
+  /// `getRecentPerformanceSamples` returns at most this many samples.
+  static final int MAX_PERFORMANCE_SAMPLES = 720;
 
   private final NanoClock clock;
   private final RpcCaller rpcCaller;

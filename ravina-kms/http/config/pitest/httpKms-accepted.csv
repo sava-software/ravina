@@ -1,2 +1,3 @@
-software.sava.kms.http.HttpKMSClient,sign,70,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
+software.sava.kms.http.HttpKMSClient,<init>,48,NakedReceiverMutator,SURVIVED
+software.sava.kms.http.HttpKMSClient,sign,71,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.kms.http.HttpKMSErrorTracker,logResponse,38,VoidMethodCallMutator,SURVIVED

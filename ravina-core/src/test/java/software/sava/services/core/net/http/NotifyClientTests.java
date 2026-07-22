@@ -14,8 +14,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -230,6 +235,60 @@ final class NotifyClientTests {
         executorService.shutdownNow();
         assertTrue(executorService.awaitTermination(10, TimeUnit.SECONDS));
       }
+    }
+  }
+
+  /// Failures are never silent: the hook failure must reach the log, with the
+  /// throwable and the failing endpoint. A recording handler stands in for the
+  /// console so the contract is asserted rather than suppressed; the executor
+  /// is drained before asserting because the `exceptionally` stage runs on
+  /// whichever thread completes the post.
+  @Test
+  void failedHookLogsAWarningWithTheThrowable() throws InterruptedException {
+    final var logger = Logger.getLogger(NotifyClientImpl.class.getName());
+    final var records = new CopyOnWriteArrayList<LogRecord>();
+    final var handler = new Handler() {
+      @Override
+      public void publish(final LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    final boolean useParentHandlers = logger.getUseParentHandlers();
+    logger.setUseParentHandlers(false);
+    logger.addHandler(handler);
+    final var executorService = Executors.newSingleThreadExecutor();
+    try (var ignored = LogSilencer.forceLevel(NotifyClientImpl.class, Level.WARNING)) {
+      final var hook = new RecordingWebHookClient(ENDPOINT_A, true);
+      final var notifyClient = NotifyClient.createClient(
+          executorService,
+          List.of(new DirectCaller(hook)),
+          CallContext.DEFAULT_CALL_CONTEXT
+      );
+      final var futures = notifyClient.postMsg("boom");
+      assertThrows(RuntimeException.class, futures.getFirst()::join);
+      executorService.shutdownNow();
+      assertTrue(executorService.awaitTermination(10, TimeUnit.SECONDS));
+
+      assertEquals(1, records.size());
+      final var record = records.getFirst();
+      assertEquals(Level.WARNING, record.getLevel());
+      assertTrue(record.getMessage().contains(ENDPOINT_A.toString()), record.getMessage());
+      assertTrue(record.getMessage().contains("boom"), record.getMessage());
+      final var thrown = record.getThrown();
+      assertNotNull(thrown);
+      assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    } finally {
+      logger.removeHandler(handler);
+      logger.setUseParentHandlers(useParentHandlers);
+      executorService.shutdownNow();
     }
   }
 }

@@ -89,6 +89,21 @@ never seen these operators, so enabling them added coverage without adding a
 single accepted entry. Recorded so the omitted mutator in each suite reads as
 measured rather than forgotten.
 
+## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
+
+A fluent call returning its receiver type is an expression, invisible to
+`VoidMethodCallMutator` — builder chains, `Duration.truncatedTo`,
+`CompletableFuture.orTimeout`. Trialled 2026-07-22 per suite (shared
+`HARDENING.md` protocol: enable only what fires, record the numbers):
+
+| Suite | Fired | Outcome | Enabled |
+|---|---|---|---|
+| `catchAll` | 61 | 56 killed (3 by new tests/seams: the `LoadBalanceUtil` `httpClient` wiring, the `WebSocketManager` factory prototype via a package-private seam), 4 accepted (below), 1 `TIMED_OUT` | yes |
+| `epoch` | 9 | all killed — two `logFormat` truncation kills needed non-minute-aligned inputs; the exact-minute test data had made truncation a no-op | yes |
+| `fees` | 5 | all killed; the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions | yes |
+| `config` | 4 | all killed | yes |
+| `alt`, `epochService`, `formatting` | 0 | — | no |
+
 ## Triaged equivalent mutants (accepted with reasons)
 
 **Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals:
@@ -158,6 +173,13 @@ the record the else branch already produces. Only the log line differs.
 **Running-minimum boundaries** (`catchAll`) — `<` → `<=` on a running minimum
 (`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188):
 the equal case reassigns the value already held.
+
+**Restating the builder default** (`catchAll`) — `NakedReceiverMutator` on
+`WebSocketManager.createManager` line 39, `.commitment(Commitment.CONFIRMED)`.
+`SolanaRpcWebsocketBuilder` initialises its commitment field to `CONFIRMED`,
+so dropping the call leaves the identical prototype state — verified against
+the builder's getter, which the factory test now asserts. The explicit call
+stays because the default lives in another repo and is not a contract.
 
 ## Uncovered by testing convention (accepted, and *not* an equivalence claim)
 
@@ -235,6 +257,26 @@ and the resend-delay boundary in `TxCommitmentMonitorService` — five rows
 total, none replaced. What remains here: double-checked-locking re-reads
 whose condition is already true when re-evaluated, `resetWebsocket`'s
 return value that only reaches log text, and logging removals.
+
+**Wall-clock websocket confirmation fallback** (`catchAll`) —
+`TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 239/240
+(`NakedReceiverMutator` on `.orTimeout(...)` / `.exceptionally(...)`) and the
+`NO_COVERAGE` `VoidMethodCallMutator` at line 241 inside that fallback lambda.
+`CompletableFuture.orTimeout` schedules on the JVM-global delayed executor,
+which is real time and cannot be routed through `NanoClock`, so firing the
+timeout deterministically is impossible in-harness — the fallback lambda never
+runs (hence the no-coverage row: unreachable here, not "equivalent"), and
+dropping the stages is only observable by waiting out the timeout. The RPC
+polling path covers the eventual outcome; the websocket fallback's own timing
+is the recorded debt.
+
+**Response-tracker wiring needs a live response** (`catchAll`) —
+`LoadBalanceUtil.createRPCLoadBalancer` line 19, `NakedReceiverMutator` on
+`.testResponse(capacityMonitor.errorTracker())`. The predicate is consulted
+only when an HTTP response arrives, and `SolanaRpcClient` exposes no accessor
+for it, so building the balancer offline cannot distinguish the drop. The
+`endpoint` and `httpClient` wiring on the neighbouring lines *are* asserted
+through the client's accessors.
 
 **Loop-unbounding mutants detected only by timeout** (`catchAll`, a handful in
 `LookupTableCacheMap` and `BaseTxMonitorService.run`) — see the note in

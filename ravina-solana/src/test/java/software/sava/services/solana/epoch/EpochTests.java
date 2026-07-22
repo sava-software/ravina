@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Test;
 import software.sava.rpc.json.http.response.EpochInfo;
 
 import java.math.BigInteger;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -136,6 +140,28 @@ final class EpochTests {
     assertTrue(log.contains("10.00% skip rate"), log);
     // Estimated slot 1,200 is 1,000 past the sample; 10% skipped: 1,090 + 900.
     assertTrue(log.contains("1,990 height"), log);
+  }
+
+  @Test
+  void logFormatTruncatesDurationsAndTheEndTimestampToMinutes() {
+    final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+    final var latest = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
+
+    // A `now` that is not a whole minute past the boundaries: the durations
+    // only render without seconds if they were truncated.
+    final var log = latest.logFormat(2_400_999);
+    // 1,440,999 ms since the 960,000 start truncates to 24 whole minutes.
+    assertTrue(log.contains("Start 24M ago"), log);
+    // 172,319,001 ms remaining is 59.001 s short of 47H52M, so it truncates down.
+    assertTrue(log.contains("Ends in 47H51M | "), log);
+    // The end-of-epoch timestamp renders in the system zone, truncated to
+    // minutes. A derived endsAt is always minute-aligned here, so a raw record
+    // carries one with stray millis: only truncation removes them from the log.
+    final var unaligned = new Epoch(960_000, 174_720_123, epochInfo(1_090, 500, 200), null, 400, null, 2_000_000, 0.1, 0.1);
+    final var unalignedLog = unaligned.logFormat(2_400_999);
+    final var expectedEnd = LocalDateTime.ofInstant(Instant.ofEpochMilli(174_720_123L), ZoneId.systemDefault())
+        .truncatedTo(ChronoUnit.MINUTES);
+    assertTrue(unalignedLog.contains("| " + expectedEnd + " ::"), unalignedLog);
   }
 
   @Test

@@ -32,7 +32,8 @@ final class HttpKMSClient extends BaseKMSClient {
     };
   };
 
-  private final HttpClient httpClient;
+  // package-private so same-package tests can assert the factory's wiring
+  final HttpClient httpClient;
   private final HttpRequest getPublicKey;
   private final URI postMsg;
 

@@ -1,3 +1,4 @@
+software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile,25,NakedReceiverMutator,SURVIVED
 software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,95,ConditionalsBoundaryMutator,SURVIVED
 software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_IF,SURVIVED

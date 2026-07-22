@@ -64,6 +64,10 @@ import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 ///    makes every `Condition.await` return immediately.
 final class BaseTxMonitorServiceTests {
 
+  /// The monitor sleeps for at least this long between signature status polls,
+  /// and rejects anything under a millisecond as a delay that would not sleep.
+  private static final Duration MIN_POLL_SLEEP = Duration.ofMillis(1);
+
   static final int DEFAULT_MILLIS_PER_SLOT = 400;
   static final int MEDIAN_MILLIS_PER_SLOT = 500;
   /// `medianPercentile68()` is `round(median + estimatedStdDev)` — 530 here,
@@ -328,7 +332,7 @@ final class BaseTxMonitorServiceTests {
   @Test
   void theRunLoopBatchesAtMostMaxSigStatusSignatures() {
     final var epochInfoService = new FakeEpochInfoService();
-    final var service = new RecordingMonitor(null, epochInfoService, Duration.ZERO);
+    final var service = new RecordingMonitor(null, epochInfoService, MIN_POLL_SLEEP);
     final int overflow = 44;
     for (int i = 0; i < MAX_SIG_STATUS + overflow; ++i) {
       // Distinct block heights: TxContext orders on block height alone, so
@@ -355,7 +359,7 @@ final class BaseTxMonitorServiceTests {
 
   @Test
   void anEmptyQueueIsNotPolled() {
-    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ZERO);
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
     // Nothing is pending, so the loop has no batch that could stop it: it is
     // ended instead by an interrupt raised before it starts, which the first
     // `lockInterruptibly` observes (and clears).
@@ -371,7 +375,7 @@ final class BaseTxMonitorServiceTests {
 
   @Test
   void eachPassRebuildsTheBatchFromWhatIsStillPending() {
-    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ZERO);
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
     service.stopAfterBatches = 2;
     final var kept = txContext("kept", 10, FINALIZED, PROCESSED);
     final var settledA = txContext("settled-a", 11, FINALIZED, PROCESSED);
@@ -395,7 +399,7 @@ final class BaseTxMonitorServiceTests {
 
   @Test
   void theRunLoopReleasesTheWorkLock() {
-    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ZERO);
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
     service.stopAfterBatches = 2;
     service.pendingTransactions.add(txContext("sig", 10, FINALIZED, PROCESSED));
 
@@ -682,5 +686,20 @@ final class BaseTxMonitorServiceTests {
 
     assertEquals(0, service.completeFutures(map, List.of(), List.of()));
     assertTrue(map.isEmpty());
+  }
+
+  @Test
+  void aPollingSleepUnderAMillisecondIsRejected() {
+    // the monitor sleeps at least this long between signature status polls, so
+    // a truncated delay polls the RPC as fast as the loop can turn
+    for (final var tooSmall : new Duration[]{Duration.ZERO, Duration.ofNanos(999_999), Duration.ofMillis(-1)}) {
+      final var ex = assertThrows(
+          IllegalArgumentException.class,
+          () -> new RecordingMonitor(null, new FakeEpochInfoService(), tooSmall)
+      );
+      assertTrue(ex.getMessage().contains("at least one millisecond"), ex.getMessage());
+    }
+    // exactly the floor is accepted
+    assertNotNull(new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP));
   }
 }

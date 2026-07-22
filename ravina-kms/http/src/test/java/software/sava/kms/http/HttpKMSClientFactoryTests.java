@@ -35,6 +35,8 @@ final class HttpKMSClientFactoryTests {
       final var capacityMonitor = service.capacityMonitor();
       assertNotNull(capacityMonitor);
       assertEquals(50, capacityMonitor.capacityState().capacity());
+      // The client's HttpClient must run on the supplied executor.
+      assertSame(executor, ((HttpKMSClient) service).httpClient.executor().orElseThrow());
       service.close();
     }
   }
@@ -108,6 +110,8 @@ final class HttpKMSClientFactoryTests {
       final var capacityMonitor = service.capacityMonitor();
       assertNotNull(capacityMonitor);
       assertEquals(50, capacityMonitor.capacityState().capacity());
+      // The client's HttpClient must run on the supplied executor.
+      assertSame(executor, ((HttpKMSClient) service).httpClient.executor().orElseThrow());
       service.close();
     }
   }

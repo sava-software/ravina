@@ -31,6 +31,10 @@ hardening {
     targetTests = "software.sava.services.core.remote.call.*Test*,software.sava.services.core.request_capacity.*Test*"
   }
   mutation.register("loadBalance") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf("software.sava.services.core.remote.load_balance.*")
     excludedClasses = listOf("software.sava.services.core.remote.load_balance.*Tests*")
     targetTests = "software.sava.services.core.remote.load_balance.*Test*"
@@ -47,6 +51,10 @@ hardening {
     targetTests = "software.sava.services.core.remote.call.*Test*"
   }
   mutation.register("config") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf(
       "software.sava.services.core.config.*",
       "software.sava.services.core.net.http.WebHookConfig",
@@ -74,6 +82,10 @@ hardening {
   /// suite already owns; if one goes stale the class is merely mutated twice,
   /// which is slow rather than blind — the safe direction to fail.
   mutation.register("catchAll") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf("software.sava.services.core.*")
     excludedClasses = listOf(
       // test and fuzz sources share the recompiled root; trailing wildcards

@@ -62,7 +62,7 @@ public record CapacityConfig(int minCapacity,
 
   public <R, D> ErrorTrackedCapacityMonitor<R, D> createMonitor(final String serviceName,
                                                                 final ErrorTrackerFactory<R, D> errorTrackerFactory,
-                                                          final NanoClock clock) {
+                                                                final NanoClock clock) {
     final var capacityState = new CapacityStateVal(this, clock);
     return new CapacityMonitorRecord<>(
         serviceName,
@@ -108,13 +108,26 @@ public record CapacityConfig(int minCapacity,
       this.rateLimitedBackOffDuration = parseDuration(properties, p, "rateLimitedBackOffDuration");
     }
 
+    /// The overdraft floor is the capacity that replenishes over
+    /// `minCapacityDuration`, so a debt that deep takes exactly that long to
+    /// repay. This mirrors `CapacityStateVal.capacityFor(Duration)`, which
+    /// accrues `maxCapacity` per `resetDuration`:
+    /// `maxCapacity * minCapacityDuration / resetDuration`.
+    ///
+    /// Computed in nanoseconds because both durations are rates rather than
+    /// sleeps, and a sub-millisecond reset duration used to truncate the whole
+    /// term to zero.
     private static int capacityFromDuration(final Duration resetDuration,
                                             final int maxCapacity,
                                             final Duration minCapacityDuration) {
-      final long millis = resetDuration.toMillis();
-      final long capacityPerMillis = maxCapacity * millis;
-      final long minCapacityDurationMillis = minCapacityDuration.toMillis();
-      return (int) -((capacityPerMillis * minCapacityDurationMillis) / 1_000_000);
+      final long resetNanos = resetDuration.toNanos();
+      if (resetNanos < 1) {
+        throw new IllegalArgumentException(
+            "A capacity reset duration must be positive, not " + resetDuration + '.'
+        );
+      }
+      final long capacity = Math.multiplyExact(maxCapacity, minCapacityDuration.toNanos()) / resetNanos;
+      return Math.toIntExact(-capacity);
     }
 
     CapacityConfig createConfig() {
@@ -151,8 +164,7 @@ public record CapacityConfig(int minCapacity,
         case 6 -> this.tooManyErrorsBackoffDuration = ServiceConfigUtil.parseDuration(ji);
         case 7 -> this.serverErrorBackOffDuration = ServiceConfigUtil.parseDuration(ji);
         case 8 -> this.rateLimitedBackOffDuration = ServiceConfigUtil.parseDuration(ji);
-        default ->
-            throw new IllegalStateException("Unhandled CapacityConfig field " + new String(buf, offset, len));
+        default -> throw new IllegalStateException("Unhandled CapacityConfig field " + new String(buf, offset, len));
       }
       return true;
     }

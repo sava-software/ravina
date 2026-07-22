@@ -63,7 +63,44 @@ mutants that had never been measured; 131 are now killed. If an exclusion here
 goes stale the class is merely mutated twice — slow, not blind, which is the
 safe direction to fail.
 
+## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
+
+A fluent call returning its receiver type is an expression, invisible to
+`VoidMethodCallMutator` — `String.strip()`, `Path.toAbsolutePath()`,
+`JsonIterator.skip()`. Trialled 2026-07-22 per suite (shared `HARDENING.md`
+protocol: enable only what fires, record the numbers):
+
+| Suite | Fired | Outcome | Enabled |
+|---|---|---|---|
+| `catchAll` | 11 | 8 killed (2 by new tests: the `UriCapacityConfig` null-skip, the `NotifyClientImpl` failure-log contract), 3 `TIMED_OUT` by necessity (below) | yes |
+| `config` | 22 | 20 killed (7 by new tests: case-normalisation, unknown-field skips, `configFilePaths` strip/absolute-path), 2 accepted (below) | yes |
+| `loadBalance` | 1 | killed | yes |
+| `backoff`, `calls`, `capacity`, `errorTracking` | 0 | — | no |
+
+The three `TIMED_OUT` rows are `ExceptionUtil`'s cause-chain walks: replacing
+`throwable.getCause()` with `throwable` turns the loop infinite, so the
+timeout *is* the observable — the same "detected by necessity" shape as the
+fibonacci hang guard. They are detected, not baselined; if load ever flips one
+to `SURVIVED`, union it per the timeout-mode note above.
+
 ## Triaged equivalent mutants (accepted with reasons)
+
+**Dropped `toAbsolutePath` normalisation** (`config`) — `NakedReceiverMutator`
+on `NetConfigRecord$Parser` lines 95/129, `Path.of(keyStorePath).toAbsolutePath()`.
+The record retains the loaded `KeyStore`, never the path, and a relative path
+resolves against the same working directory as its absolute form, so the same
+file is opened either way. Only a process that changes its working directory
+between parse and use could tell — no API here exposes the path to make that
+observable.
+
+**Picking the finer of two equal units** (`config`) — the
+`ConditionalsBoundaryMutator` on `BackoffConfig.finer`'s
+`a.compareTo(b) <= 0 ? a : b`. The mutant flips it to `<`, which changes the
+result only when `compareTo` returns 0 — and two `TimeUnit`s with equal
+ordinals *are the same enum constant*, so both arms yield the identical
+reference. No input can distinguish them: the delays either need different
+granularities (compareTo non-zero, unaffected) or the same one (both arms
+return that unit). Rewriting it as `<` would only mirror the mutant.
 
 **Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals
 anywhere: log output is not part of any behavioral contract, and asserting on

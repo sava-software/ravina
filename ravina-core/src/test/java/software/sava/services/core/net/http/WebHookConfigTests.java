@@ -127,6 +127,21 @@ final class WebHookConfigTests {
   }
 
   @Test
+  void testParseJsonLowerCaseProvider() {
+    final var config = WebHookConfig.parseConfig(JsonIterator.parse("""
+        {
+          "endpoint": "https://hooks.slack.com/services/abc",
+          "provider": "slack",
+          "capacity": {
+            "maxCapacity": 10,
+            "resetDuration": "PT1S"
+          }
+        }"""));
+    assertNotNull(config);
+    assertTrue(config.toString().contains(WebHookConfig.Provider.SLACK.defaultTemplate()));
+  }
+
+  @Test
   void testParseJsonNull() {
     assertNull(WebHookConfig.parseConfig(JsonIterator.parse("null")));
   }
@@ -167,6 +182,28 @@ final class WebHookConfigTests {
     assertEquals(2, configs.size());
     assertEquals(URI.create("https://hooks.slack.com/services/abc"), configs.getFirst().endpoint());
     assertEquals(URI.create("https://example.com/hook"), configs.getLast().endpoint());
+  }
+
+  @Test
+  void testParseLowerCaseProviderProperty() {
+    final var properties = new Properties();
+    properties.setProperty("hooks.0.endpoint", "https://hooks.slack.com/services/abc");
+    properties.setProperty("hooks.0.provider", "slack");
+
+    final var defaultCapacity = CapacityConfig.createSimpleConfig(
+        Duration.ofSeconds(1),
+        10,
+        Duration.ofSeconds(1)
+    );
+    final var configs = WebHookConfig.parseConfigs(
+        "hooks",
+        properties,
+        null,
+        defaultCapacity,
+        Backoff.fibonacci(1, 13)
+    );
+    assertEquals(1, configs.size());
+    assertTrue(configs.getFirst().toString().contains(WebHookConfig.Provider.SLACK.defaultTemplate()));
   }
 
   @Test

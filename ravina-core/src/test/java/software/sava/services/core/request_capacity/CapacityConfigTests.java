@@ -142,4 +142,53 @@ final class CapacityConfigTests {
     assertEquals(Duration.ofSeconds(9), config.serverErrorBackOffDuration());
     assertEquals(Duration.ofSeconds(11), config.rateLimitedBackOffDuration());
   }
+
+  private static int minCapacityFor(final Duration minCapacityDuration,
+                                    final int maxCapacity,
+                                    final Duration resetDuration) {
+    return CapacityConfig.createSimpleConfig(minCapacityDuration, maxCapacity, resetDuration).minCapacity();
+  }
+
+  @Test
+  void theOverdraftFloorIsWhatReplenishesOverTheDuration() {
+    // capacity accrues at maxCapacity per resetDuration, so the floor is that
+    // rate times minCapacityDuration -- the same term CapacityStateVal uses.
+    // The previous formula multiplied by the reset duration instead of
+    // dividing, so it was only correct when resetDuration happened to be 1s.
+    assertEquals(-200, minCapacityFor(Duration.ofSeconds(2), 100, Duration.ofSeconds(1)));
+    assertEquals(-100, minCapacityFor(Duration.ofSeconds(1), 100, Duration.ofSeconds(1)));
+    // a slower reset replenishes less over the same window, so a shallower floor
+    assertEquals(-10, minCapacityFor(Duration.ofSeconds(13), 10, Duration.ofSeconds(13)));
+    assertEquals(-20, minCapacityFor(Duration.ofSeconds(26), 10, Duration.ofSeconds(13)));
+    assertEquals(-5, minCapacityFor(Duration.ofSeconds(13), 5, Duration.ofSeconds(13)));
+    // a faster reset replenishes more
+    assertEquals(-1_000, minCapacityFor(Duration.ofSeconds(1), 100, Duration.ofMillis(100)));
+  }
+
+  @Test
+  void theFloorKeepsSubMillisecondResetDurations() {
+    // these are rates, not sleeps: a 500us reset window used to truncate the
+    // whole term to zero and silently allow no overdraft at all
+    assertEquals(-2_000, minCapacityFor(Duration.ofSeconds(1), 1, Duration.ofNanos(500_000)));
+    assertEquals(-1, minCapacityFor(Duration.ofNanos(500_000), 1, Duration.ofNanos(500_000)));
+  }
+
+  @Test
+  void aNonPositiveResetDurationIsRejected() {
+    for (final var invalid : new Duration[]{Duration.ZERO, Duration.ofSeconds(-1)}) {
+      final var ex = assertThrows(
+          IllegalArgumentException.class,
+          () -> minCapacityFor(Duration.ofSeconds(1), 100, invalid)
+      );
+      assertTrue(ex.getMessage().contains("must be positive"), ex.getMessage());
+    }
+  }
+
+  @Test
+  void anOverdraftFloorBeyondAnIntIsRejectedRatherThanWrapped() {
+    assertThrows(
+        ArithmeticException.class,
+        () -> minCapacityFor(Duration.ofDays(365), Integer.MAX_VALUE, Duration.ofNanos(1))
+    );
+  }
 }

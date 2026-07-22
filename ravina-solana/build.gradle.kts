@@ -12,6 +12,10 @@ testModuleInfo {
 
 hardening {
   mutation.register("epoch") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf(
       "software.sava.services.solana.epoch.Epoch",
       "software.sava.services.solana.epoch.SlotPerformanceStats"
@@ -38,10 +42,15 @@ hardening {
     // capCuPrice is BigDecimal arithmetic, which MathMutator cannot see: it
     // rewrites primitive opcodes and BigDecimal math is method calls. Trialled
     // 2026-07-21: BIG_DECIMAL fires once and is killed; BIG_INTEGER fires zero
-    // times here, so it is not enabled.
-    mutators = "STRONGER,EXPERIMENTAL_BIG_DECIMAL"
+    // times here, so it is not enabled. NAKED_RECEIVER trialled 2026-07-22:
+    // fires 5 times (numbers in config/pitest/README.md).
+    mutators = "STRONGER,EXPERIMENTAL_BIG_DECIMAL,EXPERIMENTAL_NAKED_RECEIVER"
   }
   mutation.register("config") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf(
       "software.sava.services.solana.config.HeliusConfig",
       "software.sava.services.solana.config.HeliusConfig\$*",
@@ -113,7 +122,9 @@ hardening {
     // Block-height arithmetic in the tx monitors is BigInteger. Trialled
     // 2026-07-21: BIG_INTEGER fires 3 times, all killed by existing tests;
     // BIG_DECIMAL fires zero times here, so it is not enabled.
-    mutators = "STRONGER,EXPERIMENTAL_BIG_INTEGER"
+    // NAKED_RECEIVER trialled 2026-07-22: fires 61 times; see the mutator-set
+    // section in config/pitest/README.md for the numbers.
+    mutators = "STRONGER,EXPERIMENTAL_BIG_INTEGER,EXPERIMENTAL_NAKED_RECEIVER"
   }
 
   fuzz.register("configs") {

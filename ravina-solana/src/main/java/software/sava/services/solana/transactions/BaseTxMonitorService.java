@@ -44,7 +44,12 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     this.formatter = formatter;
     this.rpcCaller = rpcCaller;
     this.epochInfoService = epochInfoService;
-    this.minSleepMillisBetweenPolling = minSleepBetweenSigStatusPolling.toMillis();
+    // This is the floor on how long the service sleeps between signature
+    // status polls; below a millisecond it truncates to no sleep at all, and
+    // the monitor polls the RPC as fast as the loop can turn.
+    this.minSleepMillisBetweenPolling = requireMillis(
+        minSleepBetweenSigStatusPolling, "minimum sleep between signature status polling"
+    );
     this.pendingTransactions = new ConcurrentSkipListSet<>();
     this.workLock = new ReentrantLock(false);
     this.processTransactions = workLock.newCondition();
@@ -206,5 +211,15 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     }
 
     return minSleepMillis == Long.MAX_VALUE ? 0 : minSleepMillis;
+  }
+
+  static long requireMillis(final Duration duration, final String what) {
+    final long millis = duration.toMillis();
+    if (millis < 1) {
+      throw new IllegalArgumentException(
+          "A transaction monitor needs a " + what + " of at least one millisecond, not " + duration + '.'
+      );
+    }
+    return millis;
   }
 }

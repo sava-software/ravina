@@ -26,10 +26,23 @@ properties parse paths, the `ServiceLoader` factory-class resolution, and the
 test-scoped `META-INF/services` registration exists to exercise that
 resolution without a live signing backend.
 
+## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
+
+Trialled 2026-07-22 (shared `HARDENING.md` protocol): fired 7 times in
+`signing`, 6 killed — one by a new test pinning that the deferred re-parse
+leaves the iterator positioned after the object — and 1 accepted (below).
+Enabled.
+
 ## Triaged equivalent mutants (accepted with reasons)
 
 **Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals:
 log output is not part of any behavioral contract.
+
+**Suffix test on the full path** — `MemorySignerFromFilePointerFactory.signerFromFile`
+line 25, `NakedReceiverMutator` on `filePath.getFileName()`. The result only
+feeds `fileName.endsWith(".properties")`, and a path string ends with
+`".properties"` exactly when its file name does — the parent directories the
+mutant leaves in place cannot affect a suffix check on the final segment.
 
 **Unreachable mark sentinel** — `SigningServiceConfig$Parser.createConfig`
 `configMark < 0` → `<= 0`. `configMark` is set from `ji.mark()` taken at a

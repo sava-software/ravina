@@ -176,8 +176,23 @@ timeouts).
     annotations or abstract test bases, so that cause is currently absent —
     if one is introduced, whether the annotation reaches subclasses is
     JUnit-version-dependent; `javap` the resolved jar before restructuring.
+11. **Kill rates are bounded by the mutator set.** Big-number math is method
+    calls, invisible to the default arithmetic mutators — `fees` adds
+    `EXPERIMENTAL_BIG_DECIMAL`, solana's `catchAll` adds
+    `EXPERIMENTAL_BIG_INTEGER` — and fluent calls returning their receiver
+    are expressions, invisible to `VoidMethodCallMutator` — the ten suites
+    where `EXPERIMENTAL_NAKED_RECEIVER` fires enable it. Trial per suite,
+    enable only what fires, and record the numbers in that module's
+    `config/pitest/README.md` (the existing trial tables are the format).
+12. **PIT minions run on the class path**, even though this repo's tasks run
+    on the module path: `module-info` services are invisible to them, and a
+    test-resources `META-INF/services` is invisible to the module-path `test`
+    task. Real services are declared in both places (`module-info` **and**
+    main-resources `META-INF/services` — see the kms modules and
+    `ravina-core`'s `ErrorTrackerFactory`); a harness whose result depends on
+    which task ran it is never committed.
 
-<!-- hardening-template sha256:96ddf18dcc3a -->
+<!-- hardening-template sha256:a3a73f4b95f3 -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

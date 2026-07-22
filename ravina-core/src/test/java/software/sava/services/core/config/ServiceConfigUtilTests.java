@@ -184,6 +184,56 @@ final class ServiceConfigUtilTests {
   }
 
   @Test
+  void testMissingFileMessageShowsTheAbsolutePath() {
+    // A relative property value only renders absolutely in the error message
+    // if toAbsolutePath was applied; an absolute input would hide its removal.
+    final var relative = Path.of("service-config-util-tests-missing.json");
+    assertTrue(Files.notExists(relative));
+    final var key = configPropertyKey();
+    final var previous = System.getProperty(key);
+    System.setProperty(key, relative.toString());
+    try {
+      final var exception = assertThrows(
+          IllegalStateException.class,
+          () -> ServiceConfigUtil.configFilePath(ServiceConfigUtilTests.class)
+      );
+      assertTrue(
+          exception.getMessage().contains(relative.toAbsolutePath().toString()),
+          exception.getMessage()
+      );
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void testConfigFilePathsStripWhitespaceAroundEntries() throws Exception {
+    final var fileA = tempDir.resolve("a.json");
+    final var fileB = tempDir.resolve("b.json");
+    Files.writeString(fileA, "{}");
+    Files.writeString(fileB, "{}");
+    final var key = configPropertyKey();
+    final var previous = System.getProperty(key);
+    // The space before the second path must be stripped before the existence
+    // check, or resolution fails on a path that names no file.
+    System.setProperty(key, fileA + ", " + fileB);
+    try {
+      final var paths = ServiceConfigUtil.configFilePaths(ServiceConfigUtilTests.class);
+      assertEquals(List.of(fileA, fileB), paths);
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
   void testConfigFilePathsMissingFileThrows() {
     final var missing = tempDir.resolve("nope.json");
     final var key = configPropertyKey();

@@ -119,11 +119,22 @@ final class SimulationFuturesTests {
         SolanaAccounts.MAIN_NET, BigDecimal.valueOf(10_000), 200_000);
     assertNotNull(withExplicitBudget);
     assertFalse(withExplicitBudget.exceedsSizeLimit());
+    assertComputeBudgetPrepended(withExplicitBudget, ix);
 
     final var withSimulatedBudget = futures.createTransaction(
         SolanaAccounts.MAIN_NET, BigDecimal.valueOf(10_000), simulation(200_000));
     assertNotNull(withSimulatedBudget);
     assertFalse(withSimulatedBudget.exceedsSizeLimit());
+    assertComputeBudgetPrepended(withSimulatedBudget, ix);
+  }
+
+  private static void assertComputeBudgetPrepended(final Transaction transaction, final Instruction baseIx) {
+    final var instructions = transaction.instructions();
+    assertEquals(3, instructions.size());
+    final var computeBudgetProgram = SolanaAccounts.MAIN_NET.invokedComputeBudgetProgram().publicKey();
+    assertEquals(computeBudgetProgram, instructions.get(0).programId().publicKey());
+    assertEquals(computeBudgetProgram, instructions.get(1).programId().publicKey());
+    assertSame(baseIx, instructions.get(2));
   }
 
   @Test

@@ -18,7 +18,8 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
 
   private final NanoClock clock;
-  private final SolanaRpcWebsocket.Builder builderPrototype;
+  // package-private so same-package tests can inspect factory-built prototypes
+  final SolanaRpcWebsocket.Builder builderPrototype;
   private final Backoff backoff;
   private final Consumer<SolanaRpcWebsocket> onNewWebSocket;
   private final Consumer<SolanaRpcWebsocket> onOpen;

@@ -39,6 +39,14 @@ final class GoogleKMSClientFactoryTests {
       // but parsing should succeed — verify the failure is UncheckedIOException, not a parsing error.
       assertThrows(UncheckedIOException.class, () -> factory.createService(executor, backoff, ji));
     }
+    // Parsing completed before the credentials failure: verify each JSON field
+    // was applied to the key version name builder.
+    final var builder = factory.builder;
+    assertEquals("my-project", builder.getProject());
+    assertEquals("us-east1", builder.getLocation());
+    assertEquals("my-key-ring", builder.getKeyRing());
+    assertEquals("my-crypto-key", builder.getCryptoKey());
+    assertEquals("1", builder.getCryptoKeyVersion());
   }
 
   @Test

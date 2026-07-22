@@ -62,6 +62,11 @@ final class LoadBalanceUtilTests {
           .toList();
       assertEquals(List.of("https://rpc1.example.com", "https://rpc2.example.com"), endpoints);
 
+      // Every client is built on the injected HttpClient, not a default one.
+      for (final var item : items) {
+        assertSame(httpClient, item.item().httpClient());
+      }
+
       // The balancer hands out every configured client.
       assertNotNull(balancer.next());
       assertNotNull(balancer.next());

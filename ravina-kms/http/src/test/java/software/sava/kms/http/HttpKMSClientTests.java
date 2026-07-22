@@ -211,6 +211,7 @@ final class HttpKMSClientTests {
     final var future = client.publicKey();
     assertNotNull(future);
     assertEquals(pubKey, future.join());
+    assertEquals(ENDPOINT.resolve("v0/publicKey"), httpClient.lastRequest.uri());
   }
 
   @Test
@@ -269,6 +270,11 @@ final class HttpKMSClientTests {
     assertNotNull(future);
     assertArrayEquals(SIGNATURE, future.join());
     assertArrayEquals(msg, Base64.getDecoder().decode(postedBody(httpClient.lastRequest)));
+    assertEquals(ENDPOINT.resolve("v0/sign"), httpClient.lastRequest.uri());
+    assertEquals(
+        Optional.of("base64"),
+        httpClient.lastRequest.headers().firstValue("X-ENCODING")
+    );
   }
 
   @Test

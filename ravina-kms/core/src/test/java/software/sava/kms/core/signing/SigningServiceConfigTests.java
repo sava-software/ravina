@@ -80,6 +80,23 @@ final class SigningServiceConfigTests {
     }
   }
 
+  @Test
+  void testJsonDeferredCreationLeavesTheIteratorAfterTheObject() {
+    // The sentinel after the config object only parses if the deferred
+    // re-parse skipped the rest of the object it had marked into.
+    final var json = String.format("""
+        [{"config": %s, "factoryClass": "%s"}, "sentinel"]""", keyConfigJson(), MEMORY_FACTORY);
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var ji = ji(json);
+      assertTrue(ji.readArray());
+      final var config = SigningServiceConfig.parseConfig(executor, ji);
+      assertNotNull(config);
+      assertServiceSigns(config);
+      assertTrue(ji.readArray());
+      assertEquals("sentinel", ji.readString());
+    }
+  }
+
   // --- JSON: deferred creation (config seen before factoryClass) ---
 
   @Test

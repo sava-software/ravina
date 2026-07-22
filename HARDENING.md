@@ -1,42 +1,14 @@
 # Hardening: mutation testing (PIT) and fuzzing (Jazzer)
 
 Ravina's specifics. The portable, cross-repo process contract is sava-build's
-own `HARDENING.md` — this file covers what is particular to *this* codebase:
-how the suites are targeted, which mutant groups are accepted and why, and the
-mechanical traps that have cost time here.
+own `HARDENING.md`, with the incidents behind its rules in its companion
+`HARDENING_CASEBOOK.md` — this file covers what is particular to *this*
+codebase: how the suites are targeted, which mutant groups are accepted and
+why, and the mechanical traps that have cost time here.
 
 Read this when you are working on the hardening setup itself, chasing a
 ratchet failure, or adding a parser/algorithm that needs coverage. For ordinary
 changes, the rules in `AGENTS.md` are enough.
-
-## Plugin version gap
-
-This repo pins `software.sava.build` **21.5.7**. The shared `HARDENING.md`
-(and its companion `HARDENING_CASEBOOK.md`, which holds the incidents behind
-the rules) describes several things implemented in sava-build's `main` but
-**not in any released tag**, so they are absent here until the plugin is
-bumped:
-
-- `pitest<Suite>` printing a `detected/total (n%) — x survived, y no_coverage`
-  summary (with `run_error` named and *not* counted as detected). Until then,
-  get the split yourself:
-  `awk -F, '{print $6}' build/reports/pitest/<suite>/mutations.csv | sort | uniq -c`.
-- `pitest<Suite>Verify` warning when a suite mutates classes from its own test
-  source set. Until then that check is manual — cross-reference the mutated
-  class list against `src/test/java`. It is worth running after registering or
-  widening any suite; doing it here found two nested fakes being mutated as
-  production code because an exclusion was missing its trailing wildcard.
-- `agentsTemplateInSync`, wired into `check`: fails unless `AGENTS.md`
-  carries a `<!-- hardening-template sha256:… -->` marker acknowledging the
-  current agent-instructions template. **This repo's marker is already in
-  place** (added ahead of the bump, after syncing the block), so the bump
-  should not break `check` — but if the shared template changes between now
-  and then, the failure message prints the new digest; re-diff the block and
-  **act on** changed bullets before updating the marker.
-- arcmutate incremental-analysis wiring (see below).
-
-The *directives* in the shared doc apply regardless of plugin version; only
-these conveniences are gated on it.
 
 Provided by the `software.sava.build.feature.hardening` plugin; suites and
 targets are registered in each module's `build.gradle.kts` `hardening {}`
@@ -57,11 +29,32 @@ Suite composition is part of the cost, not just the coverage:
 `EpochInfoServiceImpl` has its own `epochService` suite in `ravina-solana`
 (excluded from `catchAll`) because it was the slowest thing in a shared suite,
 and `fees` restricts `targetTests` to the one class that covers it. Both are
-commented at the registration. Two suites also override the mutator set —
-`fees` adds `EXPERIMENTAL_BIG_DECIMAL`, `catchAll` adds
-`EXPERIMENTAL_BIG_INTEGER`, since `BigDecimal`/`BigInteger` math is method
-calls and invisible to `STRONGER`. The per-suite trial numbers behind those
-choices are in `ravina-solana/config/pitest/README.md`.
+commented at the registration. Ten suites also override the mutator set —
+`fees` adds `EXPERIMENTAL_BIG_DECIMAL` and solana's `catchAll` adds
+`EXPERIMENTAL_BIG_INTEGER` (big-number math is method calls, invisible to
+`STRONGER`), and every suite where it fires adds `EXPERIMENTAL_NAKED_RECEIVER`
+(2026-07-22 trial; fluent receiver-typed calls — builder chains,
+`Duration.truncatedTo`, `JsonIterator.skip` — are expressions, invisible to
+`VoidMethodCallMutator`). The trial fired 144 mutants across 10 of 16 suites,
+exposed genuinely untested behaviour (the `SimulationFutures` compute-budget
+prepend, the Google KMS JSON-path builder wiring, config case-normalisation
+and unknown-field skips), and the per-suite numbers are in each module's
+`config/pitest/README.md`.
+
+## PIT runs on the class path: services are declared twice
+
+PIT minions run tests on the class path, where `module-info` `provides`
+clauses do not exist (shared `HARDENING.md`, "The class path is PIT's world").
+Every main-source service here therefore carries the dual declaration —
+`module-info` **and** `META-INF/services`, which is also just correct
+packaging for classpath consumers: `SigningServiceFactory` implementations in
+`ravina-kms/core|http|google`, `ErrorTrackerFactory` in `ravina-core`.
+2026-07-22: `ravina-kms/core` shipped its provider file at the jar root
+(`services/…`, missing the `META-INF/` prefix — dead to every `ServiceLoader`)
+and papered over it in PIT runs with a *test-resources* copy, the exact
+task-dependent harness the shared doc forbids; classpath consumers could never
+discover the memory factories. Both halves fixed: file moved under
+`META-INF/`, test copy deleted.
 
 Two mechanical points that cost real time to rediscover:
 
@@ -324,11 +317,11 @@ been tried here:
 | `NanoClock` migration (see above) | `pitestCatchAll` ~80s → ~21s |
 
 **PIT incremental analysis needs arcmutate — free for open source, and the
-plugin (sava-build `main`, unreleased) now pre-wires it.** Open-source PIT
+plugin pre-wires it.** Open-source PIT
 alone cannot do it: the CLI accepts the history flags but registers only
 `ErroringHistoryFactory`, which throws — prototyped and abandoned here on
-2026-07-21 *(casebook: the 11× "speedup" that did no work)*. Once the plugin
-bump lands, activation is dropping `arcmutate-licence.txt` at the repo root
+2026-07-21 *(casebook: the 11× "speedup" that did no work)*.
+Activation is dropping `arcmutate-licence.txt` at the repo root
 (free OSS licences exist — obtaining one is a maintainer decision); history
 then lives at `<module>/.pitest-history/<suite>.hist` (already git-ignored
 here). Two rules come with it: the pre-release `qualityGate`, baseline

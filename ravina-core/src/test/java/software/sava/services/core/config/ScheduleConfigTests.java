@@ -155,6 +155,23 @@ final class ScheduleConfigTests {
   }
 
   @Test
+  void testParseJsonLowerCaseTimeUnit() {
+    final var config = ScheduleConfig.parseConfig(JsonIterator.parse("""
+        {"delay": 10, "timeUnit": "seconds"}"""));
+    assertEquals(10, config.delay());
+    assertEquals(TimeUnit.SECONDS, config.timeUnit());
+  }
+
+  @Test
+  void testParseJsonUnknownFieldIsSkippedEntirely() {
+    // The value after the unknown field only parses if the skip consumed it.
+    final var config = ScheduleConfig.parseConfig(JsonIterator.parse("""
+        {"junk": {"nested": [1, 2]}, "delay": 10, "timeUnit": "SECONDS"}"""));
+    assertEquals(10, config.delay());
+    assertEquals(TimeUnit.SECONDS, config.timeUnit());
+  }
+
+  @Test
   void testParseJsonAllFields() {
     final var json = """
         {

@@ -16,6 +16,10 @@ testModuleInfo {
 
 hardening {
   mutation.register("googleKms") {
+    // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
+    // config/pitest/README.md); fluent receiver-typed calls are otherwise
+    // invisible to STRONGER.
+    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
     // catch-all by exclusion, so a new class is mutated by default instead of
     // silently skipped
     targetClasses = listOf("software.sava.kms.google.*")

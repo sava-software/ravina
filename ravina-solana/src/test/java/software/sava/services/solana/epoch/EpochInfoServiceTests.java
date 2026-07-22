@@ -347,8 +347,30 @@ final class EpochInfoServiceTests {
     assertEquals(30, numSamples(EpochInfoService.createService(config(Duration.ofMinutes(30)), null)));
     // Truncating division: 90 seconds is a single whole sample.
     assertEquals(1, numSamples(EpochInfoService.createService(config(Duration.ofSeconds(90)), null)));
-    // A window shorter than one sample yields none.
-    assertEquals(0, numSamples(EpochInfoService.createService(config(Duration.ofSeconds(59)), null)));
+    // 12 hours is the most the RPC will return
+    assertEquals(720, numSamples(EpochInfoService.createService(config(Duration.ofHours(12)), null)));
+  }
+
+  @Test
+  void aWindowThatYieldsNoSamplesIsRejected() {
+    // this used to truncate to zero, which asks the RPC for nothing and leaves
+    // slot timing pinned to its configured default forever
+    for (final var tooShort : new Duration[]{Duration.ofSeconds(59), Duration.ZERO}) {
+      final var ex = assertThrows(
+          IllegalArgumentException.class,
+          () -> EpochInfoService.createService(config(tooShort), null)
+      );
+      assertTrue(ex.getMessage().contains("at least one 60 second sample"), ex.getMessage());
+    }
+  }
+
+  @Test
+  void aWindowBeyondTheRpcSampleLimitIsRejected() {
+    final var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> EpochInfoService.createService(config(Duration.ofHours(13)), null)
+    );
+    assertTrue(ex.getMessage().contains("at most 720"), ex.getMessage());
   }
 
   @Test

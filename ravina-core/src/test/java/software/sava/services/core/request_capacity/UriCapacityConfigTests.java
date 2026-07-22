@@ -80,6 +80,19 @@ final class UriCapacityConfigTests {
   }
 
   @Test
+  void aJsonNullLeavesTheIteratorPositionedAfterIt() {
+    // The element after the null only parses if the null was consumed.
+    final var ji = JsonIterator.parse("""
+        [null, "https://api.example.com/rpc"]""");
+    assertTrue(ji.readArray());
+    assertNull(UriCapacityConfig.parseConfig(ji));
+    assertTrue(ji.readArray());
+    final var config = UriCapacityConfig.parseConfig(ji);
+    assertNotNull(config);
+    assertEquals(URI.create("https://api.example.com/rpc"), config.endpoint());
+  }
+
+  @Test
   void aBareJsonStringIsTheEndpoint() {
     final var config = UriCapacityConfig.parseConfig(JsonIterator.parse("\"https://api.example.com/rpc\""));
     assertNotNull(config);
