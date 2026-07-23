@@ -1,10 +1,2 @@
 software.sava.services.solana.epoch.Epoch,create,83,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.solana.epoch.Epoch,estimatedBlockHeight,159,NullReturnValsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,estimatedBlockHeight,163,NullReturnValsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,estimatedSlot,140,PrimitiveReturnsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,estimatedSlot,144,PrimitiveReturnsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,logFormat,175,EmptyObjectReturnValsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,millisRemaining,113,PrimitiveReturnsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,percentComplete,171,PrimitiveReturnsMutator,NO_COVERAGE
-software.sava.services.solana.epoch.Epoch,timeRemaining,125,PrimitiveReturnsMutator,NO_COVERAGE
 software.sava.services.solana.epoch.SlotPerformanceStats,calculateStats,42,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED

@@ -15,7 +15,12 @@ import software.sava.rpc.json.http.response.TxMeta;
 import software.sava.rpc.json.http.response.TxResult;
 import software.sava.rpc.json.http.response.TxSimulation;
 import software.sava.rpc.json.http.response.TxStatus;
+import software.sava.services.core.remote.call.Backoff;
+import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
+import software.sava.services.core.request_capacity.CapacityConfig;
+import software.sava.services.core.request_capacity.CapacityState;
+import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 import software.sava.services.solana.LogSilencer;
 import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
@@ -25,11 +30,14 @@ import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -44,8 +52,9 @@ import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 
 /// Drives `BaseInstructionService` end to end against in-memory collaborators.
 /// Nothing here touches the network: the RPC fallback inside `sendTransaction`
-/// is exercised only through an `RpcCaller` that cannot dispatch, which is the
-/// same observable outcome as a failed block-hash lookup.
+/// is exercised through an `RpcCaller` that cannot dispatch (the same
+/// observable outcome as a failed block-hash lookup) and through one whose
+/// proxy client serves `getLatestBlockHash` inline for the successful side.
 final class BaseInstructionServiceTests {
 
   static final BigDecimal MAX_FEE = new BigDecimal("10000");
@@ -166,6 +175,10 @@ final class BaseInstructionServiceTests {
     /// The first this many block hash lookups report no block hash.
     int missingBlockHashCalls;
     int blockHashCalls;
+    /// Set to let the RPC block-hash fallback succeed; unset, the overload
+    /// keeps throwing so tests that must not reach it still fail loudly.
+    long fallbackBlockHeight;
+    final List<LatestBlockHash> fallbackBlockHashes = new ArrayList<>();
     Simulator simulator = (call, ixs) -> successfulSimulation(ixs);
 
     @Override
@@ -290,7 +303,11 @@ final class BaseInstructionServiceTests {
 
     @Override
     public long setBlockHash(final Transaction transaction, final LatestBlockHash blockHash) {
-      throw new UnsupportedOperationException();
+      if (fallbackBlockHeight == 0) {
+        throw new UnsupportedOperationException();
+      }
+      fallbackBlockHashes.add(blockHash);
+      return fallbackBlockHeight;
     }
 
     @Override
@@ -441,6 +458,98 @@ final class BaseInstructionServiceTests {
     return new RpcCaller(null, noClients, null);
   }
 
+  private static final class NoopTracker extends RootErrorTracker<SolanaRpcClient, byte[]> {
+
+    NoopTracker(final CapacityState capacityState) {
+      super(capacityState);
+    }
+
+    @Override
+    protected boolean isServerError(final SolanaRpcClient response) {
+      return false;
+    }
+
+    @Override
+    protected boolean isRequestError(final SolanaRpcClient response) {
+      return false;
+    }
+
+    @Override
+    protected boolean isRateLimited(final SolanaRpcClient response) {
+      return false;
+    }
+
+    @Override
+    protected boolean updateGroupedErrorResponseCount(final long now,
+                                                      final SolanaRpcClient response,
+                                                      final byte[] body) {
+      return false;
+    }
+
+    @Override
+    protected void logResponse(final SolanaRpcClient response, final byte[] body) {
+    }
+  }
+
+  private static final class InlineExecutor extends AbstractExecutorService {
+
+    private volatile boolean shutdown;
+
+    @Override
+    public void execute(final Runnable command) {
+      command.run();
+    }
+
+    @Override
+    public void shutdown() {
+      shutdown = true;
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+      shutdown = true;
+      return List.of();
+    }
+
+    @Override
+    public boolean isShutdown() {
+      return shutdown;
+    }
+
+    @Override
+    public boolean isTerminated() {
+      return shutdown;
+    }
+
+    @Override
+    public boolean awaitTermination(final long timeout, final TimeUnit unit) {
+      return shutdown;
+    }
+  }
+
+  /// An `RpcCaller` whose single proxy client serves `getLatestBlockHash`
+  /// inline, so the successful side of `sendTransaction`'s block-hash fallback
+  /// runs synchronously and without a network.
+  static RpcCaller blockHashServingRpcCaller(final LatestBlockHash latestBlockHash) {
+    final var second = Duration.ofSeconds(1);
+    // Capacity generous enough that no test ever waits on the token bucket.
+    final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
+    final var monitor = config.createMonitor("base", NoopTracker::new);
+    final var client = (SolanaRpcClient) Proxy.newProxyInstance(
+        SolanaRpcClient.class.getClassLoader(),
+        new Class<?>[]{SolanaRpcClient.class},
+        (proxy, method, args) -> switch (method.getName()) {
+          case "getLatestBlockHash" -> CompletableFuture.completedFuture(latestBlockHash);
+          case "toString" -> "FakeRpcClient";
+          case "hashCode" -> System.identityHashCode(proxy);
+          case "equals" -> proxy == args[0];
+          default -> throw new UnsupportedOperationException(method.getName());
+        }
+    );
+    final var item = BalancedItem.createItem(client, monitor, Backoff.single(TimeUnit.MILLISECONDS, 1));
+    return new RpcCaller(new InlineExecutor(), LoadBalancer.createBalancer(item), CallWeights.createDefault());
+  }
+
   static BaseInstructionService service(final FakeTxProcessor processor, final FakeMonitor monitor) {
     return new BaseInstructionService(
         nonDispatchingRpcCaller(),
@@ -523,6 +632,42 @@ final class BaseInstructionServiceTests {
 
     assertNull(sendContext, "a non-positive block height must take the failing fallback and abandon the send");
     assertTrue(processor.sentTransactions.isEmpty(), "nothing may be sent without a block hash");
+  }
+
+  @Test
+  void sendTransactionFetchesAReplacementBlockHashWhenTheSimulationLacksOne() {
+    final var processor = new FakeTxProcessor();
+    processor.blockHeight = 0;
+    processor.fallbackBlockHeight = 7_777;
+    final var latestBlockHash = new LatestBlockHash(null, "REPLACEMENT_HASH", 8_642L);
+    final var service = new BaseInstructionService(
+        blockHashServingRpcCaller(latestBlockHash),
+        processor,
+        SPLClient.createClient(),
+        new FakeEpochInfoService(),
+        new FakeMonitor()
+    );
+
+    final var ixs = instructions(2);
+    final var futures = successfulSimulation(ixs);
+
+    // The missing replacement hash is logged at WARNING before the RPC lookup.
+    final SendTxContext sendContext;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      sendContext = service.sendTransaction(
+          BaseInstructionService.NO_OP,
+          futures,
+          futures.simulationFuture().join(),
+          MAX_FEE,
+          123_456
+      );
+    }
+
+    assertNotNull(sendContext, "a served block hash must let the send proceed");
+    assertEquals(7_777, sendContext.blockHeight());
+    assertEquals(List.of(latestBlockHash), processor.fallbackBlockHashes,
+        "the fetched hash must be the one applied to the transaction");
+    assertEquals(List.of(7_777L), processor.sentBlockHeights);
   }
 
   @Test

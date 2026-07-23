@@ -58,3 +58,10 @@ re-parses the same span via `ji.reset(configMark)` in `createConfig`, while
 the direct arm parses in place. Forcing either direction changes only which
 path is taken and the intermediate mark bookkeeping, not the constructed
 service — which is why field order in the JSON document does not matter.
+The baseline carries *two* `EQUAL_ELSE` rows at this coordinate (2026-07-23):
+the compound condition yields one mutant per `== null` operand, and the
+multiset comparison materialized the sibling the old set-based compare
+collapsed. The same converging-paths argument covers both operands; the one
+`_EQUAL_IF` this run *did* kill (`testJsonDeferredConfigBeforeFactoryClass`)
+is the config-before-factoryClass ordering, whose forced direct dispatch is
+observable — the accepted rows are the directions that still converge.

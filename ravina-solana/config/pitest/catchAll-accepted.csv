@@ -8,14 +8,13 @@ software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,seri
 software.sava.services.solana.load_balance.LoadBalanceUtil,lambda$createRPCLoadBalancer$0,19,NakedReceiverMutator,SURVIVED
 software.sava.services.solana.transactions.BaseBatchInstructionService,batchProcess,142,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.services.solana.transactions.BaseBatchInstructionService,processBatch,61,VoidMethodCallMutator,SURVIVED
-software.sava.services.solana.transactions.BaseInstructionService,lambda$sendTransaction$0,76,NullReturnValsMutator,NO_COVERAGE
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,167,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,204,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,244,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,257,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,258,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,276,VoidMethodCallMutator,SURVIVED
-software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,80,VoidMethodCallMutator,NO_COVERAGE
+software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,80,VoidMethodCallMutator,SURVIVED # covered 2026-07-23 by the successful-fallback test; logger.log removal, the documented logging family
 software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,84,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,173,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,188,VoidMethodCallMutator,SURVIVED
@@ -43,7 +42,8 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,accept,64,VoidMetho
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,71,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,81,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand of the outer double-checked condition, surfaced by the multiset comparison 2026-07-23; the locked re-check governs
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand of the outer double-checked condition, surfaced by the multiset comparison 2026-07-23; the locked re-check governs
 software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,117,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.solana.websocket.WebSocketManagerImpl,resetWebsocket,58,PrimitiveReturnsMutator,SURVIVED
 software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,132,RemoveConditionalMutator_EQUAL_IF,SURVIVED

@@ -53,3 +53,10 @@ whole-array path is not one here — no contract, javadoc or caller depends on
 it. Such harnesses also re-run once per mutant, need a `volatile` sink so
 escape analysis cannot delete what they measure, and flap when the margin is
 thin. This entry is the documented outcome, not a deferred task.
+The baseline carries *two* `EQUAL_ELSE` rows at this coordinate (2026-07-23):
+the guard is a compound condition, so PIT emits one mutant per `==` operand;
+the multiset comparison materialized the sibling the old set-based compare
+collapsed. Forcing either equality false forces the same copy branch, so one
+argument covers both. (The `_EQUAL_IF` siblings are killed — forcing the
+no-copy branch posts the wrong subrange — by `signWithOffsetPostsSubRange`
+and `signWithTruncatedLengthPostsSubRange`.)

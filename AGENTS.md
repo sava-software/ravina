@@ -80,8 +80,11 @@ parsing, and KMS-backed signing.
   pacing/backoff behavior is an exact function of the delays requested — see
   `CallTests`, `BalancedCallTests`, `CapacityStateTests`. Give test clocks a
   non-zero origin so a mutated `start = 0` timestamp is distinguishable.
-  `Epoch` instead exposes explicit-`now` overloads; test those, not the
-  wall-clock delegates.
+  `Epoch` instead exposes explicit-`now` overloads; the arithmetic is tested
+  through those, while the no-arg wall-clock delegates carry one
+  delegation-sanity test whose bounds hold for any realistic clock reading
+  (see `wallClockDelegatesFeedTheExplicitNowArithmetic`) — extend that
+  pattern, never a timing-tolerance assertion.
 - `NanoClock` carries **two** readings: monotonic `nanoTime()` for pacing, and
   `currentTimeMillis()` for wall-clock age comparisons. `SYSTEM` overrides the
   latter with the real epoch clock; the interface default derives it from
@@ -134,18 +137,30 @@ timeouts).
    acceptable as "equivalent"**, because you have not observed its behaviour.
    If accepting one is right, say *why it is unreachable*, not that it is
    equivalent.
-4. **Line-number churn is the one routine exception** — editing a mutated file
-   shifts entries. Confirm the "new" rows are the shifted old ones before
-   refreshing.
-5. **Determinism is the whole point.** Fixed seeds, no sleep-based or
+4. **Pure line drift passes on its own** — every "new" baseline entry a
+   same-status shift of a stale one, populations unchanged — with a notice to
+   refresh at a convenient moment. Anything mixed in (newly covered,
+   unexplained, changed counts) still fails: triage first, refresh after. The
+   verify's hint names the safe flag — `-PpruneMutationBaseline` (shrink-only,
+   cannot bake in a coin-flip) when nothing is new,
+   `-PupdateMutationBaseline` once the new rows are triaged. A refresh
+   carries a row's `# note` across a status flip, annotated for re-reading.
+5. **Iterate with `-PmutateOnly=<class-glob>`** while killing a cluster —
+   seconds instead of the full suite — then re-run unscoped before any
+   refresh: the tooling refuses to let a scoped report touch the baseline.
+6. **Identical baseline rows are sibling mutants** of one compound condition,
+   and the comparison is a multiset — never hand-dedupe. When one sibling
+   survives, the verify names the killed sibling's test; the survivor is the
+   opposite branch direction — triage it as its own mutant.
+7. **Determinism is the whole point.** Fixed seeds, no sleep-based or
    timing-tolerance tests, no reliance on PIT's timeout to detect a mutant. A
    flapping ratchet is worse than recorded debt, and this repo has twice paid
    to re-learn that.
-6. **A suite's percentage is not a target.** An accepted mutant with a written
+8. **A suite's percentage is not a target.** An accepted mutant with a written
    reason is finished work, not debt. Before trying to raise a number, check
    whether what remains is `NO_COVERAGE` (real work) or documented equivalents
    (already closed).
-7. **Verify by the absence of failures, not the presence of passes.** Counting
+9. **Verify by the absence of failures, not the presence of passes.** Counting
    `PASSED` lines hides a failure sitting beside them, and a green build can
    mean Gradle skipped the task rather than that anything ran — check the
    failure count and confirm the task actually executed. PIT has a second
@@ -154,29 +169,37 @@ timeouts).
    that never happened. Trust the exit code, and delete the report directory
    when comparing two runs — Gradle will otherwise serve an up-to-date task
    and you will diff a file against itself.
-8. **A suite that got faster without getting narrower is a bug report.** Real
-   speedups come from fewer mutants or faster covering tests; anything else
-   usually means the run did less than you think. `HARDENING.md` records what
-   has already been tried here — suite splitting and `targetTests` narrowing
-   pay, PIT's `threads` does not. (Exception, once the plugin bump lands: a
-   summary carrying the `[history]` marker is arcmutate incremental reuse and
-   fast is expected — but the pre-release gate still runs
-   `-PnoMutationHistory` to re-earn every status from scratch.)
-9. **Transient infra failures are not results.** PIT `MINION_DIED` fails
+10. **A suite that got faster without getting narrower is a bug report.** Real
+    speedups come from fewer mutants or faster covering tests; anything else
+    usually means the run did less than you think. `HARDENING.md` records what
+    has already been tried here — suite splitting and `targetTests` narrowing
+    pay, PIT's `threads` does not. (Exception: a summary carrying the
+    `[history]` marker is arcmutate incremental reuse and fast is expected —
+    but the pre-release gate still runs `-PnoMutationHistory` to re-earn
+    every status from scratch.)
+11. **Transient infra failures are not results.** PIT `MINION_DIED` fails
    before writing a report, so it cannot corrupt one — re-run the suite; a
    Gradle-worker `EOFException` death is the same shape, and a per-mutant
    `RUN_ERROR` under load is the same shape smaller. The daemon log
    (`~/.gradle/daemon/<version>/daemon-<pid>.out.log`) keeps a failed build's
    full output even when the shell discarded it — read it before calling a
    failure unexplained.
-10. **A wandering unkilled count is a defect, not noise** — chase it before
+12. **A wandering unkilled count is a defect, not noise** — chase it before
     refreshing any baseline. Known causes: real waits, `TIMED_OUT` load
     flips, and coverage attributed to field initializers (exercise factories
     from inside a `@Test`). This repo has no `@Execution`/`@TestInstance`
     annotations or abstract test bases, so that cause is currently absent —
     if one is introduced, whether the annotation reaches subclasses is
     JUnit-version-dependent; `javap` the resolved jar before restructuring.
-11. **Kill rates are bounded by the mutator set.** Big-number math is method
+13. **Build the subject under test inside the test body, not in a field.**
+    Under `PER_CLASS` lifecycle a field-initialized subject's construction
+    coverage attaches to whichever test runs first, so wiring mutants can
+    never pair with the test that drives what they wire — they survive even
+    under a harness that asserts every request. One test that constructs the
+    subject in the test method and drives each configured path restores the
+    pairing. (No test here uses `PER_CLASS` yet — see rule 12 — but this is
+    the rule to know before one does.)
+14. **Kill rates are bounded by the mutator set.** Big-number math is method
     calls, invisible to the default arithmetic mutators — `fees` adds
     `EXPERIMENTAL_BIG_DECIMAL`, solana's `catchAll` adds
     `EXPERIMENTAL_BIG_INTEGER` — and fluent calls returning their receiver
@@ -184,7 +207,7 @@ timeouts).
     where `EXPERIMENTAL_NAKED_RECEIVER` fires enable it. Trial per suite,
     enable only what fires, and record the numbers in that module's
     `config/pitest/README.md` (the existing trial tables are the format).
-12. **PIT minions run on the class path**, even though this repo's tasks run
+15. **PIT minions run on the class path**, even though this repo's tasks run
     on the module path: `module-info` services are invisible to them, and a
     test-resources `META-INF/services` is invisible to the module-path `test`
     task. Real services are declared in both places (`module-info` **and**
@@ -192,7 +215,7 @@ timeouts).
     `ravina-core`'s `ErrorTrackerFactory`); a harness whose result depends on
     which task ran it is never committed.
 
-<!-- hardening-template sha256:a3a73f4b95f3 -->
+<!-- hardening-template sha256:2c504992c917 -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

@@ -67,6 +67,18 @@ Two mechanical points that cost real time to rediscover:
   sub-package. A row spelled `returns.NullReturnValsMutator` sits in the file
   and never matches, so its entry is reported new forever. Prefer
   `-PupdateMutationBaseline`, which writes the canonical form.
+- **Status is part of the row.** A `NO_COVERAGE -> SURVIVED` flip is two
+  different rows at one coordinate; anything that matches baseline rows by
+  `class,method,line,mutator` alone lets a stale row consume the live
+  mutant's match and delete the wrong entry (shared casebook: the
+  status-blind prune). Never script against a baseline — the refresh flags
+  are mutually exclusive and cover the cases: `-PupdateMutationBaseline`
+  (full rewrite, after new rows are triaged; carries a dropped row's
+  `# note` across a status flip, annotated for re-reading),
+  `-PunionMutationBaseline` (adds flip insurance), and
+  `-PpruneMutationBaseline` (shrink-only — drops rows matching nothing this
+  run, writes nothing, and keeps `TIMED_OUT` coordinates and pending
+  coverage flips; the always-safe cleanup after a pass that killed rows).
 - PIT's conditional mutators, verified empirically here: `*_IF` forces the
   condition **true**, `*_ELSE` forces it **false**.
 
@@ -85,8 +97,13 @@ Two mechanical points that cost real time to rediscover:
   written reason in the module's `config/pitest/README.md`. Never run
   `-PupdateMutationBaseline` just to make the build pass.
 - Line-number churn from editing a mutated file shows up as paired stale +
-  "new" baseline entries; confirm they're the shifted old ones before
-  refreshing.
+  "new" baseline entries. When the drift is pure — every new entry a
+  same-status shift of a stale one, populations unchanged — the verify
+  passes with a notice; refresh at a convenient moment. Anything mixed in
+  still fails and is triage first, refresh after. While killing a cluster,
+  iterate with `-PmutateOnly=<class-glob>` (seconds instead of the full
+  suite); the ratchet skips scoped runs and a scoped report can never
+  refresh a baseline, so finish with an unscoped run.
 - The baselines are fully triaged: **every** accepted entry has a written
   reason in the module's `config/pitest/README.md`. An entry with a reason is a
   finished outcome, not debt waiting to be cleared — do not chase a suite's
@@ -129,6 +146,13 @@ Two mechanical points that cost real time to rediscover:
 - **Every fuzz finding becomes two artifacts**: the minimized input committed
   to the seed corpus as `regression-<what>`, and a named regression test. A
   crash fixed without both is a crash that can return.
+- `fuzz<Target>Minimize` (libFuzzer `-merge=1`) minimizes the committed seed
+  corpus — pure dedup by default; `-PadoptLocalCorpus` also folds in inputs
+  accumulated by local `fuzz<Target>` runs (opt-in: adoption can bring
+  megabytes of hash-named files and can displace a *named* seed whose
+  coverage smaller inputs replicate). Merges stage away from the corpus, so
+  a failed merge cannot wipe it, and surviving seeds keep their committed
+  names. Review the diff and update the corpus README before committing.
 - `FuzzCorpusReplayTests` (one per module) replays every committed seed
   through its harness inside `check`, so seeds face PIT's mutants and a
   promoted finding keeps failing in the ordinary build without waiting on a

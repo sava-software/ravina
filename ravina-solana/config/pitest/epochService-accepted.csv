@@ -10,19 +10,25 @@ software.sava.services.solana.epoch.EpochInfoServiceImpl,fetchEpochNow,172,VoidM
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,106,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,111,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,88,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,88,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand of the slotStats/samplesFuture compound, surfaced by the multiset comparison 2026-07-23; same family as the accepted row
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,191,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,196,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,204,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,211,MathMutator,SURVIVED
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,211,MathMutator,SURVIVED # sibling op of the sleep expression, surfaced by the multiset comparison 2026-07-23; only feeds the un-clock-routed await
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,211,MathMutator,SURVIVED # sibling op of the sleep expression, surfaced by the multiset comparison 2026-07-23; only feeds the un-clock-routed await
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,228,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,229,MathMutator,NO_COVERAGE
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,229,MathMutator,NO_COVERAGE # sibling subtraction on the same line, surfaced by the multiset comparison 2026-07-23; inside the fetchEpochNow==true block, not deterministically producible
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,230,ConditionalsBoundaryMutator,NO_COVERAGE
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,230,RemoveConditionalMutator_ORDER_ELSE,NO_COVERAGE
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,230,RemoveConditionalMutator_ORDER_IF,NO_COVERAGE
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,232,VoidMethodCallMutator,NO_COVERAGE
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,ConditionalsBoundaryMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # sibling operand of the fetch disjunction, surfaced by the multiset comparison 2026-07-23; same converging family
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand of the fetch disjunction, surfaced by the multiset comparison 2026-07-23; same converging family
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,235,RemoveConditionalMutator_ORDER_IF,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,240,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,247,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED

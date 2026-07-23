@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -171,5 +172,42 @@ final class EpochTests {
     assertEquals(100.0, epoch.percentComplete(432_000));
     // 31,536,000,000 millis per year / (400 ms per slot * 432,000 slots per epoch).
     assertEquals(183, epoch.epochsPerYear(400));
+  }
+
+  @Test
+  void wallClockDelegatesFeedTheExplicitNowArithmetic() {
+    // The arithmetic is pinned through the explicit-`now` overloads above; this
+    // only asserts that the no-arg delegates feed a real reading into it. At
+    // 2,000,000,000 ms/slot the epoch ends around the year 29,300, so every
+    // bound below holds for any clock reading this millennium — nothing here is
+    // a timing tolerance.
+    final var info = epochInfo(1_000, 500, 100);
+    final var epoch = Epoch.create(null, null, info, 2_000_000_000, null, 1);
+
+    final long millisRemaining = epoch.millisRemaining();
+    assertTrue(millisRemaining > 0, "the epoch ends ~27,000 years out");
+    assertTrue(millisRemaining < epoch.endsAt(), "a real now is positive");
+
+    assertTrue(epoch.timeRemaining(TimeUnit.MILLISECONDS) > 0);
+
+    // A real now is at or past the sample, so the estimate never regresses
+    // below the sampled slot index, and min() caps it at the epoch length.
+    final long estimatedSlot = epoch.estimatedSlot();
+    assertTrue(estimatedSlot >= 100 && estimatedSlot <= 432_000, () -> "slot " + estimatedSlot);
+    final long estimatedSlotAt = epoch.estimatedSlot(400);
+    assertTrue(estimatedSlotAt >= 100 && estimatedSlotAt <= 432_000, () -> "slot " + estimatedSlotAt);
+
+    // A zero skip rate only ever adds slot progress to the sampled height.
+    final var height = epoch.estimatedBlockHeight();
+    assertNotNull(height);
+    assertTrue(height.longValueExact() >= 1_000);
+    final var heightAt = epoch.estimatedBlockHeight(400, 0.0);
+    assertNotNull(heightAt);
+    assertTrue(heightAt.longValueExact() >= 1_000);
+
+    assertTrue(epoch.percentComplete() > 0.0, "at least the sampled 100 slots have passed");
+
+    final var log = epoch.logFormat();
+    assertTrue(log.startsWith("Epoch 500 :: "), log);
   }
 }

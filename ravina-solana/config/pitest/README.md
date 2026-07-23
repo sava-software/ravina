@@ -20,9 +20,10 @@ A new unkilled mutant has exactly three legal outcomes:
    respect to observable behavior*, not for "hard to test".
 
 Line numbers are part of the baseline key, so unrelated edits to a mutated
-file can shift entries: the verify task then reports both stale and "new"
-rows. Confirm the new rows are the shifted old ones, then refresh with
-`-PupdateMutationBaseline`.
+file can shift entries. Pure line drift — every new row a same-status shift
+of a stale one, populations unchanged — passes with a notice; refresh at a
+convenient moment (`-PpruneMutationBaseline` is the shrink-only option when
+nothing is new). Anything mixed in still fails: triage first, refresh after.
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
@@ -188,21 +189,19 @@ observed about the mutant's behaviour and calling it "equivalent" would be a
 claim we have not earned. They are accepted because the convention says not to
 test this shape, which is a coverage decision — a different thing.
 
-**Wall-clock delegates** (`epoch`) — `NO_COVERAGE` mutants on
-`Epoch.millisRemaining`, `timeRemaining`, `estimatedSlot`,
-`estimatedBlockHeight`, `percentComplete`, and `logFormat`. Per the repo's
-testing conventions, `Epoch` is tested through its explicit-`now` overloads;
-the no-arg delegates only supply `System.currentTimeMillis()` and are
-deliberately not unit-tested. Covering them would pin the system clock, not
-the arithmetic — the arithmetic is already pinned through the `now` overloads.
-
-`logFormat()` and `millisRemaining()` joined this group when `logEpoch` was
-replaced by the pure `epochLogMessage(previous, latest, now)`: the formatter
-calls the explicit-`now` overloads, so nothing exercises the no-arg delegates
-any more and their rows moved `SURVIVED` → `NO_COVERAGE`. That is the group
-becoming *consistent* rather than a coverage loss — every delegate is now
-uncovered for the same stated reason, where before two happened to be executed
-incidentally.
+**Wall-clock delegates** (`epoch`) — *closed 2026-07-23: all eight rows
+killed.* The group used to be accepted as a coverage decision ("testing the
+delegates would pin the system clock"), but that conflated two things: the
+arithmetic, which the explicit-`now` overloads pin exactly, and *delegation* —
+that the no-arg forms feed a real reading into that arithmetic — which nothing
+asserted at all. `wallClockDelegatesFeedTheExplicitNowArithmetic` now asserts
+delegation with bounds that are not timing tolerances: the epoch under test
+ends around the year 29,300, so "remaining is positive", "the slot estimate is
+at least the sampled index", and "the height is at least the sampled height"
+hold for any clock reading this millennium, deterministically. If a delegate
+ever stops delegating (drops a term, calls the wrong overload, returns a
+constant), these fail; nothing here can flap short of a machine whose clock
+predates the sample origin.
 
 ## Not deterministically reachable (accepted, but not "equivalent")
 
@@ -221,7 +220,7 @@ fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a scripted
 websocket, and running the loops synchronously on the test thread. Only the two
 classes below retain real debt.
 
-**`EpochInfoServiceImpl` (30)** — still the largest single block. The
+**`EpochInfoServiceImpl` (36)** — still the largest single block. The
 *log-text-only* group that used to dominate it is gone: `logEpoch` both
 formatted a message and logged it, and returned its own argument, so eleven
 branch-selection and arithmetic mutants were unkillable purely because their
@@ -246,7 +245,19 @@ What remains, verified by hand-applying each mutant:
 - *Logging removals* on the two relocated `logger.log` call sites and the exit
   message — the documented equivalent family.
 
-**`WebSocketManagerImpl` (7)** — was 12: the 2026-07-21 `NanoClock`
+Six of the 36 are duplicate rows added 2026-07-23 (`# note`-marked in the
+CSV): the 21.5.10 plugin's multiset comparison materialized sibling mutants
+the old set-based compare collapsed — compound conditions and multi-op
+expressions emit one mutant per operand at a single
+`class,method,line,mutator` coordinate. Each sibling was accepted into the
+family above that already covers its line (the `sleep` expression feeding
+only `await`, the `fetchEpochNow==true` block, the line-235 fetch
+disjunction, the line-88 stats-recompute guard); no new behaviour class was
+introduced. Same event, one row: `WebSocketManagerImpl.checkConnection`
+line 106 in `catchAll`, the sibling operand of the outer double-checked
+condition.
+
+**`WebSocketManagerImpl` (8)** — was 12: the 2026-07-21 `NanoClock`
 migration killed the two `elapsed == connectionDelay` millisecond boundaries
 (now exact strict-inequality tests on an injected clock), the
 `webSocket == null` re-check, and — together with the retained-pending-connect

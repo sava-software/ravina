@@ -117,7 +117,15 @@ sweep, not argued** (2026-07-21): both variants reimplemented outside the
 codebase with exact 64-bit semantics and diffed over initial 1..40 ×
 max ..500 exhaustively plus nano-scale configs (10⁹..10¹⁰, ±√Long.MAX
 boundaries), error counts through both variants' saturation points plus
-`Long.MAX_VALUE`/`Long.MIN_VALUE`/`-1` — zero differences.
+`Long.MAX_VALUE`/`Long.MIN_VALUE`/`-1` — zero differences. The baseline
+carries *two* boundary rows each at `fibonacci` line 93 and `<init>` line 14
+(2026-07-23): those loop conditions are compound, so PIT emits one boundary
+mutant per operand at the same coordinate; the plugin's multiset comparison
+materialized the sibling the old set-based compare collapsed. Both operands
+only move the saturation index, so the sweep argument covers both. (For
+`current > 0` at line 93 the sibling is doubly equivalent: two positive
+longs that overflow always wrap strictly negative, so `current == 0` is
+unreachable.)
 
 The sweep is also why two former members of this family are *gone*: the
 `LinearBackoffErrorHandler` `<init>` MathMutator and `calculateDelay` boundary
@@ -270,7 +278,12 @@ still executes and which can only diverge when a competing thread makes the
 CAS fail or observes an unreleased lock: `CapacityStateVal.tryClaimRequest`
 (lines 120/124/126) and `.tryUpdateCapacity`, `SortedLoadBalancer.nextNoSkip`,
 and the `unlock()` removals in `SortedLoadBalancer.sort`/`.items` (the lock is
-reentrant, so the owning thread re-enters freely single-threaded).
+reentrant, so the owning thread re-enters freely single-threaded). The
+`tryClaimRequest` line-132 `NO_COVERAGE` row is this family's unreached
+member, not an equivalent: the put-claim-back `return false` runs only when
+capacity drops between the unconditional read and the atomic claim, which
+single-threaded tests cannot produce — it is part of the deferred
+concurrency-harness block below.
 
 *(The `RootErrorTracker.produceErrorResponseSnapshot` expiry boundary used to
 sit here, unkillable because the method hard-coded `System.currentTimeMillis()`.
