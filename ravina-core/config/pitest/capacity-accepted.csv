@@ -1,8 +1,8 @@
-software.sava.services.core.request_capacity.CapacityStateVal,claimRequest,94,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,durationUntil,196,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,126,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,126,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,130,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,132,BooleanTrueReturnValsMutator,NO_COVERAGE
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,141,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.request_capacity.CapacityStateVal,tryUpdateCapacity,115,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.core.request_capacity.CapacityStateVal,claimRequest,94,ConditionalsBoundaryMutator,SURVIVED # zero-weight
+software.sava.services.core.request_capacity.CapacityStateVal,durationUntil,196,ConditionalsBoundaryMutator,SURVIVED # zero-weight
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,126,RemoveConditionalMutator_EQUAL_IF,SURVIVED # concurrency-deferred
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,126,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # concurrency-deferred
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,130,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # concurrency-deferred
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,132,BooleanTrueReturnValsMutator,NO_COVERAGE # concurrency-deferred
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,141,ConditionalsBoundaryMutator,SURVIVED # zero-weight
+software.sava.services.core.request_capacity.CapacityStateVal,tryUpdateCapacity,115,RemoveConditionalMutator_EQUAL_IF,SURVIVED # concurrency-deferred

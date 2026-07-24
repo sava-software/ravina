@@ -104,6 +104,13 @@ Two mechanical points that cost real time to rediscover:
   iterate with `-PmutateOnly=<class-glob>` (seconds instead of the full
   suite); the ratchet skips scoped runs and a scoped report can never
   refresh a baseline, so finish with an unscoped run.
+- **Every accepted row carries a short family label** (`# log-removal`,
+  `# concurrency-deferred`, …) whose full argument lives in this module's
+  `config/pitest/README.md`; the verify summary counts rows per label, so
+  triage state is a number the build prints. Refreshes seed genuinely new
+  rows as `# untriaged` — triage means replacing that label. Carry markers
+  (`(carried across …)`) are appended by the refresh and are not part of
+  the label.
 - The baselines are fully triaged: **every** accepted entry has a written
   reason in the module's `config/pitest/README.md`. An entry with a reason is a
   finished outcome, not debt waiting to be cleared — do not chase a suite's

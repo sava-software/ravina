@@ -129,8 +129,12 @@ timeouts).
    it into CI.
 2. **A new unkilled mutant has three legal outcomes**: kill it with a test that
    asserts the property it breaks, refactor it out of existence, or accept it
-   with a written reason in the module's `config/pitest/README.md`. Never run
-   `-PupdateMutationBaseline` just to make the build pass.
+   with a written reason in the module's `config/pitest/README.md` **and a
+   short family label on the row itself** — refreshes seed new rows
+   `# untriaged`, and triage means replacing that label, so the baseline
+   always says which rows are argued and which are debt (the verify counts
+   rows per label). Never run `-PupdateMutationBaseline` just to make the
+   build pass.
 3. **`SURVIVED` and `NO_COVERAGE` are different problems.** A survivor ran the
    line and the test could not tell — a judgment call about equivalence. A
    no-coverage mutant was never executed — mechanical work, and **never
@@ -215,7 +219,7 @@ timeouts).
     `ravina-core`'s `ErrorTrackerFactory`); a harness whose result depends on
     which task ran it is never committed.
 
-<!-- hardening-template sha256:2c504992c917 -->
+<!-- hardening-template sha256:cdac2e3852a9 -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

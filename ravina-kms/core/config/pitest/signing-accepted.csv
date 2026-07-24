@@ -1,5 +1,5 @@
-software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile,25,NakedReceiverMutator,SURVIVED
-software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,95,ConditionalsBoundaryMutator,SURVIVED
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # sibling operand of the factoryClass/backoff compound, surfaced by the multiset comparison 2026-07-23; same converging-dispatch family
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile,25,NakedReceiverMutator,SURVIVED # suffix-on-full-path
+software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,95,ConditionalsBoundaryMutator,SURVIVED # mark-sentinel
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_IF,SURVIVED # converging-dispatch

@@ -1,8 +1,8 @@
-software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,67,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.core.remote.load_balance.ArrayLoadBalancer,withContext,99,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,items,75,VoidMethodCallMutator,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,PrimitiveReturnsMutator,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,nextNoSkip,94,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,sort,65,VoidMethodCallMutator,SURVIVED
+software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,67,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough
+software.sava.services.core.remote.load_balance.ArrayLoadBalancer,withContext,99,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,items,75,VoidMethodCallMutator,SURVIVED # concurrency-deferred
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,PrimitiveReturnsMutator,SURVIVED # comparator-null-order
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # comparator-null-order
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,17,RemoveConditionalMutator_EQUAL_IF,SURVIVED # comparator-null-order
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,nextNoSkip,94,RemoveConditionalMutator_EQUAL_IF,SURVIVED # concurrency-deferred
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,sort,65,VoidMethodCallMutator,SURVIVED # concurrency-deferred

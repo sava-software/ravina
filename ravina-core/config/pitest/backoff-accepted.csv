@@ -1,10 +1,10 @@
-software.sava.services.core.remote.call.Backoff,fibonacci,61,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,fibonacci,71,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,fibonacci,87,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,fibonacci,93,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.Backoff,fibonacci,93,ConditionalsBoundaryMutator,SURVIVED # sibling operand of the line-93 compound condition, surfaced by the multiset comparison 2026-07-23; same sweep-verified saturation-index family
-software.sava.services.core.remote.call.Backoff,fibonacci,93,RemoveConditionalMutator_ORDER_ELSE,SURVIVED
-software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,ConditionalsBoundaryMutator,SURVIVED # sibling operand of the line-14 compound condition, surfaced by the multiset comparison 2026-07-23; same sweep-verified saturation-index family
-software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,RemoveConditionalMutator_ORDER_IF,SURVIVED
-software.sava.services.core.remote.call.FibonacciBackoffErrorHandler,calculateDelay,21,ConditionalsBoundaryMutator,SURVIVED
+software.sava.services.core.remote.call.Backoff,fibonacci,61,ConditionalsBoundaryMutator,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.Backoff,fibonacci,71,ConditionalsBoundaryMutator,SURVIVED # overflow-guard-sweep
+software.sava.services.core.remote.call.Backoff,fibonacci,87,ConditionalsBoundaryMutator,SURVIVED # overflow-guard-sweep
+software.sava.services.core.remote.call.Backoff,fibonacci,93,ConditionalsBoundaryMutator,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.Backoff,fibonacci,93,ConditionalsBoundaryMutator,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.Backoff,fibonacci,93,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # overflow-guard-sweep
+software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,ConditionalsBoundaryMutator,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,ConditionalsBoundaryMutator,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.ExponentialBackoffErrorHandler,<init>,14,RemoveConditionalMutator_ORDER_IF,SURVIVED # saturation-sweep
+software.sava.services.core.remote.call.FibonacciBackoffErrorHandler,calculateDelay,21,ConditionalsBoundaryMutator,SURVIVED # index-coincidence-sweep

@@ -1,4 +1,4 @@
-software.sava.kms.http.HttpKMSClient,<init>,48,NakedReceiverMutator,SURVIVED
-software.sava.kms.http.HttpKMSClient,sign,71,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.kms.http.HttpKMSClient,sign,71,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # sibling operand of the offset/length compound, surfaced by the multiset comparison 2026-07-23; same allocation-only copy-elision family
-software.sava.kms.http.HttpKMSErrorTracker,logResponse,38,VoidMethodCallMutator,SURVIVED
+software.sava.kms.http.HttpKMSClient,<init>,48,NakedReceiverMutator,SURVIVED # restating-default
+software.sava.kms.http.HttpKMSClient,sign,71,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy
+software.sava.kms.http.HttpKMSClient,sign,71,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy
+software.sava.kms.http.HttpKMSErrorTracker,logResponse,38,VoidMethodCallMutator,SURVIVED # log-removal

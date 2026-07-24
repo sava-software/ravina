@@ -1,14 +1,14 @@
-software.sava.kms.google.GoogleKMSClient,lambda$publicKey$0,46,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClient,lambda$sign$0,61,NakedReceiverMutator,SURVIVED
-software.sava.kms.google.GoogleKMSClient,lambda$sign$0,62,NakedReceiverMutator,SURVIVED
-software.sava.kms.google.GoogleKMSClient,lambda$sign$0,68,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClientFactory,createService,103,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.kms.google.GoogleKMSClientFactory,createService,107,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.kms.google.GoogleKMSClientFactory,createService,111,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.kms.google.GoogleKMSClientFactory,createService,115,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.kms.google.GoogleKMSClientFactory,createService,124,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClientFactory,createService,142,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClientFactory,createService,70,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClientFactory,createService,87,NullReturnValsMutator,NO_COVERAGE
-software.sava.kms.google.GoogleKMSClientFactory,createService,99,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.kms.google.GoogleKMSErrorTracker,logResponse,38,VoidMethodCallMutator,SURVIVED
+software.sava.kms.google.GoogleKMSClient,lambda$publicKey$0,46,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClient,lambda$sign$0,61,NakedReceiverMutator,SURVIVED # needs-live-kms
+software.sava.kms.google.GoogleKMSClient,lambda$sign$0,62,NakedReceiverMutator,SURVIVED # needs-live-kms
+software.sava.kms.google.GoogleKMSClient,lambda$sign$0,68,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClientFactory,createService,103,RemoveConditionalMutator_EQUAL_IF,SURVIVED # setter-null-guard
+software.sava.kms.google.GoogleKMSClientFactory,createService,107,RemoveConditionalMutator_EQUAL_IF,SURVIVED # setter-null-guard
+software.sava.kms.google.GoogleKMSClientFactory,createService,111,RemoveConditionalMutator_EQUAL_IF,SURVIVED # setter-null-guard
+software.sava.kms.google.GoogleKMSClientFactory,createService,115,RemoveConditionalMutator_EQUAL_IF,SURVIVED # setter-null-guard
+software.sava.kms.google.GoogleKMSClientFactory,createService,124,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClientFactory,createService,142,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClientFactory,createService,70,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClientFactory,createService,87,NullReturnValsMutator,NO_COVERAGE # needs-live-kms
+software.sava.kms.google.GoogleKMSClientFactory,createService,99,RemoveConditionalMutator_EQUAL_IF,SURVIVED # setter-null-guard
+software.sava.kms.google.GoogleKMSErrorTracker,logResponse,38,VoidMethodCallMutator,SURVIVED # log-removal
