@@ -1,28 +1,17 @@
 software.sava.services.solana.epoch.EpochInfoServiceImpl,awaitInitialized,131,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,fetchEpochNow,173,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,107,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,112,VoidMethodCallMutator,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,89,RemoveConditionalMutator_EQUAL_IF,SURVIVED
+software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,89,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
 software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,89,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,197,VoidMethodCallMutator,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,205,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,212,MathMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,212,MathMutator,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,212,MathMutator,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,229,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,230,MathMutator,NO_COVERAGE
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,230,MathMutator,NO_COVERAGE # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,231,ConditionalsBoundaryMutator,NO_COVERAGE
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,231,RemoveConditionalMutator_ORDER_ELSE,NO_COVERAGE
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,231,RemoveConditionalMutator_ORDER_IF,NO_COVERAGE
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,233,VoidMethodCallMutator,NO_COVERAGE
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,212,MathMutator,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,ConditionalsBoundaryMutator,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_IF,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_IF,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # sibling operand, surfaced by the multiset comparison 2026-07-23; same documented family (notes restored after the 2026-07-23 line-shift refresh)
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_EQUAL_IF,SURVIVED # the fetchEpochNow-operand sibling; its samples-operand twin was killed 2026-07-23 by the signal-while-parked harness, so the multiset holds one row again
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,236,RemoveConditionalMutator_ORDER_IF,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,241,VoidMethodCallMutator,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,248,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,248,RemoveConditionalMutator_EQUAL_IF,SURVIVED
 software.sava.services.solana.epoch.EpochInfoServiceImpl,run,252,VoidMethodCallMutator,SURVIVED

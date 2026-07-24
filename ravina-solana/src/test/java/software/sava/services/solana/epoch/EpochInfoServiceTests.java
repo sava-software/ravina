@@ -303,6 +303,12 @@ final class EpochInfoServiceTests {
   }
 
   private EpochInfoServiceImpl serviceFor(final FakeRpcClient fake, final long fetchSamplesDelayMillis) {
+    return serviceFor(fake, fetchSamplesDelayMillis, 0);
+  }
+
+  private EpochInfoServiceImpl serviceFor(final FakeRpcClient fake,
+                                          final long fetchSamplesDelayMillis,
+                                          final long fetchEpochInfoAfterEndDelayMillis) {
     final var resetDuration = Duration.ofSeconds(1);
     final var config = new CapacityConfig(
         0, 100_000, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
@@ -319,7 +325,7 @@ final class EpochInfoServiceTests {
         1,
         NUM_SAMPLES,
         fetchSamplesDelayMillis,
-        0
+        fetchEpochInfoAfterEndDelayMillis
     );
   }
 
@@ -638,6 +644,102 @@ final class EpochInfoServiceTests {
       return service.lock.hasWaiters(service.initializedCondition);
     } finally {
       service.lock.unlock();
+    }
+  }
+
+  /// Shape 2b of the concurrency-harness plan (see ravina-core
+  /// `config/pitest/README.md`): a signal delivered while the *loop itself* is
+  /// parked. With the sample deadline pushed out, the loop's condition wait is
+  /// the epoch remainder — minutes — so a healthy run never times out of it.
+  /// The test signals through the production `fetchEpochNow()` method while
+  /// still holding the (reentrant) service lock after observing the waiter, so
+  /// a signal can never race a wake-up and be lost; `signal` transfers the
+  /// waiter off the condition queue synchronously, so "parked again" is queue
+  /// state, not elapsed time.
+  @Test
+  void fetchEpochNowWakesTheParkedLoopAndPacesTheRefetchByOneSlot() throws InterruptedException {
+    final var fake = new FakeRpcClient(
+        epochInfo(100, 10, 1_000_000),
+        epochInfo(100, 15, 1_000_010),
+        epochInfo(100, 20, 1_000_030),
+        epochInfo(100, 25, 1_000_050),
+        CLOSED_CLIENT
+    );
+    // Both wait deadlines sit far out — the sample delay directly, the epoch
+    // end via the after-end delay (the epoch itself is only ~90 test-clock ms
+    // long) — so the loop parks on `fetchEpochNow` instead of ticking, and
+    // `now > endsAt` stays false: every refetch below is signal-driven.
+    final var service = serviceFor(fake, 1_000_000_000L, 1_000_000_000L);
+
+    final var loop = new Thread(service::run, "epoch-loop");
+    loop.start();
+    try {
+      // The pacing gate compares against the sample fetched on the *previous*
+      // wake, so each round trip set below shapes the following wake's gate.
+      // Wake 1 paces against the zero-round-trip initial sample: one whole
+      // mean slot behind, so the gate sleeps exactly 1ms.
+      signalWhenParkedOnFetchEpochNow(service, loop);
+      awaitParkedOnFetchEpochNow(service, loop);
+      // Wake 2 paces against wake 1's zero-round-trip sample: 1ms again. Its
+      // own fetch carries a 2ms round trip, stamping that sample 1ms behind
+      // the clock for wake 3. The write is safe: the loop is parked, and the
+      // signal's lock hand-off publishes it.
+      fake.roundTrip(2);
+      signalWhenParkedOnFetchEpochNow(service, loop);
+      awaitParkedOnFetchEpochNow(service, loop);
+      // Wake 3's gate computes exactly zero — it must not sleep — and its 4ms
+      // round trip leaves wake 4's computation negative: no sleep either.
+      fake.roundTrip(4);
+      signalWhenParkedOnFetchEpochNow(service, loop);
+      awaitParkedOnFetchEpochNow(service, loop);
+      // Wake 4: the closed client stops the service.
+      signalWhenParkedOnFetchEpochNow(service, loop);
+      loop.join(2_000);
+      assertFalse(loop.isAlive(), "the closed client must stop the signalled loop");
+    } finally {
+      loop.interrupt();
+    }
+
+    // One fetch per wake plus the initial one; the samples never came due.
+    assertEquals(5, fake.epochCalls);
+    assertEquals(1, fake.sampleLimits.size(), "the sample deadline must never pass");
+    // The one-slot pacing gate slept on the two wakes a full slot behind their
+    // predecessor; the exactly-zero and negative computations must not reach
+    // the clock.
+    assertEquals(List.of(1L, 1L), clock.sleeps, "two pacing sleeps of one mean slot each");
+    // Each wake refetched: the published epoch is the last served sample.
+    assertEquals(25, service.epochInfo().info().slotIndex());
+    assertFalse(service.lock.isLocked(), "the loop must not leak its lock");
+  }
+
+  private void signalWhenParkedOnFetchEpochNow(final EpochInfoServiceImpl service, final Thread loop) {
+    while (loop.isAlive()) {
+      service.lock.lock();
+      try {
+        if (service.lock.hasWaiters(service.fetchEpochNow)) {
+          // Reentrant: the production method signals while this thread still
+          // holds the lock, so the parked loop cannot wake and miss it.
+          service.fetchEpochNow();
+          return;
+        }
+      } finally {
+        service.lock.unlock();
+      }
+      Thread.onSpinWait();
+    }
+  }
+
+  private void awaitParkedOnFetchEpochNow(final EpochInfoServiceImpl service, final Thread loop) {
+    while (loop.isAlive()) {
+      service.lock.lock();
+      try {
+        if (service.lock.hasWaiters(service.fetchEpochNow)) {
+          return;
+        }
+      } finally {
+        service.lock.unlock();
+      }
+      Thread.onSpinWait();
     }
   }
 

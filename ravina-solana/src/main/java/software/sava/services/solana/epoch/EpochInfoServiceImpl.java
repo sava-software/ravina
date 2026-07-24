@@ -38,9 +38,9 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private final long fetchEpochInfoAfterEndDelayMillis;
   private final Backoff backoff;
   final ReentrantLock lock;
-  // package-private: tests observe the waiter queue via lock.hasWaiters.
+  // package-private: tests observe the waiter queues via lock.hasWaiters.
   final Condition initializedCondition;
-  private final Condition fetchEpochNow;
+  final Condition fetchEpochNow;
 
   private volatile boolean initialized;
   private volatile Epoch epoch;

@@ -294,8 +294,8 @@ is hard-coded is a testability gap to fix, not debt to accept.)*
 
 ## Deferred: a concurrency harness
 
-**Status: two of the three shapes banked (2026-07-23); CAS losers and the
-signal-while-parked branch remain.** The technique that cleared them —
+**Status: every latch shape banked (2026-07-23); only the CAS losers
+remain.** The technique that cleared them —
 `ReentrantLock.hasWaiters` observed across a `signalAll`, which transfers
 waiters off the condition queue *synchronously* — is pure queue-state
 observation: no timeout ever decides a healthy run's outcome, which is how it
@@ -314,7 +314,7 @@ waits on it. Verified stable across three consecutive solo runs each and under
 |---|---:|---|---|
 | `EpochInfoServiceImpl.awaitInitialized` (+ `run` `signalAll`) | 8 | parked-waiter handshake | **killed 2026-07-23** |
 | `BaseTxMonitorService.notifyWorker`, `TxCommitmentMonitorService.processTransactions` (+ its `numExpired` gate) | 6 | `signalAll()` with no waiter | **killed 2026-07-23** |
-| `EpochInfoServiceImpl.run`, the `fetchEpochNow == true` branch (+ `fetchEpochNow()`'s `signal`) | 8 | signal delivered while parked | open |
+| `EpochInfoServiceImpl.run`, the `fetchEpochNow == true` branch (+ `fetchEpochNow()`'s `signal`) | 11 | signal delivered while parked | **killed 2026-07-23** |
 | `CapacityStateVal.tryClaimRequest` / `.tryUpdateCapacity` | 6 | CAS loser | open |
 | `SortedLoadBalancer.sort`/`.items`/`.nextNoSkip` | 3 | `unlock()` removal, CAS loser | open |
 | `CourteousBalancedCall.call` failover guards | 2 | state only a competing thread produces | open |
@@ -334,13 +334,24 @@ Three distinct shapes, not one:
    direction: a pass that must not signal asserts the waiter is still parked,
    which is what killed the `numExpired > 0` gate's boundary and ORDER
    mutants.
-   **2b. Signal delivered while parked** *(open)*: `Condition.await(timeout)`
+   **2b. Signal delivered while parked** *(banked)*: `Condition.await(timeout)`
    returns true only on a real signal, which is why the whole
-   `fetchEpochNow == true` branch of the epoch loop is unreachable today.
-   The harness would need the *loop* parked on `fetchEpochNow` (a real await
-   with a script-controlled huge timeout), `fetchEpochNow()` called from the
-   test thread, and the refetch asserted through the scripted client — the
-   same primitives, but the parked thread is the service loop itself.
+   `fetchEpochNow == true` branch of the epoch loop used to be unreachable.
+   Cleared by `fetchEpochNowWakesTheParkedLoopAndPacesTheRefetchByOneSlot`:
+   the loop runs on a spawned thread and parks for the *epoch remainder*
+   (both wait deadlines pushed out, so a healthy run never times out of the
+   await and every refetch is signal-driven); the test signals through the
+   production `fetchEpochNow()` while still holding the reentrant service
+   lock after observing the waiter, so a signal can never race a wake-up and
+   be lost; and the fake's round-trip knob shapes each wake's one-slot pacing
+   computation through +1, exactly 0 and −1, turning the block's math,
+   boundary and `clock.sleep` mutants into exact single-value kills. Two
+   subtleties the first draft got wrong, kept here so they stay learned: the
+   fixture's epochs are ~90 test-clock ms long, so `endsAt` must be kept
+   ahead via `fetchEpochInfoAfterEndDelayMillis` (an epoch already ended
+   turns the park into a 1ms tick-and-refetch loop that races the signals),
+   and a round trip set before wake N shapes the pacing of wake N+1, because
+   the gate compares against the sample fetched on the *previous* wake.
 3. **CAS loser.** Fast-path checks whose operand still executes, so they diverge
    only when a competing thread makes the compare-and-set fail. Same for the
    reentrant `unlock()` removals: the owning thread re-enters freely, so only a

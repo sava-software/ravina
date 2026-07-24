@@ -220,7 +220,7 @@ fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a scripted
 websocket, and running the loops synchronously on the test thread. Only the two
 classes below retain real debt.
 
-**`EpochInfoServiceImpl` (28)** — still the largest single block. The
+**`EpochInfoServiceImpl` (17)** — still the largest single block. The
 *log-text-only* group that used to dominate it is gone: `logEpoch` both
 formatted a message and logged it, and returned its own argument, so eleven
 branch-selection and arithmetic mutants were unkillable purely because their
@@ -229,41 +229,44 @@ latest, now)` and moving the `logger.log` to the call sites killed all twelve.
 See "A cluster on logging is a design signal" in `../../HARDENING.md`.
 
 What remains, verified by hand-applying each mutant:
-- *The `awaitInitialized` handshake block is gone* (2026-07-23): the
-  parked-waiter handshake test
+- *The concurrency-blocked debt is gone* (2026-07-23, in two waves — see the
+  concurrency-harness section in `../../ravina-core/config/pitest/README.md`
+  for the techniques). The parked-waiter handshake test
   (`initializationReleasesAParkedAwaiterWithThePublishedEpoch`) killed the
-  slow-path rows, the lock/unlock removals around it, and `run`'s
-  `initializedCondition.signalAll()` — see the concurrency-harness section in
-  `../../ravina-core/config/pitest/README.md` for the technique. Two related
-  rows remain: `awaitInitialized`'s fast-path `EQUAL_ELSE` (forcing the slow
-  path when already initialized takes the lock, sees `initialized` true and
-  returns the same epoch — a genuine equivalent, no longer concurrency
-  debt), and `fetchEpochNow`'s single `signal()`, which is only observable
-  with the *loop* parked on that condition — the still-open
-  signal-while-parked shape.
-- *`fetchEpochNow == true` not deterministically producible*:
-  `Condition.await(timeout)` returns true only on a signal delivered while
-  parked, so producing it means a signalling loop — a race or a busy-wait.
+  `awaitInitialized` slow path, its lock/unlock removals and `run`'s
+  `initializedCondition.signalAll()`. The signal-while-parked test
+  (`fetchEpochNowWakesTheParkedLoopAndPacesTheRefetchByOneSlot`) then killed
+  what "`fetchEpochNow == true` is not deterministically producible" used to
+  excuse: `fetchEpochNow()`'s `signal()`, the pacing gate and its entire
+  once-unreachable block (the one-slot sleep math, its `> 0` boundary and
+  ORDER mutants, the `clock.sleep`), the mean-per-slot selection at
+  initialization (now observable through the pacing sleep), and the
+  samples-operand of the fetch disjunction. One handshake row remains:
+  `awaitInitialized`'s fast-path `EQUAL_ELSE` — forcing the slow path when
+  already initialized takes the lock, sees `initialized` true and returns
+  the same epoch, a genuine equivalent.
 - *Only observable as a longer or shorter `await`*: the pacing `sleep` feeds
   only `await(Math.max(mean, sleep))`, and `await` is deliberately not
   clock-routed because it is signallable.
-- *Distinguishable only by whether the service spins*: `now > endsAt` is
-  evaluated only when the two prior terms are false, and in that state nothing
-  advances the clock.
-- *Logging removals* on the two relocated `logger.log` call sites and the exit
+- *The fetch-disjunction remnants at line 236*: forcing an operand true is
+  indistinguishable when every wake fetches anyway, and the `now > endsAt`
+  ORDER/boundary forms are evaluated only when the prior terms are false,
+  where nothing advances the clock.
+- *Logging removals* on the relocated `logger.log` call sites and the exit
   message — the documented equivalent family.
 
-Six of the 36 are duplicate rows added 2026-07-23 (`# note`-marked in the
-CSV): the 21.5.10 plugin's multiset comparison materialized sibling mutants
-the old set-based compare collapsed — compound conditions and multi-op
-expressions emit one mutant per operand at a single
-`class,method,line,mutator` coordinate. Each sibling was accepted into the
-family above that already covers its line (the `sleep` expression feeding
-only `await`, the `fetchEpochNow==true` block, the line-235 fetch
-disjunction, the line-88 stats-recompute guard); no new behaviour class was
-introduced. Same event, one row: `WebSocketManagerImpl.checkConnection`
-line 106 in `catchAll`, the sibling operand of the outer double-checked
-condition.
+Several rows are `# note`-marked duplicates from 2026-07-23: the 21.5.10
+plugin's multiset comparison materialized sibling mutants the old set-based
+compare collapsed — compound conditions and multi-op expressions emit one
+mutant per operand at a single `class,method,line,mutator` coordinate. Each
+sibling was accepted into the family above that already covers its line (the
+`sleep` expression feeding only `await`, the fetch disjunction, the
+stats-recompute guard); no new behaviour class was introduced. Two of the
+six originally materialized here — the pacing-block subtraction and the
+fetch disjunction's samples operand — have since been *killed* by the
+signal-while-parked harness. Same event, one row:
+`WebSocketManagerImpl.checkConnection` line 106 in `catchAll`, the sibling
+operand of the outer double-checked condition.
 
 **`WebSocketManagerImpl` (8)** — was 12: the 2026-07-21 `NanoClock`
 migration killed the two `elapsed == connectionDelay` millisecond boundaries
