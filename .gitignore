@@ -23,7 +23,11 @@ hs_err_pid*
 out/
 benchmark-results/
 ignore
-configs
+# Local runtime service configs at the repo or module root — never the
+# committed fuzz seed corpora nested under src/test/resources/fuzz/configs/,
+# which a bare 'configs' pattern silently swallowed (CI had never seen them).
+/configs/
+*/configs/
 /sava
 /.sava
 Integ.*

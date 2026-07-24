@@ -1,0 +1,1 @@
+5{"endpoint": "https://hooks.slack.com/services/abc", "provider": "SLACK", "capacity": {"maxCapacity": 10, "resetDuration": "PT1S"}}
