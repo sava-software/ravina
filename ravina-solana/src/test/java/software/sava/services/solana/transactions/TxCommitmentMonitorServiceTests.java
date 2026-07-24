@@ -608,6 +608,28 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   @Test
+  void anExpirationSignalsTheParkedExpirationWorker() throws InterruptedException {
+    final var service = service();
+    final var expirationMonitor = expirationMonitor(service);
+
+    final var expired = txContext("expired", HORIZON, FINALIZED, FINALIZED, null, true, false);
+    service.pendingTransactions.add(expired);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+
+    // The expiration worker sleeps between passes; handing it an expired
+    // transaction must also wake it. `signalAll` moves the waiter off the
+    // condition queue synchronously, so `parked()` observes queue state, not
+    // elapsed time.
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(
+        expirationMonitor.workLock, expirationMonitor.processTransactions)) {
+      service.processTransactions(contextMap(expired));
+      assertFalse(waiter.parked(), "an expired transaction must wake the expiration worker");
+    }
+
+    assertEquals(List.of(expired), List.copyOf(expirationMonitor.pendingTransactions));
+  }
+
+  @Test
   void aBlockHashOneBlockFromTheHorizonIsStillLive() {
     final var service = service();
     final var expirationMonitor = expirationMonitor(service);
@@ -620,6 +642,26 @@ final class TxCommitmentMonitorServiceTests {
 
     assertTrue(expirationMonitor.pendingTransactions.isEmpty(), "a live block hash must not be expired");
     assertTrue(service.pendingTransactions.contains(live));
+  }
+
+  @Test
+  void aPassWithoutExpirationsLeavesTheExpirationWorkerParked() throws InterruptedException {
+    final var service = service();
+    final var expirationMonitor = expirationMonitor(service);
+
+    final var live = txContext("live", HORIZON + 1, FINALIZED, FINALIZED, null, true, false);
+    service.pendingTransactions.add(live);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+
+    // The complement of the wake-up test: no expiration, no signal. A spurious
+    // `signalAll` would have transferred the waiter off the condition queue
+    // before `processTransactions` returned, so parked() still observes queue
+    // state, not elapsed time.
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(
+        expirationMonitor.workLock, expirationMonitor.processTransactions)) {
+      service.processTransactions(contextMap(live));
+      assertTrue(waiter.parked(), "a pass with nothing expired must not wake the expiration worker");
+    }
   }
 
   @Test

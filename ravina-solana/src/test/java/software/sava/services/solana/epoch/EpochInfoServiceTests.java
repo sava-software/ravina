@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -587,6 +588,57 @@ final class EpochInfoServiceTests {
     // all. With a round trip of zero and a one-millisecond mean slot the gate
     // would ask for exactly 1ms, so a stray entry is unambiguous.
     assertEquals(List.of(), clock.sleeps, "an uneventful loop must never sleep");
+  }
+
+  /// The parked-waiter handshake from the concurrency-harness plan (see
+  /// ravina-core `config/pitest/README.md`): a thread enters `awaitInitialized`
+  /// while the service is uninitialized, the test observes it parked through
+  /// `lock.hasWaiters`, drives `run()` on its own thread, and asserts the
+  /// waiter was released with the published epoch. `signalAll` transfers the
+  /// waiter off the condition queue synchronously and the join only bounds a
+  /// mutant's hang, so no timeout decides a healthy run's outcome.
+  @Test
+  void initializationReleasesAParkedAwaiterWithThePublishedEpoch() throws InterruptedException {
+    final var fake = new FakeRpcClient(epochInfo(100, 150, 1_000_000), CLOSED_CLIENT);
+    final var service = serviceFor(fake);
+
+    final var observed = new AtomicReference<Epoch>();
+    final var awaiter = new Thread(() -> {
+      try {
+        observed.set(service.awaitInitialized());
+      } catch (final InterruptedException e) {
+        // reported by the null result
+      }
+    }, "awaiter");
+    awaiter.start();
+    try {
+      // Rendezvous: proceed once the awaiter is parked — or already finished,
+      // which is exactly what the mutants that skip the wait produce.
+      while (awaiter.isAlive() && !hasInitializationWaiter(service)) {
+        Thread.onSpinWait();
+      }
+
+      service.run();
+
+      awaiter.join(2_000);
+      assertFalse(awaiter.isAlive(), "initialization must release the parked awaiter");
+    } finally {
+      awaiter.interrupt();
+    }
+
+    final var published = assertDoesNotThrow(service::awaitInitialized);
+    assertNotNull(published);
+    assertSame(published, observed.get(), "the awaiter must observe the published epoch");
+    assertFalse(service.lock.isLocked(), "the handshake must not leak the service lock");
+  }
+
+  private static boolean hasInitializationWaiter(final EpochInfoServiceImpl service) {
+    service.lock.lock();
+    try {
+      return service.lock.hasWaiters(service.initializedCondition);
+    } finally {
+      service.lock.unlock();
+    }
   }
 
   /// A client that is already closed on the very first fetch stops the service

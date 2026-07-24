@@ -35,7 +35,8 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   private final long minSleepMillisBetweenPolling;
   protected final ConcurrentSkipListSet<TxContext> pendingTransactions;
   final ReentrantLock workLock; // package-private: tests assert the loop never leaks it
-  private final Condition processTransactions;
+  // package-private: tests observe the waiter queue via workLock.hasWaiters.
+  final Condition processTransactions;
 
   protected BaseTxMonitorService(final ChainItemFormatter formatter,
                                  final RpcCaller rpcCaller,

@@ -294,34 +294,53 @@ is hard-coded is a testability gap to fix, not debt to accept.)*
 
 ## Deferred: a concurrency harness
 
-**Status: not attempted, deliberately.** This is the largest coherent block of
-remaining debt across the repo — roughly 29 accepted entries — and it is all
-blocked on the same missing thing: no test here ever runs two threads against
-the same object. Recorded so the next person does not re-derive it.
+**Status: two of the three shapes banked (2026-07-23); CAS losers and the
+signal-while-parked branch remain.** The technique that cleared them —
+`ReentrantLock.hasWaiters` observed across a `signalAll`, which transfers
+waiters off the condition queue *synchronously* — is pure queue-state
+observation: no timeout ever decides a healthy run's outcome, which is how it
+clears the bar below. `BaseTxMonitorServiceTests.ParkedWaiter` (solana) is the
+reusable form for the no-waiter shape;
+`initializationReleasesAParkedAwaiterWithThePublishedEpoch` in
+`EpochInfoServiceTests` is the handshake form (park via the *service* method,
+drive `run()` from the test thread, join and assert the observed result). The
+`join(2s)` in those tests only bounds a mutant's hang — an intact run never
+waits on it. Verified stable across three consecutive solo runs each and under
+`qualityGate`.
 
 ### What is blocked, and where
 
-| Where | ~Count | Shape |
-|---|---:|---|
-| `EpochInfoServiceImpl.awaitInitialized` (+ `run`/`fetchEpochNow` `signalAll`) | 10 | parked-waiter handshake |
-| `EpochInfoServiceImpl.run`, the `fetchEpochNow == true` branch | 8 | signal delivered while parked |
-| `CapacityStateVal.tryClaimRequest` / `.tryUpdateCapacity` | 6 | CAS loser |
-| `SortedLoadBalancer.sort`/`.items`/`.nextNoSkip` | 3 | `unlock()` removal, CAS loser |
-| `CourteousBalancedCall.call` failover guards | 2 | state only a competing thread produces |
-| `BaseTxMonitorService.notifyWorker`, `TxCommitmentMonitorService.processTransactions` | a few | `signalAll()` with no waiter |
+| Where | ~Count | Shape | Status |
+|---|---:|---|---|
+| `EpochInfoServiceImpl.awaitInitialized` (+ `run` `signalAll`) | 8 | parked-waiter handshake | **killed 2026-07-23** |
+| `BaseTxMonitorService.notifyWorker`, `TxCommitmentMonitorService.processTransactions` (+ its `numExpired` gate) | 6 | `signalAll()` with no waiter | **killed 2026-07-23** |
+| `EpochInfoServiceImpl.run`, the `fetchEpochNow == true` branch (+ `fetchEpochNow()`'s `signal`) | 8 | signal delivered while parked | open |
+| `CapacityStateVal.tryClaimRequest` / `.tryUpdateCapacity` | 6 | CAS loser | open |
+| `SortedLoadBalancer.sort`/`.items`/`.nextNoSkip` | 3 | `unlock()` removal, CAS loser | open |
+| `CourteousBalancedCall.call` failover guards | 2 | state only a competing thread produces | open |
 
 Three distinct shapes, not one:
 
-1. **Parked-waiter handshake.** `awaitInitialized` must be entered while
-   `initialized` is false and then observe it turn true. A single-threaded test
-   can only take the fast path, so the mutants are not merely unkilled — the
-   *coverage itself* would flap between `NO_COVERAGE` and `SURVIVED` depending
-   on which path won.
-2. **Signal with no waiter.** `signalAll()` on a `Condition` nobody is parked on
-   is a no-op, so removing it is invisible. Observing it needs a thread genuinely
-   parked plus an assertion about wake-up — and `Condition.await(timeout)`
+1. **Parked-waiter handshake** *(banked)*. `awaitInitialized` must be entered
+   while `initialized` is false and then observe it turn true. A
+   single-threaded test can only take the fast path. Cleared by parking a real
+   thread through the service method, rendezvousing on
+   `lock.hasWaiters(condition)` (which also terminates when a mutant returns
+   without parking), then driving initialization from the test thread.
+2. **Signal with no waiter** *(banked for `signalAll`; `fetchEpochNow`'s
+   single-`signal` case dies with shape 2b)*. `signalAll()` on a `Condition`
+   nobody is parked on is a no-op, so removing it is invisible. Cleared by
+   the `ParkedWaiter` queue-state observation — including the *negative*
+   direction: a pass that must not signal asserts the waiter is still parked,
+   which is what killed the `numExpired > 0` gate's boundary and ORDER
+   mutants.
+   **2b. Signal delivered while parked** *(open)*: `Condition.await(timeout)`
    returns true only on a real signal, which is why the whole
    `fetchEpochNow == true` branch of the epoch loop is unreachable today.
+   The harness would need the *loop* parked on `fetchEpochNow` (a real await
+   with a script-controlled huge timeout), `fetchEpochNow()` called from the
+   test thread, and the refetch asserted through the scripted client — the
+   same primitives, but the parked thread is the service loop itself.
 3. **CAS loser.** Fast-path checks whose operand still executes, so they diverge
    only when a competing thread makes the compare-and-set fail. Same for the
    reentrant `unlock()` removals: the owning thread re-enters freely, so only a

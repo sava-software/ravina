@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.SequencedCollection;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -417,6 +418,67 @@ final class BaseTxMonitorServiceTests {
     service.notifyWorker();
 
     assertFalse(service.workLock.isLocked(), "notifyWorker must not leak a hold on the work lock");
+  }
+
+  @Test
+  void notifyWorkerMovesEveryParkedWaiterOffTheConditionQueue() throws InterruptedException {
+    final var service = monitor();
+
+    try (var waiter = new ParkedWaiter(service.workLock, service.processTransactions)) {
+      service.notifyWorker();
+      assertFalse(waiter.parked(), "notifyWorker must signal the parked worker");
+    }
+  }
+
+  /// Parks a thread on a condition and observes it through
+  /// `ReentrantLock.hasWaiters`: `signalAll` transfers every waiter off the
+  /// condition queue *synchronously*, so once the signalling call has
+  /// returned, `parked()` answers from queue state alone — no timeout ever
+  /// decides an outcome, which is the determinism bar the concurrency-harness
+  /// plan sets (see ravina-core `config/pitest/README.md`). The constructor's
+  /// rendezvous only orders events (waiter parked before the test proceeds);
+  /// it cannot mis-order them, because `Condition.await` has no spurious
+  /// returns to race with.
+  static final class ParkedWaiter implements AutoCloseable {
+
+    private final ReentrantLock lock;
+    private final Condition condition;
+    private final Thread thread;
+
+    ParkedWaiter(final ReentrantLock lock, final Condition condition) {
+      this.lock = lock;
+      this.condition = condition;
+      this.thread = new Thread(() -> {
+        lock.lock();
+        try {
+          condition.await();
+        } catch (final InterruptedException e) {
+          // released by close()
+        } finally {
+          lock.unlock();
+        }
+      }, "parked-waiter");
+      thread.start();
+      while (!parked()) {
+        Thread.onSpinWait();
+      }
+    }
+
+    boolean parked() {
+      lock.lock();
+      try {
+        return lock.hasWaiters(condition);
+      } finally {
+        lock.unlock();
+      }
+    }
+
+    @Override
+    public void close() throws InterruptedException {
+      thread.interrupt();
+      thread.join(2_000);
+      assertFalse(thread.isAlive(), "the parked waiter must terminate");
+    }
   }
 
   // --------------------------------------------------- expiration horizon --

@@ -220,7 +220,7 @@ fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a scripted
 websocket, and running the loops synchronously on the test thread. Only the two
 classes below retain real debt.
 
-**`EpochInfoServiceImpl` (36)** — still the largest single block. The
+**`EpochInfoServiceImpl` (28)** — still the largest single block. The
 *log-text-only* group that used to dominate it is gone: `logEpoch` both
 formatted a message and logged it, and returned its own argument, so eleven
 branch-selection and arithmetic mutants were unkillable purely because their
@@ -229,10 +229,18 @@ latest, now)` and moving the `logger.log` to the call sites killed all twelve.
 See "A cluster on logging is a design signal" in `../../HARDENING.md`.
 
 What remains, verified by hand-applying each mutant:
-- *Needs a second thread parked in `awaitInitialized`* (8, plus `run`'s and
-  `fetchEpochNow`'s `signalAll`, which is a no-op with no waiter). Part of the
-  repo-wide concurrency-harness block deferred in
-  `../../ravina-core/config/pitest/README.md` — read that before attempting it.
+- *The `awaitInitialized` handshake block is gone* (2026-07-23): the
+  parked-waiter handshake test
+  (`initializationReleasesAParkedAwaiterWithThePublishedEpoch`) killed the
+  slow-path rows, the lock/unlock removals around it, and `run`'s
+  `initializedCondition.signalAll()` — see the concurrency-harness section in
+  `../../ravina-core/config/pitest/README.md` for the technique. Two related
+  rows remain: `awaitInitialized`'s fast-path `EQUAL_ELSE` (forcing the slow
+  path when already initialized takes the lock, sees `initialized` true and
+  returns the same epoch — a genuine equivalent, no longer concurrency
+  debt), and `fetchEpochNow`'s single `signal()`, which is only observable
+  with the *loop* parked on that condition — the still-open
+  signal-while-parked shape.
 - *`fetchEpochNow == true` not deterministically producible*:
   `Condition.await(timeout)` returns true only on a signal delivered while
   parked, so producing it means a signalling loop — a race or a busy-wait.
