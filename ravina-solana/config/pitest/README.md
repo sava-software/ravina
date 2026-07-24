@@ -71,6 +71,14 @@ true → 6 failures, forced false → 0). Both baselines carry the `_ELSE` row a
 `SURVIVED`, which matches. Reasons below are written against this meaning; no
 row needs swapping.
 
+Rows labelled `# else-direction-noop` are this shape's family: forcing the
+condition **false** converges to the behaviour the tests already pin (the
+skipped branch was an optimisation or an early-out whose fallback computes the
+same result), while the forced-**true** sibling at the same coordinate is
+killed. Sites: `CachedAddressLookupTable.read` line 38 and
+`TransactionProcessorRecord.lambda$transactionFactory$3` line 94 (`catchAll`),
+`EpochInfoServiceImpl.run` line 248 (`epochService`).
+
 ## Mutator set: the experimental BigDecimal/BigInteger trial
 
 `MathMutator` rewrites primitive arithmetic opcodes, so `BigDecimal` and
@@ -107,22 +115,22 @@ A fluent call returning its receiver type is an expression, invisible to
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals:
+**Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals:
 log output is not part of any behavioral contract.
 
-**Redundant null-guard assignment** (`config`, `formatting`) — builder
+**Redundant null-guard assignment** `# null-guard-noop` (`config`, `formatting`) — builder
 `parseProperties` guards of the shape `if (x != null) this.field = x;`:
 forcing the branch assigns null over an already-null field on a fresh
 single-use builder, and `create()` null-coalesces the default either way.
 Sites: `EpochServiceConfig$Parser`, `TxMonitorConfig$Parser`,
 `TableCacheConfig$Builder`, `HeliusConfig$Parser`, `ChainItemFormatter$Parser`.
 
-**Return-value-only mutation of a delegating predicate** (`config`) —
+**Return-value-only mutation of a delegating predicate** `# delegating-return` (`config`) —
 `HeliusConfig$Parser.test` `BooleanTrueReturnValsMutator` on
 `return super.test(...)`: the call still executes with its side effects and
 its unknown-field throw, and `super.test` only ever returns true.
 
-**Fast path returning the same value** (`formatting`) —
+**Fast path returning the same value** `# same-value-fast-path` (`formatting`) —
 `ChainItemFormatter.commaSeparateInteger` `len <= 3` → `len < 3`. Verified by
 tracing len == 3: the separation loop writes indices 3, 2, 1 of a 4-char
 buffer, exits with `j == 1`, and returns `new String(sep, 1, 3)` — exactly the
@@ -130,24 +138,24 @@ input. The guard is an allocation-avoiding shortcut, not a correctness check.
 Also verified by differential sweep (2026-07-21): both variants agree on every
 input length 0..40 — zero differences.
 
-**Selection-invariant set-cover bookkeeping** (`alt`) — `ScoredTable` /
+**Selection-invariant set-cover bookkeeping** `# set-cover-invariant` (`alt`) — `ScoredTable` /
 `ScoredTableMeta` `usedMask` mutants (`<<=` → `>>=`, the `(mask & usedMask)`
 guard, `usedMask |=` → `&=`) and the `selectedTables` emptiness guard. The
 mask only skips re-scoring already-selected tables, whose accounts have
 already been removed from `remainingAccounts`; such a table scores 0 and can
 never be re-selected, so the selection output is unchanged either way.
 
-**Threshold below the minimum useful score** (`alt`) — `size() < 2` forced
+**Threshold below the minimum useful score** `# min-score-threshold` (`alt`) — `size() < 2` forced
 false: with fewer than 2 remaining accounts no table can score above 1, so the
 next round finds no top table and breaks with identical state.
 
-**Duplicated computation** (`epoch`) — `Epoch.create` line 83 else-branch
+**Duplicated computation** `# duplicated-computation` (`epoch`) — `Epoch.create` line 83 else-branch
 recomputes the identical skip rate when `previousSample == earliestSample`
 (the `if` is a caching shortcut), and `SlotPerformanceStats.calculateStats`
 line 42 routing a single sample through the general path yields the identical
 record (middle = 0, min = max = median, stddev 0).
 
-**Whole-collection shortcut over an internal copy** (`catchAll`) — guards of
+**Whole-collection shortcut over an internal copy** `# whole-collection-shortcut` (`catchAll`) — guards of
 the form `to - from == size` that choose between the collection itself and a
 `subList`/`copyOfRange` of the whole thing: `LookupTableCacheMap` line 188 and
 `BaseBatchInstructionService.batchProcess` line 142. Both branches yield equal
@@ -156,26 +164,26 @@ reference identity distinguishes them. (The sibling at
 `BaseBatchInstructionService` line 93 *is* killed — there a caller-supplied
 list makes `assertSame` meaningful.)
 
-**Single-element join is the identity** (`catchAll`) —
+**Single-element join is the identity** `# single-join-identity` (`catchAll`) —
 `PriorityFeeRequest` lines 13 and 69 `_ELSE`, i.e. forcing the `String.join`
 branch: joining a one-element list returns that element, exactly what the
 `getFirst()` branch returns. The `_IF` direction is killed.
 
-**Capacity hints** (`catchAll`) — `HeliusJsonRpcClient` line 133
+**Capacity hints** `# capacity-hint` (`catchAll`) — `HeliusJsonRpcClient` line 133
 `MathMutator` on the `StringBuilder` pre-size expression, and the
 `LookupTableCacheMap` empty-list guard at line 126: allocation shape only,
 identical output.
 
-**Both branches build the same record** (`catchAll`) —
+**Both branches build the same record** `# same-record-branches` (`catchAll`) —
 `BaseInstructionService.processInstructions` line 257: forcing the error branch
 with a null error calls `createResult(..., null, sig, formattedSig)`, which is
 the record the else branch already produces. Only the log line differs.
 
-**Running-minimum boundaries** (`catchAll`) — `<` → `<=` on a running minimum
+**Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on a running minimum
 (`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188):
 the equal case reassigns the value already held.
 
-**Restating the builder default** (`catchAll`) — `NakedReceiverMutator` on
+**Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
 `WebSocketManager.createManager` line 39, `.commitment(Commitment.CONFIRMED)`.
 `SolanaRpcWebsocketBuilder` initialises its commitment field to `CONFIRMED`,
 so dropping the call leaves the identical prototype state — verified against
@@ -207,10 +215,12 @@ predates the sample origin.
 
 Kept separate on purpose: these mutants *do* change observable behaviour. They
 are accepted because the ratchet requires deterministic kills, not because they
-are inert. Each would need a concurrency harness (deferred — see
-`../../ravina-core/config/pitest/README.md`), a controllable clock, or a
-live socket — and the alternative, a sleep- or tolerance-based test, flaps the
-ratchet, which is strictly worse than recorded debt.
+are inert. Each would need a genuinely concurrent observer (core's
+concurrency block is now fully banked — see
+`../../ravina-core/config/pitest/README.md` for the latch and seam
+techniques), a controllable clock, or a live socket — and the alternative, a
+sleep- or tolerance-based test, flaps the ratchet, which is strictly worse
+than recorded debt.
 
 Note this is now a *small* residue. The "deliberately unmigrated, I/O-driven"
 note in `AGENTS.md` turned out to describe difficulty rather than
@@ -242,15 +252,16 @@ What remains, verified by hand-applying each mutant:
   ORDER mutants, the `clock.sleep`), the mean-per-slot selection at
   initialization (now observable through the pacing sleep), and the
   samples-operand of the fetch disjunction. One handshake row remains:
-  `awaitInitialized`'s fast-path `EQUAL_ELSE` — forcing the slow path when
-  already initialized takes the lock, sees `initialized` true and returns
-  the same epoch, a genuine equivalent.
-- *Only observable as a longer or shorter `await`*: the pacing `sleep` feeds
-  only `await(Math.max(mean, sleep))`, and `await` is deliberately not
-  clock-routed because it is signallable.
-- *The fetch-disjunction remnants at line 236*: forcing an operand true is
-  indistinguishable when every wake fetches anyway, and the `now > endsAt`
-  ORDER/boundary forms are evaluated only when the prior terms are false,
+  `awaitInitialized`'s fast-path `EQUAL_ELSE` (`# slow-path-equivalent`) —
+  forcing the slow path when already initialized takes the lock, sees
+  `initialized` true and returns the same epoch, a genuine equivalent.
+- *Only observable as a longer or shorter `await`* (`# await-pacing-only`):
+  the pacing `sleep` feeds only `await(Math.max(mean, sleep))`, and `await`
+  is deliberately not clock-routed because it is signallable.
+- *The fetch-disjunction remnants at line 236*: forcing an operand true
+  (`# fetch-disjunction-converging`) is indistinguishable when every wake
+  fetches anyway, and the `now > endsAt` ORDER/boundary forms
+  (`# idle-spin-only`) are evaluated only when the prior terms are false,
   where nothing advances the clock.
 - *Logging removals* on the relocated `logger.log` call sites and the exit
   message — the documented equivalent family.
@@ -261,7 +272,10 @@ compare collapsed — compound conditions and multi-op expressions emit one
 mutant per operand at a single `class,method,line,mutator` coordinate. Each
 sibling was accepted into the family above that already covers its line (the
 `sleep` expression feeding only `await`, the fetch disjunction, the
-stats-recompute guard); no new behaviour class was introduced. Two of the
+`getAndSetEpochInfo` stats-recompute guard — `# stats-recompute-guard`,
+forcing the `slotStats == null && samplesFuture != null` conjuncts recomputes
+the stats from the same completed samples future, which joins to the same
+samples and so the same stats); no new behaviour class was introduced. Two of the
 six originally materialized here — the pacing-block subtraction and the
 fetch disjunction's samples operand — have since been *killed* by the
 signal-while-parked harness. Same event, one row:
@@ -277,10 +291,11 @@ time to pass") a test clock now reaches deterministically. The same migration
 killed the staleness boundary in `LookupTableCacheMap.refreshStaleAccounts`
 and the resend-delay boundary in `TxCommitmentMonitorService` — five rows
 total, none replaced. What remains here: double-checked-locking re-reads
-whose condition is already true when re-evaluated, `resetWebsocket`'s
-return value that only reaches log text, and logging removals.
+whose condition is already true when re-evaluated (`# dcl-recheck`),
+`resetWebsocket`'s return value that only reaches log text
+(`# log-text-only`), and logging removals.
 
-**Wall-clock websocket confirmation fallback** (`catchAll`) —
+**Wall-clock websocket confirmation fallback** `# ws-timeout-fallback` (`catchAll`) —
 `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 239/240
 (`NakedReceiverMutator` on `.orTimeout(...)` / `.exceptionally(...)`) and the
 `NO_COVERAGE` `VoidMethodCallMutator` at line 241 inside that fallback lambda.
@@ -292,7 +307,7 @@ dropping the stages is only observable by waiting out the timeout. The RPC
 polling path covers the eventual outcome; the websocket fallback's own timing
 is the recorded debt.
 
-**Response-tracker wiring needs a live response** (`catchAll`) —
+**Response-tracker wiring needs a live response** `# needs-live-response` (`catchAll`) —
 `LoadBalanceUtil.createRPCLoadBalancer` line 19, `NakedReceiverMutator` on
 `.testResponse(capacityMonitor.errorTracker())`. The predicate is consulted
 only when an HTTP response arrives, and `SolanaRpcClient` exposes no accessor

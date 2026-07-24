@@ -35,22 +35,22 @@ Enabled.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals:
+**Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals:
 log output is not part of any behavioral contract.
 
-**Suffix test on the full path** — `MemorySignerFromFilePointerFactory.signerFromFile`
+**Suffix test on the full path** `# suffix-on-full-path` — `MemorySignerFromFilePointerFactory.signerFromFile`
 line 25, `NakedReceiverMutator` on `filePath.getFileName()`. The result only
 feeds `fileName.endsWith(".properties")`, and a path string ends with
 `".properties"` exactly when its file name does — the parent directories the
 mutant leaves in place cannot affect a suffix check on the final segment.
 
-**Unreachable mark sentinel** — `SigningServiceConfig$Parser.createConfig`
+**Unreachable mark sentinel** `# mark-sentinel` — `SigningServiceConfig$Parser.createConfig`
 `configMark < 0` → `<= 0`. `configMark` is set from `ji.mark()` taken at a
 `"config"` field inside an object, so a valid mark is always a positive
 offset; position 0 cannot occur and the boundary is unreachable. The `< 0`
 form is the not-yet-marked sentinel.
 
-**Converging dispatch paths** — `SigningServiceConfig$Parser.test` line 125
+**Converging dispatch paths** `# converging-dispatch` — `SigningServiceConfig$Parser.test` line 125
 `RemoveConditionalMutator_EQUAL_IF` / `_EQUAL_ELSE` on
 `if (factoryClass == null || backoff == null)`. The two arms are built to
 produce the same signing service: the deferred arm records a mark, skips, and

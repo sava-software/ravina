@@ -11,7 +11,8 @@ import java.util.function.IntBinaryOperator;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-final class CapacityStateVal implements CapacityState {
+// Non-final so tests can override the interleaving seams below.
+class CapacityStateVal implements CapacityState {
 
   private static final IntBinaryOperator CLAIM_REQUEST = (numRemaining, weight) -> numRemaining - weight;
   private static final IntBinaryOperator PUT_CLAIM_BACK = Integer::sum;
@@ -39,6 +40,17 @@ final class CapacityStateVal implements CapacityState {
         Math.clamp(numRemaining + newCapacity, capacityConfig.minCapacity(), maxCapacity);
     this.capacity = new AtomicInteger(maxCapacity);
     this.updatedAtSystemNanoTime = new AtomicLong(clock.nanoTime());
+  }
+
+  // Interleaving seams: tests override these to wedge a competing update
+  // between a read and its compare-and-set, reproducing racy interleavings
+  // deterministically on the test thread.
+  int claimCapacity(final int callWeight) {
+    return capacity.accumulateAndGet(callWeight, CLAIM_REQUEST);
+  }
+
+  boolean casUpdatedAt(final long expected, final long newValue) {
+    return updatedAtSystemNanoTime.compareAndSet(expected, newValue);
   }
 
   @Override
@@ -92,7 +104,7 @@ final class CapacityStateVal implements CapacityState {
   @Override
   public void claimRequest(final int runtimeCallWeight) {
     if (runtimeCallWeight > 0) {
-      this.capacity.accumulateAndGet(runtimeCallWeight, CLAIM_REQUEST);
+      claimCapacity(runtimeCallWeight);
     }
   }
 
@@ -112,7 +124,7 @@ final class CapacityStateVal implements CapacityState {
     if (nanosSinceUpdated < nanosPerWeight) {
       return Integer.MIN_VALUE; // Allow callers to break out instead of double-checking the same value.
     } else {
-      return this.updatedAtSystemNanoTime.compareAndSet(updatedAtSystemNanoTime, nanoTime)
+      return casUpdatedAt(updatedAtSystemNanoTime, nanoTime)
           ? this.capacity.accumulateAndGet((int) Math.round(nanosSinceUpdated * weightPerNanosecond), updateCapacity)
           : this.capacity.get();
     }
@@ -127,7 +139,7 @@ final class CapacityStateVal implements CapacityState {
         return false;
       }
     }
-    if (this.capacity.accumulateAndGet(callWeight, CLAIM_REQUEST) < minCapacity) {
+    if (claimCapacity(callWeight) < minCapacity) {
       this.capacity.accumulateAndGet(callWeight, PUT_CLAIM_BACK);
       return false;
     } else {

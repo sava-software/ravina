@@ -1,4 +1,3 @@
-software.sava.services.core.net.http.NotifyClientImpl,lambda$postMsg$1,66,VoidMethodCallMutator,SURVIVED # log-removal
 software.sava.services.core.net.http.NotifyClientImpl,lambda$postMsg$1,73,EmptyObjectReturnValsMutator,SURVIVED # discarded-handler
 software.sava.services.core.request_capacity.UriCapacityConfig$Parser,parseProperties,67,RemoveConditionalMutator_EQUAL_IF,SURVIVED # unreachable-guard
 software.sava.services.core.request_capacity.trackers.HttpErrorTracker,lambda$logResponse$0,59,EmptyObjectReturnValsMutator,SURVIVED # log-text-only

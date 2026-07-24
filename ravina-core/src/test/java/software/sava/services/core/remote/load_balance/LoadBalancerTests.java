@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 final class LoadBalancerTests {
@@ -296,5 +297,54 @@ final class LoadBalancerTests {
     final var balancer2 = LoadBalancer.createSortedBalancer(withMiddleNull);
     balancer2.sort();
     assertEquals("d", balancer2.peek().item());
+  }
+
+  /// Loses the first wrap CAS the way a competing `nextNoSkip` would: the
+  /// winner's reset lands, the loser's compare-and-set reports failure.
+  /// Same-thread deterministic interleaving via the seam override.
+  private static final class WrapLosingBalancer extends SortedLoadBalancer<String> {
+
+    private boolean armed = true;
+
+    WrapLosingBalancer(final BalancedItem<String>[] items) {
+      super(items);
+    }
+
+    @Override
+    boolean casWrap(final int expected) {
+      if (armed) {
+        armed = false;
+        // The competing wrap wins first; the real CAS below then fails.
+        super.casWrap(expected);
+      }
+      return super.casWrap(expected);
+    }
+  }
+
+  @Test
+  void nextNoSkipLosingTheWrapCasRereadsTheCursor() {
+    final var items = createItems("a", "b");
+    final var balancer = new WrapLosingBalancer(items);
+    assertEquals("a", balancer.nextNoSkip().item());
+    assertEquals("b", balancer.nextNoSkip().item());
+    // The wrap CAS loses to a competing reset that already consumed the head:
+    // the loser must re-read the cursor, not serve the head it did not win.
+    assertEquals("b", balancer.nextNoSkip().item());
+    // With the race resolved the wrap succeeds and serves the head normally.
+    assertEquals("a", balancer.nextNoSkip().item());
+  }
+
+  @Test
+  void sortReleasesTheLock() {
+    final var balancer = new SortedLoadBalancer<>(createItems("a", "b"));
+    balancer.sort();
+    assertFalse(balancer.sortItems.isLocked());
+  }
+
+  @Test
+  void itemsReleasesTheLock() {
+    final var balancer = new SortedLoadBalancer<>(createItems("a", "b"));
+    assertEquals(2, balancer.items().size());
+    assertFalse(balancer.sortItems.isLocked());
   }
 }

@@ -33,10 +33,10 @@ and 2 accepted (see the credentials section). Enabled.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `GoogleKMSErrorTracker.logResponse`
+**Logging removals** `# log-removal` — `GoogleKMSErrorTracker.logResponse`
 `VoidMethodCallMutator`: log output is not part of any behavioral contract.
 
-**Redundant setter null-guards** — `GoogleKMSClientFactory.createService`
+**Redundant setter null-guards** `# setter-null-guard` — `GoogleKMSClientFactory.createService`
 (properties overload) lines 99/103/107/111/115,
 `RemoveConditionalMutator_EQUAL_IF` on each
 `if (project != null) builder.setProject(project);`. Measured, not assumed:
@@ -50,7 +50,8 @@ behavior (all five getters null) even though it cannot kill these mutants.
 
 Kept separate on purpose: these change observable behavior, but reaching them
 requires a real Cloud KMS endpoint, which unit tests must not contact. They
-are the module's genuine I/O debt.
+are the module's genuine I/O debt. Rows in this section are labelled
+`# needs-live-kms`.
 
 - `GoogleKMSClientFactory.createService` `NullReturnValsMutator` on the
   `return new GoogleKMSClient(...)` sites (lines 70, 87, 124, 142). Every unit

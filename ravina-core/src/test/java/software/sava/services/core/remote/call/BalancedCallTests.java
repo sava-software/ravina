@@ -522,4 +522,139 @@ final class BalancedCallTests {
     assertEquals(0, monitorA.capacityState().capacity());
     assertEquals(0, monitorB.capacityState().capacity());
   }
+
+  /// A capacity state whose `tryClaimRequest` and `hasCapacity` disagree the
+  /// way they only can when a competing thread releases capacity between the
+  /// two reads: claims always fail, while the first [freshCapacitySignals]
+  /// `hasCapacity` calls report true. Everything unscripted throws.
+  private static final class RacingCapacityState implements CapacityState {
+
+    private final int freshCapacitySignals;
+    private int tryClaimCalls;
+    private int hasCapacityCalls;
+
+    private RacingCapacityState(final int freshCapacitySignals) {
+      this.freshCapacitySignals = freshCapacitySignals;
+    }
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext) {
+      ++tryClaimCalls;
+      return false;
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext) {
+      return ++hasCapacityCalls <= freshCapacitySignals;
+    }
+
+    @Override
+    public CapacityConfig capacityConfig() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public NanoClock clock() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int capacity() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void addCapacity(final int delta) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long durationUntil(final CallContext callContext, final int runtimeCallWeight, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void claimRequest(final int callWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void claimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
+  @Test
+  void aFailedClaimIsFinalUnlessTheFailoverItemIsADifferentOne() {
+    final var clock = new TestClock(true);
+    // The head reports fresh capacity right after its failed claim — the state
+    // only a competing thread's release can produce — while the other item
+    // never has any. The failover must still skip the item whose claim just
+    // failed rather than spin re-claiming it.
+    final var stateA = new RacingCapacityState(1);
+    final var stateB = new RacingCapacityState(0);
+    final var a = BalancedItem.createItem("a", () -> stateA, Backoff.single(MILLISECONDS, 1));
+    final var b = BalancedItem.createItem("b", () -> stateB, Backoff.single(MILLISECONDS, 1));
+    final var calls = new AtomicInteger();
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(a, b)),
+        item -> {
+          calls.incrementAndGet();
+          return CompletableFuture.completedFuture(item);
+        },
+        CallContext.createContext(1, 0, 1, false, Long.MAX_VALUE, false),
+        clock,
+        "test::casLoserFailover"
+    );
+    assertNull(call.get());
+    assertEquals(0, calls.get());
+    assertEquals(1, stateA.tryClaimCalls);
+    // The direct-failover check short-circuits on identity, so the head's
+    // deceptive capacity signal is never even read...
+    assertEquals(0, stateA.hasCapacityCalls);
+    // ...and the item scan consults only the other item.
+    assertEquals(1, stateB.hasCapacityCalls);
+    assertEquals(0, stateB.tryClaimCalls);
+    assertTrue(clock.sleeps.isEmpty());
+  }
 }

@@ -32,16 +32,16 @@ executor wiring via the package-private `httpClient` field — and 1 accepted
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Logging removals** — `HttpKMSErrorTracker.logResponse`
+**Logging removals** `# log-removal` — `HttpKMSErrorTracker.logResponse`
 `VoidMethodCallMutator`: log output is not part of any behavioral contract.
 
-**Restating the builder default** — `HttpKMSClient.<init>` line 48,
+**Restating the builder default** `# restating-default` — `HttpKMSClient.<init>` line 48,
 `NakedReceiverMutator` on `HttpRequest.newBuilder(...).GET()`. A fresh
 `HttpRequest.Builder`'s method already defaults to GET, so dropping the call
 builds a byte-identical request — the recorded-request test asserts the URI
 and would see any real change. The explicit `.GET()` stays for the reader.
 
-**Allocation-only copy elision** — `HttpKMSClient.sign` line 70
+**Allocation-only copy elision** `# alloc-only-copy` — `HttpKMSClient.sign` line 70
 `RemoveConditionalMutator_EQUAL_ELSE` on
 `offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(...)`.
 Forcing the copy branch always produces a byte-identical array; only the

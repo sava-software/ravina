@@ -105,7 +105,15 @@ parsing, and KMS-backed signing.
   `WebSocketManagerImpl.lock` and `GoogleKMSClientFactory.builder` are all
   package-private for this reason. An exported package still hides non-public
   members, so nothing widens outside the package, and unlike `setAccessible`
-  a rename then fails at compile time instead of at runtime.
+  a rename then fails at compile time instead of at runtime. The same idea
+  extends to **interleaving seams**: `CapacityStateVal.claimCapacity`/
+  `.casUpdatedAt` and `SortedLoadBalancer.casWrap` are package-private hook
+  methods (their classes deliberately non-final) that test subclasses
+  override to wedge a competing update between a read and its CAS — racy
+  interleavings reproduced deterministically on the test thread, no real
+  threads or timing. A seam override must let the base method's return value
+  flow through (fail the real CAS, don't hard-code the result), or the
+  seam's own return-value mutant hides behind the override.
 
 ## Hardening: mutation testing (PIT) and fuzzing (Jazzer)
 
@@ -133,8 +141,12 @@ timeouts).
    short family label on the row itself** — refreshes seed new rows
    `# untriaged`, and triage means replacing that label, so the baseline
    always says which rows are argued and which are debt (the verify counts
-   rows per label). Never run `-PupdateMutationBaseline` just to make the
-   build pass.
+   rows per label). The verify and the debt listing also **warn when a label
+   has no literal `# <label>` mention in that README** — a typo'd label
+   silently opens a bucket of its own, and chasing one such warning here
+   exposed two swapped label pairs in `calls`, so treat the warning as a
+   triage bug, not noise. Never run `-PupdateMutationBaseline` just to make
+   the build pass.
 3. **`SURVIVED` and `NO_COVERAGE` are different problems.** A survivor ran the
    line and the test could not tell — a judgment call about equivalence. A
    no-coverage mutant was never executed — mechanical work, and **never
@@ -218,8 +230,26 @@ timeouts).
     main-resources `META-INF/services` — see the kms modules and
     `ravina-core`'s `ErrorTrackerFactory`); a harness whose result depends on
     which task ran it is never committed.
+16. **Stubs and fixtures return distinguishable, non-default values.** A stub
+    returning null/0/`""`/true/empty makes the matching return-value mutant
+    equivalent by accident of the fixture — the test-clock non-zero-origin
+    rule generalized to every stubbed return. This repo's strongest form:
+    the `Proxy`-backed fakes **throw on unscripted methods** rather than
+    defaulting (`default -> throw new UnsupportedOperationException(...)`);
+    copy that shape, and give scripted values distinguishable magnitudes
+    (`blockHeight = 1_000_000`, not 0).
+17. **Copy-on-write clusters split by direction.** For
+    `isEmpty()/size()`-routed returns (`snapshot.isEmpty() ? Map.of() :
+    snapshot`), the direction swapping one immutable collection for an equal
+    one is equivalent, but the direction letting a mutable collection escape
+    an API promising unmodifiable views is a kill — pin it per size with
+    `assertThrows(UnsupportedOperationException, ...)` or
+    `assertSame(List.of(), ...)`. Existing pins:
+    `fullyExpiredSnapshotIsAnImmutableEmptyMap` (`RootErrorTracker`) and the
+    `WebHookConfigTests` empty-parse `assertSame`; both routing ternaries'
+    mutants are killed, so nothing here is family-accepted.
 
-<!-- hardening-template sha256:cdac2e3852a9 -->
+<!-- hardening-template sha256:7f9eb869ee7e -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

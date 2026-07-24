@@ -10,7 +10,8 @@ import java.util.stream.Stream;
 
 import static java.lang.invoke.MethodHandles.arrayElementVarHandle;
 
-final class SortedLoadBalancer<T> implements LoadBalancer<T> {
+// Non-final so tests can override the wrap-CAS interleaving seam.
+class SortedLoadBalancer<T> implements LoadBalancer<T> {
 
   private static final Comparator<BalancedItem<?>> MEDIAN_COMPARATOR = (a, b) -> {
     if (a == null) {
@@ -29,7 +30,8 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
   private static final VarHandle AA = arrayElementVarHandle(BalancedItem[].class);
 
   private final BalancedItem<T>[] items;
-  private final ReentrantLock sortItems;
+  // Package-private so tests assert the lock is released without reflection.
+  final ReentrantLock sortItems;
   private final BalancedItem<T>[] noSkip;
   private final AtomicInteger i;
 
@@ -38,6 +40,12 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
     this.sortItems = new ReentrantLock(false);
     this.noSkip = Arrays.copyOf(items, items.length);
     this.i = new AtomicInteger(-1);
+  }
+
+  // Interleaving seam: tests override this to lose the wrap CAS to a simulated
+  // competing reset, deterministically on the test thread.
+  boolean casWrap(final int expected) {
+    return this.i.compareAndSet(expected, 0);
   }
 
   @SuppressWarnings("unchecked")
@@ -91,7 +99,7 @@ final class SortedLoadBalancer<T> implements LoadBalancer<T> {
     for (BalancedItem<T> item; ; ) {
       final int i = this.i.incrementAndGet();
       if (i >= noSkip.length) {
-        if (this.i.compareAndSet(i, 0)) {
+        if (casWrap(i)) {
           item = noSkip[0];
         } else {
           continue;

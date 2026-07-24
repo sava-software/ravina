@@ -85,7 +85,7 @@ to `SURVIVED`, union it per the timeout-mode note above.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-**Dropped `toAbsolutePath` normalisation** (`config`) — `NakedReceiverMutator`
+**Dropped `toAbsolutePath` normalisation** `# absolute-path-equivalent` (`config`) — `NakedReceiverMutator`
 on `NetConfigRecord$Parser` lines 95/129, `Path.of(keyStorePath).toAbsolutePath()`.
 The record retains the loaded `KeyStore`, never the path, and a relative path
 resolves against the same working directory as its absolute form, so the same
@@ -93,7 +93,7 @@ file is opened either way. Only a process that changes its working directory
 between parse and use could tell — no API here exposes the path to make that
 observable.
 
-**Picking the finer of two equal units** (`config`) — the
+**Picking the finer of two equal units** `# equal-units` (`config`) — the
 `ConditionalsBoundaryMutator` on `BackoffConfig.finer`'s
 `a.compareTo(b) <= 0 ? a : b`. The mutant flips it to `<`, which changes the
 result only when `compareTo` returns 0 — and two `TimeUnit`s with equal
@@ -102,11 +102,16 @@ reference. No input can distinguish them: the delays either need different
 granularities (compareTo non-zero, unaffected) or the same one (both arms
 return that unit). Rewriting it as `<` would only mirror the mutant.
 
-**Logging removals** — `logger.log(...)` `VoidMethodCallMutator` removals
+**Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals
 anywhere: log output is not part of any behavioral contract, and asserting on
-it would couple tests to message wording.
+it would couple tests to message wording. One deliberate exception:
+`NotifyClientImpl`'s hook-failure warning is itself the contract ("failures
+are never silent"), so `failedHookLogsAWarningWithTheThrowable` records the
+JUL handler and asserts presence, level, endpoint and throwable — substrings,
+not wording — and that mutant is killed, not family-accepted (its stale row
+was pruned 2026-07-24).
 
-**Saturation absorbs the off-by-one** (`backoff`) — surviving
+**Saturation absorbs the off-by-one** `# saturation-sweep` (`backoff`) — surviving
 `ConditionalsBoundaryMutator`/`RemoveConditionalMutator_ORDER_IF` on a
 *max-error-count* computation: `Backoff.fibonacci` lines 61 and 93,
 `ExponentialBackoffErrorHandler.<init>` line 14. Each shifts the saturation
@@ -140,7 +145,7 @@ overflow domain), the counter-example is pinned in
 (`regression-linear-saturation-overflow` seed), and both mutants are killed.
 The lesson: this family's membership test is the sweep, not the prose.
 
-**Fibonacci overflow-saturation guards** (`backoff`) — the guards added
+**Fibonacci overflow-saturation guards** `# overflow-guard-sweep` (`backoff`) — the guards added
 2026-07-21 so `Backoff.fibonacci` saturates at F(92) (the largest fibonacci
 that fits in a long) instead of hanging or walking wrapped values:
 
@@ -167,18 +172,18 @@ reintroduces the constructor hang, and a hang is only observable as a timeout
 detected, so it never enters the baseline; if it ever flips to `SURVIVED`
 under load, union it with this paragraph as the reason.
 
-**Index paths that coincide** (`backoff`) —
+**Index paths that coincide** `# index-coincidence-sweep` (`backoff`) —
 `FibonacciBackoffErrorHandler.calculateDelay` line 21 `errorCount < 1` → `<=`:
 at `errorCount == 1` both branches resolve to `sequence[0]`. Covered by the
 same sweep: zero differences over the domain above.
 
-**Degenerate single-item pool** (`calls`) — `CourteousBalancedCall.call`
+**Degenerate single-item pool** `# single-item-pool` (`calls`) — `CourteousBalancedCall.call`
 line 31 `size() > 1` → `>= 1` and the forced-true variant. At size 1 the
 balancer is a `SingletonLoadBalancer`: `sort()` is a no-op, `withContext()`
 re-returns `previous`, and the `items()` scan skips its only element, so
 control falls through identically.
 
-**No-op sort** (`calls`) — `sort()` call removals inside
+**No-op sort** `# no-op-sort` (`calls`) — `sort()` call removals inside
 `CourteousBalancedCall`. Two cases: on an `ArrayLoadBalancer` the comparator
 ignores capacity, so item order cannot change mid-call; and the *post-sleep*
 `sort()` at line 58 is unreachable without the line-32 `sort()` having run
@@ -187,7 +192,7 @@ keys (`errorCount`, `sampleMedian`) — so the re-sort cannot reorder. The
 line-32 `sort()` itself is **not** accepted: it is killed by
 `courteousBalancedCallReSortsBeforeSelectingTheFailoverItem`.
 
-**Discarded `exceptionally` handler** (`catchAll`) —
+**Discarded `exceptionally` handler** `# discarded-handler` (`catchAll`) —
 `NotifyClientImpl.lambda$postMsg$1` line 73 `EmptyObjectReturnVals`: the future
 derived from `exceptionally(...)` is never stored or returned, so the handler's
 return value is unobservable. The path is covered by
@@ -196,59 +201,59 @@ before returning — the row is `SURVIVED` rather than `NO_COVERAGE` for that
 reason. Without that barrier the handler can run after the test finishes, and
 its stack trace gets attributed to whichever test Gradle prints next.
 
-**Log-message-only values** (`catchAll`) —
+**Log-message-only values** `# log-text-only` (`catchAll`) —
 `HttpErrorTracker.lambda$logResponse$0` line 59 `EmptyObjectReturnVals`: the
 header-formatting lambda's value reaches only the DEBUG message text.
 Asserting it would couple the test to message wording, the same principle as
 the `logger.log` removals.
 
-**Unreachable-false guard** (`catchAll`) — `UriCapacityConfig$Parser`
+**Unreachable-false guard** `# unreachable-guard` (`catchAll`) — `UriCapacityConfig$Parser`
 `parseProperties` line 67, the `!url.isBlank()` conjunct:
 `PropertiesParser.getProperty` already maps a blank value to `null` and strips
 the rest, so `isBlank()` is never true when reached.
 
-**Unobservable timers** — call-time measurement mutants on paths where
+**Unobservable timers** `# timer-unobservable` — call-time measurement mutants on paths where
 `measureCallTime` is false: the measured value is never read.
 
-**Redundant null-guard assignment** (`config`) — `parseProperties` guards of
+**Redundant null-guard assignment** `# null-guard-noop` (`config`) — `parseProperties` guards of
 the shape `if (x != null) this.field = x;` on a fresh single-use parser:
 forcing the branch assigns null over an already-null field, and `create()`
 null-coalesces the default either way. Sites: `RemoteHttpResourceConfig$Parser`
 (name, endpoint), `RemoteResourceConfig$Parser` (endpoint).
 
-**Always-true condition** (`config`) — `RemoteResourceConfig$Parser`
+**Always-true condition** `# always-true-guard` (`config`) — `RemoteResourceConfig$Parser`
 `BackoffConfig.parse(String, Properties)` never returns null (its builder fills
 defaults), so the guard is always taken.
 
-**Non-null by JLS** (`config`) — `ServiceConfigUtil.configFilePath` /
+**Non-null by JLS** `# jls-non-null` (`config`) — `ServiceConfigUtil.configFilePath` /
 `configFilePaths` branches on `Class.getModule()`, which is specified
 non-null; the else branch is the only reachable one.
 
-**Return-value-only mutation of a delegating predicate** (`config`) —
+**Return-value-only mutation of a delegating predicate** `# delegating-return` (`config`) —
 `WebHookConfig$Parser.test` `BooleanTrueReturnValsMutator` on
 `return super.test(...)`: the call still executes with all its side effects and
 throws, and `super.test` only ever returns true, so forcing the returned value
 is indistinguishable.
 
-**Fall-through to an equal result** (`loadBalance`) — `ArrayLoadBalancer.peek`
+**Fall-through to an equal result** `# equal-fallthrough` (`loadBalance`) — `ArrayLoadBalancer.peek`
 and `.withContext` zero-error fast paths: falling through evaluates
 `errorCount - (skipped >> 1) <= 0`, which selects the same item.
 
-**Empty-collection fast paths** (`capacity`, `errorTracking`) — guards whose
+**Empty-collection fast paths** `# empty-fast-path` (`capacity`, `errorTracking`) — guards whose
 forced branch iterates an empty collection and reaches the same return:
 `RootErrorTracker.expireOldFailures` (empty queue) and
 `.produceErrorResponseSnapshot` (`numGroups == 0` returns `Map.of()` at the
 tail anyway).
 
-**Equal-value reassignment** (`errorTracking`) — `expireOldFailures`
+**Equal-value reassignment** `# equal-reassign` (`errorTracking`) — `expireOldFailures`
 `size > maxCount` → `>=` reassigns an identical value.
 
-**Zero-weight no-ops** (`capacity`) — `CapacityStateVal.claimRequest` `> 0` →
+**Zero-weight no-ops** `# zero-weight` (`capacity`) — `CapacityStateVal.claimRequest` `> 0` →
 `>= 0` and `tryClaimRequest`/`durationUntil` boundary mutants that admit
 weight 0: claiming or waiting for zero capacity subtracts zero and computes a
 zero duration.
 
-**Comparator null-ordering** (`loadBalance`) — `SortedLoadBalancer`'s static
+**Comparator null-ordering** `# comparator-null-order` (`loadBalance`) — `SortedLoadBalancer`'s static
 comparator trio on the null branch. These change `compare(null, x)` from 1 to
 0 or `compare(null, null)` from 0 to 1. Accepted because every result stays
 non-negative and `Arrays.sort`'s binary insertion searches with a strict
@@ -257,45 +262,64 @@ after non-nulls — identical ordering. Note this rests on JDK sort internals
 rather than on the mutation being behavior-preserving: revisit if the
 comparator gains a caller that does its own comparisons.
 
-## Not deterministically reachable (accepted, but not "equivalent")
+## Not deterministically reachable — *closed 2026-07-24*
 
-Distinguished from the group above on purpose: these mutants *do* change
-observable behavior, just not behavior a deterministic unit test can provoke.
-They are accepted because the ratchet requires determinism, not because they
-are inert. Killing any of them requires a concurrency harness, which this repo
-does not have — see "Deferred: a concurrency harness" at the end of this file
-for what that would take and why it has not been built.
+This section used to hold the `# concurrency-deferred` rows: mutants that
+change observable behavior only under an interleaving a single-threaded test
+cannot produce. Every one is now killed via the injected-interleaving seams
+(see "Deferred: a concurrency harness" below, now fully banked), and no row
+carries the label any more:
 
-**Failover guards redundant single-threaded** (`calls`) —
-`CourteousBalancedCall.call` line 35 `previous != this.next` and line 39
-`previous != item`. Reaching the guarded branch needs `hasCapacity(previous)`
-to be true, but `tryClaimRequest(previous)` failed immediately before with no
-intervening clock advance; only a competing thread releasing or replenishing
-capacity can make the two disagree.
+- **Failover guards** (`calls`) — `CourteousBalancedCall.call` lines 35/39
+  `previous != …`: killed by
+  `aFailedClaimIsFinalUnlessTheFailoverItemIsADifferentOne`, whose
+  `RacingCapacityState` scripts the `tryClaimRequest`/`hasCapacity`
+  disagreement only a competing thread's release can produce — legitimate
+  under the `CapacityState` interface contract, so no production seam was
+  needed. Each of those lines also carries an `EQUAL_IF` *sibling* (the
+  `hasCapacity` operand) that unbounds the failover loop when forced true:
+  it is hang-detected (`TIMED_OUT`), stays out of the baseline per the
+  timeout doctrine above, and if it ever flips to `SURVIVED` under load,
+  union it with this paragraph as the reason — the fibonacci line-71
+  precedent.
+- **CAS losers** (`capacity`) — `CapacityStateVal.tryClaimRequest` /
+  `.tryUpdateCapacity`: killed via the package-private seams `claimCapacity`
+  / `casUpdatedAt` (the class is deliberately non-final); `WedgedClaimState`
+  wedges a competing claim or release immediately before the claim CAS
+  (`aClaimThatLosesTheRaceIsPutBack` reaches the once-`NO_COVERAGE`
+  put-claim-back line, `aPacingGatedClaimReturnsFalseWithoutClaiming` pins
+  the `Integer.MIN_VALUE` pacing sentinel), and `LosingTimestampState` lands
+  a competing refresh so the real timestamp CAS genuinely fails
+  (`aTimestampCasThatLosesMustNotReplenish`).
+- **Lock and cursor** (`loadBalance`) — `SortedLoadBalancer`: the `unlock()`
+  removals die by asserting `!sortItems.isLocked()` after `sort()`/`items()`
+  (the lock field is package-private for exactly this; `isLocked` sees the
+  test thread's own leaked hold, no second thread required), and the
+  `nextNoSkip` wrap CAS dies via the `casWrap` seam
+  (`nextNoSkipLosingTheWrapCasRereadsTheCursor`).
 
-**Concurrency-only divergence** — CAS fast-path and lock mutants whose operand
-still executes and which can only diverge when a competing thread makes the
-CAS fail or observes an unreleased lock: `CapacityStateVal.tryClaimRequest`
-(lines 120/124/126) and `.tryUpdateCapacity`, `SortedLoadBalancer.nextNoSkip`,
-and the `unlock()` removals in `SortedLoadBalancer.sort`/`.items` (the lock is
-reentrant, so the owning thread re-enters freely single-threaded). The
-`tryClaimRequest` line-132 `NO_COVERAGE` row is this family's unreached
-member, not an equivalent: the put-claim-back `return false` runs only when
-capacity drops between the unconditional read and the atomic claim, which
-single-threaded tests cannot produce — it is part of the deferred
-concurrency-harness block below.
+The wedge subclasses run entirely on the test thread — the "interleaving" is
+a scripted call inside the seam override — so the kills are exactly as
+deterministic as any other unit test: no threads, no latches, no timing.
+One rule the first draft got wrong, kept so it stays learned: a seam override
+must let the base method's return value flow through (`super.casUpdatedAt`
+losing genuinely) rather than hard-code the raced result, or the seam's own
+`BooleanTrueReturnVals` mutant survives behind the override.
 
 *(The `RootErrorTracker.produceErrorResponseSnapshot` expiry boundary used to
 sit here, unkillable because the method hard-coded `System.currentTimeMillis()`.
 It now reads `NanoClock.currentTimeMillis()` via `CapacityState.clock()`, so
 `snapshotExpiryBoundaryIsInclusive` pins the `<=` exactly and the mutant is
 dead. Recorded as precedent: a mutant that is unkillable only because a clock
-is hard-coded is a testability gap to fix, not debt to accept.)*
+is hard-coded is a testability gap to fix, not debt to accept. The
+concurrency rows above joined it on 2026-07-24, closing the pattern: both
+were testability gaps — a hard-coded clock, a hard-coded interleaving — not
+debt.)*
 
 ## Deferred: a concurrency harness
 
-**Status: every latch shape banked (2026-07-23); only the CAS losers
-remain.** The technique that cleared them —
+**Status: fully banked — latch shapes 2026-07-23, CAS losers 2026-07-24.
+Nothing remains deferred.** The technique that cleared the latch shapes —
 `ReentrantLock.hasWaiters` observed across a `signalAll`, which transfers
 waiters off the condition queue *synchronously* — is pure queue-state
 observation: no timeout ever decides a healthy run's outcome, which is how it
@@ -315,9 +339,9 @@ waits on it. Verified stable across three consecutive solo runs each and under
 | `EpochInfoServiceImpl.awaitInitialized` (+ `run` `signalAll`) | 8 | parked-waiter handshake | **killed 2026-07-23** |
 | `BaseTxMonitorService.notifyWorker`, `TxCommitmentMonitorService.processTransactions` (+ its `numExpired` gate) | 6 | `signalAll()` with no waiter | **killed 2026-07-23** |
 | `EpochInfoServiceImpl.run`, the `fetchEpochNow == true` branch (+ `fetchEpochNow()`'s `signal`) | 11 | signal delivered while parked | **killed 2026-07-23** |
-| `CapacityStateVal.tryClaimRequest` / `.tryUpdateCapacity` | 6 | CAS loser | open |
-| `SortedLoadBalancer.sort`/`.items`/`.nextNoSkip` | 3 | `unlock()` removal, CAS loser | open |
-| `CourteousBalancedCall.call` failover guards | 2 | state only a competing thread produces | open |
+| `CapacityStateVal.tryClaimRequest` / `.tryUpdateCapacity` | 6 | CAS loser | **killed 2026-07-24** |
+| `SortedLoadBalancer.sort`/`.items`/`.nextNoSkip` | 3 | `unlock()` removal, CAS loser | **killed 2026-07-24** |
+| `CourteousBalancedCall.call` failover guards | 2 | state only a competing thread produces | **killed 2026-07-24** |
 
 Three distinct shapes, not one:
 

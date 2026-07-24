@@ -110,7 +110,14 @@ Two mechanical points that cost real time to rediscover:
   triage state is a number the build prints. Refreshes seed genuinely new
   rows as `# untriaged` — triage means replacing that label. Carry markers
   (`(carried across …)`) are appended by the refresh and are not part of
-  the label.
+  the label. Since sava-build 21.5.13 the verify and the debt listing also
+  **warn when a label has no literal `# <label>` mention in that README** —
+  every family section here now carries its label inline (added 2026-07-24;
+  the first pass exposed two swapped pairs in `calls`: the
+  `measureCallTime` conditionals were labelled `# converging-fallback` (a
+  family that existed nowhere) and the `logger.log` removals
+  `# timer-unobservable` — both now sit in their documented families). Keep
+  the inline label when adding or renaming a family.
 - The baselines are fully triaged: **every** accepted entry has a written
   reason in the module's `config/pitest/README.md`. An entry with a reason is a
   finished outcome, not debt waiting to be cleared — do not chase a suite's
@@ -130,12 +137,19 @@ Two mechanical points that cost real time to rediscover:
   deliberately carry the union of both modes; four such rows are known. Don't
   strip a row because one run shows it detected, and don't bulk-add every
   `TIMED_OUT` row either — that would blind the ratchet to real regressions.
-- The largest remaining block of accepted debt (~33 entries, both modules) is
-  blocked on there being **no two-thread test anywhere in the repo**: parked-waiter
-  handshakes, `signalAll` with no waiter, and CAS losers. A concurrency harness is
-  deliberately deferred — see "Deferred: a concurrency harness" in
-  `ravina-core/config/pitest/README.md` for the shapes, the determinism bar it has
-  to clear, and where to start. A flaky harness would be worse than the debt.
+- The concurrency-blocked debt is **fully banked** (latch shapes 2026-07-23,
+  CAS losers 2026-07-24 — the `# concurrency-deferred` label no longer exists
+  in any baseline). The latch shapes fell to `ReentrantLock.hasWaiters`
+  queue-state observation with real parked threads; the CAS losers fell to
+  **injected-interleaving seams**: package-private hook methods
+  (`CapacityStateVal.claimCapacity`/`.casUpdatedAt`,
+  `SortedLoadBalancer.casWrap`) that test subclasses override to wedge a
+  competing update between a read and its CAS — same-thread, no timing, as
+  deterministic as any unit test. See "Deferred: a concurrency harness" in
+  `ravina-core/config/pitest/README.md` for the shapes, the determinism bar,
+  and the seam-design trap (a wedge must let the base method's return flow
+  through, or the seam's own return-value mutant hides behind the override).
+  A flaky harness would have been worse than the debt; this one is not flaky.
 - Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
 - **Randomized tests use fixed seeds**: the ratchet needs deterministic
   kills; per-run exploration is the fuzz targets' job.
@@ -251,7 +265,10 @@ Two ravina-specific families the shared list does not cover, both legitimate:
   pin wording that is not a contract.
 - **Not deterministically reachable** — real divergence a deterministic test
   cannot provoke (concurrency, exact-millisecond boundaries). Kept in a
-  separate README section precisely because it is *not* equivalence.
+  separate README section precisely because it is *not* equivalence. As of
+  2026-07-24 the family is empty in core — clocks and interleavings both
+  turned out to be injectable — but the category remains the right triage for
+  any future member.
 
 ## A cluster on logging is a design signal, not a family
 

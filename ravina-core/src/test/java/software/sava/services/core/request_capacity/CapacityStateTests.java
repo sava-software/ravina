@@ -325,4 +325,138 @@ final class CapacityStateTests {
     assertTrue(str.contains("nanosPerWeight=10000000"), str);
     assertTrue(str.contains("updatedAtSystemNanoTime=123"), str);
   }
+
+  // --- CAS-loser interleavings, reproduced deterministically on the test
+  // thread by overriding the interleaving seams (see config/pitest/README.md,
+  // "Deferred: a concurrency harness"). No real threads, no timing.
+
+  private static CapacityConfig createConfig() {
+    return new CapacityConfig(
+        -100,
+        100,
+        Duration.ofSeconds(1),
+        8,
+        Duration.ofSeconds(1),
+        Duration.ofSeconds(1),
+        Duration.ofSeconds(1),
+        Duration.ofSeconds(1)
+    );
+  }
+
+  /// Wedges a competing capacity delta immediately before the [fireOnCall]th
+  /// claim, as a racing claim or release would.
+  private static final class WedgedClaimState extends CapacityStateVal {
+
+    private final int fireOnCall;
+    private final int delta;
+    private int calls;
+
+    WedgedClaimState(final TestClock clock, final int fireOnCall, final int delta) {
+      super(createConfig(), clock);
+      this.fireOnCall = fireOnCall;
+      this.delta = delta;
+    }
+
+    @Override
+    int claimCapacity(final int callWeight) {
+      if (++calls == fireOnCall) {
+        addCapacity(delta);
+      }
+      return super.claimCapacity(callWeight);
+    }
+  }
+
+  /// Loses the first timestamp CAS the way a competing refresh would: the
+  /// competitor's value lands, this thread's compare-and-set reports failure.
+  private static final class LosingTimestampState extends CapacityStateVal {
+
+    private boolean armed = true;
+
+    LosingTimestampState(final TestClock clock) {
+      super(createConfig(), clock);
+    }
+
+    @Override
+    boolean casUpdatedAt(final long expected, final long newValue) {
+      if (armed) {
+        armed = false;
+        // The competing refresh lands first; the real CAS below then fails.
+        super.casUpdatedAt(expected, expected + 1);
+      }
+      return super.casUpdatedAt(expected, newValue);
+    }
+  }
+
+  @Test
+  void slowPathReplenishmentSatisfiesTheClaim() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    final var state = createState(clock);
+    assertTrue(state.tryClaimRequest(100, 0));
+    assertEquals(0, state.capacity());
+
+    // 500ms owes 50 weights; the claim itself must take the slow path and both
+    // replenish and claim in one call — no prior hasCapacity does the update.
+    clock.advanceMillis(500);
+    assertTrue(state.tryClaimRequest(40, 0));
+    assertEquals(10, state.capacity());
+  }
+
+  @Test
+  void aTimestampCasThatLosesMustNotReplenish() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    final var state = new LosingTimestampState(clock);
+    state.claimRequest(100);
+
+    // 500ms owes 50 weights, but a competing thread refreshed the timestamp
+    // between the read and the compare-and-set: the loser must not replenish.
+    clock.advanceMillis(500);
+    assertFalse(state.hasCapacity(1, 0));
+    assertEquals(0, state.capacity());
+  }
+
+  @Test
+  void aClaimRacingTheReplenishmentReturnsFalseWithoutClaiming() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // The wedge fires on the second claim — the one only a mutant dropping the
+    // insufficient-capacity check would issue; the first is the drain below.
+    final var state = new WedgedClaimState(clock, 2, 50);
+    state.claimRequest(100);
+
+    // 100ms owes 10 weights, well short of the 40 needed: the replenishing
+    // claim must report failure without ever touching the claim accumulate.
+    clock.advanceMillis(100);
+    assertFalse(state.tryClaimRequest(40, 0));
+    assertEquals(10, state.capacity());
+  }
+
+  @Test
+  void aPacingGatedClaimReturnsFalseWithoutClaiming() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // The wedge fires on the second claim — the one only a mutant skipping the
+    // pacing-gate sentinel would issue; the first is the drain below.
+    final var state = new WedgedClaimState(clock, 2, 50);
+    state.claimRequest(100);
+
+    // No time has passed since construction, so the update is pacing-gated:
+    // the claim must report failure without ever touching the claim accumulate.
+    assertFalse(state.tryClaimRequest(40, 0));
+    assertEquals(0, state.capacity());
+  }
+
+  @Test
+  void aClaimThatLosesTheRaceIsPutBack() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // A competing claim of 90 lands inside this thread's claim.
+    final var state = new WedgedClaimState(clock, 1, -90);
+
+    // The fast-path check saw 100 free, but the claim lands on 10: the loser
+    // must put its claim back and report failure.
+    assertFalse(state.tryClaimRequest(40, 0));
+    assertEquals(10, state.capacity());
+  }
 }
