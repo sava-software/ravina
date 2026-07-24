@@ -1,5 +1,17 @@
 # Changelog
 
+## [25.5.2](https://github.com/sava-software/ravina/compare/25.5.1...25.5.2) (2026-07-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* configurations that relied on silent truncation — sub-unit backoff delays, sub-millisecond capacity reset durations or monitor delays, a slot sample window under 60 seconds — now throw IllegalArgumentException at parse/build time.
+
+### Bug Fixes
+
+* **fuzz:** commit configs seed corpora hidden by a bare gitignore pattern ([02ce084](https://github.com/sava-software/ravina/commit/02ce084a2085b7a7d236f2e6d55e8eca40a30b62))
+* validate config durations and restore classpath service discovery ([78b1a3c](https://github.com/sava-software/ravina/commit/78b1a3cd453b984768bd7519c3a7be6b3d5d310a))
+
 ## [25.5.1](https://github.com/sava-software/ravina/compare/25.5.0...25.5.1) (2026-07-21)
 
 
