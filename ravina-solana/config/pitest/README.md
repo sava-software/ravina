@@ -28,6 +28,40 @@ nothing is new). Anything mixed in still fails: triage first, refresh after.
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
 
+## Audited timeout sets (`<suite>-timeouts.csv`)
+
+Per AGENTS.md rule 18, each suite with timeout-detected mutants carries a
+membership file the verify audits; a timed-out mutant outside it is a warning
+to stop on. Members and their structural causes below — line numbers name the
+code each argument is about (the audit key is line-less, so a *new* mutant
+inside an already-listed method+mutator draws no warning; re-read the
+argument when the named line changes). Seeded 2026-07-27 from a full
+`qualityGate` observation that matched the prior run's population exactly.
+
+**catchAll**
+- `LookupTableCacheMap.refreshStaleAccounts:225` `ConditionalsBoundaryMutator`
+  and `ORDER_IF` — the batching loop's `from < numStale` exit: the boundary
+  flavour admits `from == numStale` (an empty `subList` fetch that advances
+  nothing), the removal flavour deletes the exit outright; both batch
+  forever.
+- `TxCommitmentMonitorService.validateResponseAndAwaitCommitmentViaWebSocket:115`
+  `EQUAL_IF` — forces the `txResult == null` route, so a completed result
+  still `join()`s a websocket future the scripted fake never completes.
+- `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1:274`
+  `NakedReceiverMutator` — drops `.orTimeout(...)` (a fluent call returning
+  its receiver), leaving the finalization future waiting forever (this is the
+  1 `TIMED_OUT` the NAKED_RECEIVER trial table records).
+- `BaseTxMonitorService.run:69` `EQUAL_IF` — forces the pending-transactions
+  poll to read empty, so the monitor loop sleeps forever and never reaches
+  the work its test terminates on.
+
+**epochService**
+- `EpochInfoServiceImpl.awaitInitialized:137/141` `VoidMethodCallMutator` —
+  one line-less key, two mutants: removing `initializedCondition.await()`
+  (line 137) turns the not-initialized wait into a spin that never observes
+  the signal, and removing `lock.unlock()` (line 141) leaves the service
+  lock held so the next locker deadlocks. Both only observable as timeouts.
+
 ## Status
 
 No untriaged debt: every accepted entry has a reason below. `fees` is fully
@@ -91,12 +125,21 @@ what fires:
 |---|---|---|---|
 | `fees` | 1 mutant, killed | 0 | `BIG_DECIMAL` |
 | `catchAll` | 0 | 3 mutants, all killed | `BIG_INTEGER` |
-| others | not trialled — no big-number arithmetic in target classes | | — |
+| `epoch` | — | 2 mutants, all killed (trialled 2026-07-26) | `BIG_INTEGER` |
+| others | 0 — confirmed by the 2026-07-26 full trial run | | — |
 
-All four new mutants were killed by tests written under `STRONGER` that had
+All six new mutants were killed by tests written under `STRONGER` that had
 never seen these operators, so enabling them added coverage without adding a
 single accepted entry. Recorded so the omitted mutator in each suite reads as
 measured rather than forgotten.
+
+The `epoch` row is a correction: the 2026-07-21 trial recorded "others: no
+big-number arithmetic", but `Epoch`'s unsigned block-height delta
+(`heightDelta`, `estimatedBlockHeightGivenSlotEstimate`) has been `BigInteger`
+`subtract`/`add` all along. The plugin's mutator-blindness scan (sava-build
+21.5.14) flagged it on the first `pitestEpoch` run under that version;
+`pitestMutatorTrial -PtrialMutators=EXPERIMENTAL_BIG_INTEGER` then fired 2 of
+2 killed there and re-confirmed `catchAll`'s 3 and zero everywhere else.
 
 ## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
 

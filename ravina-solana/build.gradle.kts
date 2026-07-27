@@ -14,8 +14,10 @@ hardening {
   mutation.register("epoch") {
     // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
     // config/pitest/README.md); fluent receiver-typed calls are otherwise
-    // invisible to STRONGER.
-    mutators = "STRONGER,EXPERIMENTAL_NAKED_RECEIVER"
+    // invisible to STRONGER. Block-height math in Epoch is BigInteger, which
+    // MathMutator cannot see; the plugin's blindness scan flagged it and the
+    // 2026-07-26 trial fired 2, both killed (numbers in the README).
+    mutators = "STRONGER,EXPERIMENTAL_BIG_INTEGER,EXPERIMENTAL_NAKED_RECEIVER"
     targetClasses = listOf(
       "software.sava.services.solana.epoch.Epoch",
       "software.sava.services.solana.epoch.SlotPerformanceStats"

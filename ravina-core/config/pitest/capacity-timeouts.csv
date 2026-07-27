@@ -1,0 +1,3 @@
+# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
+# README.md, "Audited timeout sets".
+software.sava.services.core.request_capacity.CapacityStateVal,hasCapacity,BooleanTrueReturnValsMutator # line 192

@@ -1,0 +1,5 @@
+# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
+# README.md, "Audited timeout sets" (the ExceptionUtil cause-chain walks).
+software.sava.services.core.exceptions.ExceptionUtil,containsException,NakedReceiverMutator # line 28
+software.sava.services.core.exceptions.ExceptionUtil,containsIOException,NakedReceiverMutator # line 16
+software.sava.services.core.exceptions.ExceptionUtil,getException,NakedReceiverMutator # line 40

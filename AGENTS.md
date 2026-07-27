@@ -217,12 +217,21 @@ timeouts).
     the rule to know before one does.)
 14. **Kill rates are bounded by the mutator set.** Big-number math is method
     calls, invisible to the default arithmetic mutators — `fees` adds
-    `EXPERIMENTAL_BIG_DECIMAL`, solana's `catchAll` adds
+    `EXPERIMENTAL_BIG_DECIMAL`, solana's `catchAll` and `epoch` add
     `EXPERIMENTAL_BIG_INTEGER` — and fluent calls returning their receiver
     are expressions, invisible to `VoidMethodCallMutator` — the ten suites
-    where `EXPERIMENTAL_NAKED_RECEIVER` fires enable it. Trial per suite,
-    enable only what fires, and record the numbers in that module's
-    `config/pitest/README.md` (the existing trial tables are the format).
+    where `EXPERIMENTAL_NAKED_RECEIVER` fires enable it. Since plugin
+    21.5.14 each `pitest<Suite>` run scans its target classes for
+    Big-arithmetic the enabled set cannot see and prints the trial command
+    (this caught `epoch`'s BigInteger block-height math, missed by the
+    hand trial). Trial per suite
+    (`pitestMutatorTrial -PtrialMutators=...`), enable only what fires and
+    record the numbers in that module's `config/pitest/README.md` (the
+    existing trial tables are the format); record a measured decision *not*
+    to enable as `declineMutator("<MUTATOR>", "<what the trial generated>")`
+    on the suite — a blank reason suppresses nothing, and a stale decline is
+    reported as deletable. `declineSeedCorpus("...")` is the same contract
+    for fuzz targets without a corpus (all targets here currently have one).
 15. **PIT minions run on the class path**, even though this repo's tasks run
     on the module path: `module-info` services are invisible to them, and a
     test-resources `META-INF/services` is invisible to the module-path `test`
@@ -248,8 +257,24 @@ timeouts).
     `fullyExpiredSnapshotIsAnImmutableEmptyMap` (`RootErrorTracker`) and the
     `WebHookConfigTests` empty-parse `assertSame`; both routing ternaries'
     mutants are killed, so nothing here is family-accepted.
+18. **Timed-out mutants are an audited set, not a count.** `TIMED_OUT` is
+    detected, but the watchdog observed slowness, not wrongness — for exactly
+    those mutants the ratchet cannot see a weakened covering assertion, so a
+    suite with timeout-detected mutants keeps a
+    `config/pitest/<suite>-timeouts.csv` of line-less `class,method,mutator`
+    members, each with its cause argued in the module's
+    `config/pitest/README.md` (name the line there — the audit key is
+    per method+mutator, so "no warning" does not certify no new mutant
+    inside an already-audited method). The verify warns on a timed-out
+    mutant outside the set — a reviewer-stop: identify the cause, paste the
+    printed row, write the argument — and notices members matching no
+    mutant (retire them). Two member flavours here: **structural hangs**
+    (deleting a termination guard — only observable as a timeout, the
+    documented exception to rule 7) and **load flips** (`SURVIVED` solo,
+    `TIMED_OUT` under `qualityGate` — the union-insurance rows), whose
+    cause is the flip family, not a hang.
 
-<!-- hardening-template sha256:7f9eb869ee7e -->
+<!-- hardening-template sha256:f6dea3f41ab7 -->
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That

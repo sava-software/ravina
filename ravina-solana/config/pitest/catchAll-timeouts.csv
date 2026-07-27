@@ -1,0 +1,7 @@
+# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
+# README.md, "Audited timeout sets".
+software.sava.services.solana.alt.LookupTableCacheMap,refreshStaleAccounts,ConditionalsBoundaryMutator # line 225
+software.sava.services.solana.alt.LookupTableCacheMap,refreshStaleAccounts,RemoveConditionalMutator_ORDER_IF # line 225
+software.sava.services.solana.transactions.BaseTxMonitorService,run,RemoveConditionalMutator_EQUAL_IF # line 69
+software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$1,NakedReceiverMutator # line 274
+software.sava.services.solana.transactions.TxCommitmentMonitorService,validateResponseAndAwaitCommitmentViaWebSocket,RemoveConditionalMutator_EQUAL_IF # line 115

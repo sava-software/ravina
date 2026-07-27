@@ -50,6 +50,70 @@ not preemptively pad the baseline with every `TIMED_OUT` row: that would
 accept mutants that are reliably detected today and silently stop the ratchet
 from catching them if a future edit makes them genuinely survive.
 
+## Audited timeout sets (`<suite>-timeouts.csv`)
+
+Per AGENTS.md rule 18, each suite with timeout-detected mutants carries a
+membership file the verify audits; a timed-out mutant outside it is a warning
+to stop on. Members and their structural causes below — line numbers name the
+code each argument is about (the audit key itself is line-less, so a *new*
+mutant inside an already-listed method+mutator draws no warning; re-read the
+argument when the named line changes). Seeded 2026-07-27 from a full
+`qualityGate` observation that matched the prior run's population exactly.
+
+**backoff**
+- `Backoff.fibonacci:71` `ORDER_ELSE` — deletes the start-loop wrap guard and
+  reintroduces the constructor hang (the overflow-guard-sweep paragraph
+  below); a hang is only observable as a timeout.
+- `ExponentialBackoffErrorHandler.<init>:14` `ORDER_IF` and
+  `ConditionalsBoundaryMutator` — the measured load flips this file's
+  timeout-mode note opens with: `SURVIVED` solo, `TIMED_OUT` alongside other
+  suites. Baselined `# saturation-sweep`; membership audits the detected
+  mode.
+
+**calls** — every member deletes or inverts an exit of a retry/wait loop, so
+what remains is unbounded (`maxTryClaim`/`maxRetries` default to
+`Long.MAX_VALUE`) and the timeout is the observable:
+- `ComposedCall.get:54` `MathMutator` — `++errorCount` no longer advances the
+  retries-exhausted cursor; `:55` `ORDER_ELSE` — deletes the
+  throw-when-exhausted exit. Both retry forever.
+- `CourteousBalancedCall.call:35/39` `EQUAL_IF` — the forced-true
+  `hasCapacity` operands that unbound the failover loop (the failover-guards
+  paragraph below).
+- `CourteousBalancedCall.call:49` `ConditionalsBoundaryMutator` — `<= 0` →
+  `< 0`, so a zero wait re-enters the wait branch with a zero delay forever;
+  `ORDER_ELSE` — deletes the claim-now branch, waiting on every iteration of
+  an effectively unbounded try budget.
+- `CourteousCall.call:25` `ORDER_IF` (the try-claim for-loop exit) and `:30`
+  `ConditionalsBoundaryMutator` / `ORDER_ELSE` — the same shapes as the
+  balanced variant, one class earlier.
+- `UncheckedBalancedCall.get:72` `ORDER_ELSE` — deletes the
+  throw-when-exhausted exit of the balanced retry loop.
+
+**capacity**
+- `CapacityStateVal.hasCapacity:192` `BooleanTrueReturnVals` — capacity
+  forever reported available: every drain-until-refused loop (the courteous
+  wait paths and the tests that drive them) loses its only exit.
+
+**catchAll**
+- `ExceptionUtil.containsIOException:16` / `containsException:28` /
+  `getException:40` `NakedReceiverMutator` — `throwable.getCause()` becomes
+  `throwable`, turning each cause-chain walk infinite (the NAKED_RECEIVER
+  trial table below).
+
+**config and loadBalance** — the same two members in both files; both suites
+mutate `LoadBalancerConfig`:
+- `LoadBalancerConfig$Parser.parseProperties:116` `EQUAL_ELSE` — deletes the
+  no-more-endpoints break of the indexed `endpoints.N.` scan; and
+  `lambda$parseProperties$3:116` `BooleanTrueReturnVals` — forces the
+  prefix-match predicate true so `noneMatch` can never end that same scan.
+  The endpoint index walks forever either way.
+
+**loadBalance**
+- `ArrayLoadBalancer.peek:80` `EQUAL_ELSE` — deletes the `i != to` exit of
+  the ring-walk do/while.
+- `SortedLoadBalancer.nextNoSkip:110` `EQUAL_ELSE` — deletes the
+  `item != null` return, so the scan loop never yields.
+
 ## Status
 
 No untriaged debt: every accepted entry in every suite has a reason below.

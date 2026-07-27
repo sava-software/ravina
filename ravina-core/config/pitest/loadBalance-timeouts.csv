@@ -1,0 +1,7 @@
+# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
+# README.md, "Audited timeout sets". The Parser rows are shared with config —
+# both suites mutate LoadBalancerConfig.
+software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,RemoveConditionalMutator_EQUAL_ELSE # line 80
+software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,lambda$parseProperties$3,BooleanTrueReturnValsMutator # line 116
+software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_ELSE # line 116
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,nextNoSkip,RemoveConditionalMutator_EQUAL_ELSE # line 110
