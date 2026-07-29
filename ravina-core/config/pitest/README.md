@@ -79,6 +79,13 @@ what remains is unbounded (`maxTryClaim`/`maxRetries` default to
 - `CourteousBalancedCall.call:35/39` `EQUAL_IF` — the forced-true
   `hasCapacity` operands that unbound the failover loop (the failover-guards
   paragraph below).
+- `CourteousBalancedCall.call:45` `IncrementsMutator` — `++i` → `--i` walks
+  the try-budget cursor away from `maxTry`, so the `i >= maxTry` break never
+  fires and the wait loop loses its only exit on the never-claimable path.
+  Detection mode depends on which covering test PIT runs first: a scenario
+  whose capacity replenishes kills it by assertion, the exhaustion path only
+  by timeout (`KILLED` at the 2026-07-27 seed, `TIMED_OUT` solo on
+  2026-07-29) — detected either way, so membership audits the timeout mode.
 - `CourteousBalancedCall.call:49` `ConditionalsBoundaryMutator` — `<= 0` →
   `< 0`, so a zero wait re-enters the wait branch with a zero delay forever;
   `ORDER_ELSE` — deletes the claim-now branch, waiting on every iteration of

@@ -4,6 +4,7 @@
 software.sava.services.core.remote.call.ComposedCall,get,MathMutator # line 54
 software.sava.services.core.remote.call.ComposedCall,get,RemoveConditionalMutator_ORDER_ELSE # line 55
 software.sava.services.core.remote.call.CourteousBalancedCall,call,ConditionalsBoundaryMutator # line 49
+software.sava.services.core.remote.call.CourteousBalancedCall,call,IncrementsMutator # line 45
 software.sava.services.core.remote.call.CourteousBalancedCall,call,RemoveConditionalMutator_EQUAL_IF # lines 35/39
 software.sava.services.core.remote.call.CourteousBalancedCall,call,RemoveConditionalMutator_ORDER_ELSE # line 49
 software.sava.services.core.remote.call.CourteousCall,call,ConditionalsBoundaryMutator # line 30

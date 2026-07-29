@@ -272,7 +272,18 @@ timeouts).
     (deleting a termination guard — only observable as a timeout, the
     documented exception to rule 7) and **load flips** (`SURVIVED` solo,
     `TIMED_OUT` under `qualityGate` — the union-insurance rows), whose
-    cause is the flip family, not a hang.
+    cause is the flip family, not a hang. Since sava-build 21.5.18 the
+    audit's static half (row shape, README cause naming class *and* method
+    together) also runs in `pitest<Suite>Debt` — paste a row or write a
+    cause and confirm in seconds, no mutation run — every advisory the
+    build printed is re-listed in a one-line-per-suite summary at the end,
+    and certifying runs can pass `-PstrictTimeoutAudit` to escalate exactly
+    the kept-audit findings (unaudited newcomer, malformed row, missing
+    set) to failures; a suite acquiring its *first* timeouts seeds its set
+    with `pitest<Suite> -PinitTimeoutAudit`, then the causes are written by
+    hand. The verify also counts quiet members (no timeout in 3+
+    consecutive runs, tracked in `.pitest-history/`) as retirement
+    candidates — an advisory to re-measure, not delete on sight.
 
 <!-- hardening-template sha256:f6dea3f41ab7 -->
 
