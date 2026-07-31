@@ -64,6 +64,12 @@ record TxContext(Commitment awaitCommitment,
 
   @Override
   public int compareTo(final TxContext o) {
-    return Long.compareUnsigned(blockHeight, o.blockHeight);
+    final int byBlockHeight = Long.compareUnsigned(blockHeight, o.blockHeight);
+    // The pending set derives *equality* from this ordering, so without the
+    // signature tie-break two transactions sharing a lastValidBlockHeight —
+    // routine for sends in the same slot — would collide: the second add
+    // silently dropped, its caller's future never completed, and a resend
+    // able to remove a different transaction at the same height.
+    return byBlockHeight == 0 ? sig.compareTo(o.sig) : byBlockHeight;
   }
 }

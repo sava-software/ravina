@@ -340,8 +340,8 @@ final class BaseTxMonitorServiceTests {
     final var service = new RecordingMonitor(null, epochInfoService, MIN_POLL_SLEEP);
     final int overflow = 44;
     for (int i = 0; i < MAX_SIG_STATUS + overflow; ++i) {
-      // Distinct block heights: TxContext orders on block height alone, so
-      // equal heights would collide in the pending set.
+      // Distinct block heights keep the batch order deterministic; height
+      // ties would be broken by signature.
       assertTrue(service.pendingTransactions.add(txContext("sig-" + i, 1_000 + i, FINALIZED, PROCESSED)));
     }
 

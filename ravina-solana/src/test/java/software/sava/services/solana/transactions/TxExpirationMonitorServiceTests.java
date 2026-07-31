@@ -17,15 +17,26 @@ import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 import static software.sava.services.solana.transactions.BaseTxMonitorServiceTests.*;
 
 /// The expiration monitor is the terminal stage: a transaction reaches it only
-/// once its block hash is already too old to land. A signature the cluster
-/// cannot see is given up on after **two consecutive** history-searching
-/// misses — one nil is one load-balanced node's view, and a lagging endpoint
-/// can miss a transaction that landed near its expiry boundary.
+/// once its block hash is already too old to land. A missing signature is
+/// given up on only once the confirmed block height is a finalization depth
+/// past the transaction's `lastValidBlockHeight`: a history-searching nil is
+/// one node's view, and a false "never landed" verdict makes the caller
+/// re-sign and re-execute instructions that may have landed — so the evidence
+/// gate is monotonic chain progress, not a count of correlated polls, and
+/// each pass reads the height and the statuses from one balanced client so
+/// the gate and the nil describe the same node's view. History search — the
+/// expensive status path — is requested only when the pass could settle a
+/// verdict, i.e. once the earliest gate in the batch is open.
 ///
 /// `processTransactions` is called directly with a batch, against the same
 /// [Proxy][java.lang.reflect.Proxy]-backed RPC seam the base tests use, so no
 /// event loop runs and no socket is opened.
 final class TxExpirationMonitorServiceTests {
+
+  /// `lastValidBlockHeight` of the transactions under test; the settle gate
+  /// opens at `EXPIRED_HEIGHT + BLOCKS_UNTIL_FINALIZED`.
+  private static final long EXPIRED_HEIGHT = 10;
+  private static final long GATE = EXPIRED_HEIGHT + BLOCKS_UNTIL_FINALIZED;
 
   private static TxExpirationMonitorService service(final FakeRpcClient rpcClient) {
     return new TxExpirationMonitorService(
@@ -37,15 +48,18 @@ final class TxExpirationMonitorServiceTests {
   }
 
   @Test
-  void aSignatureTheClusterCannotSeeIsGivenUpOnAfterTwoConsecutiveMisses() {
+  void aSignatureTheClusterCannotSeeIsGivenUpOnOncePastTheSettleBuffer() {
     final var rpcClient = new FakeRpcClient();
+    // Exactly at the gate: every block that could contain the transaction is
+    // finalized, so a node still answering nil has searched settled history.
+    rpcClient.blockHeight = GATE;
     final var service = service(rpcClient);
 
     // PROCESSED would be met by any observed commitment, so if this entry were
     // settled through the normal path its future would carry the status rather
     // than the null that means "expired, never landed".
-    final var vanished = txContext("vanished", 10, PROCESSED, PROCESSED);
-    final var landed = txContext("landed", 11, FINALIZED, FINALIZED);
+    final var vanished = txContext("vanished", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+    final var landed = txContext("landed", EXPIRED_HEIGHT + 1, FINALIZED, FINALIZED);
     service.addTxContext(vanished);
     service.addTxContext(landed);
     assertEquals(2, service.pendingTransactions.size(), "addTxContext must enqueue for polling");
@@ -61,55 +75,69 @@ final class TxExpirationMonitorServiceTests {
     assertEquals(
         List.of(Boolean.TRUE),
         rpcClient.searchTransactionHistoryFlags,
-        "every look at an expired signature must search transaction history"
+        "a read that may settle a verdict must search transaction history"
     );
+    assertEquals(1, rpcClient.blockHeightCalls, "the chain progress is fetched once per pass");
 
-    // One miss is one node's view: remembered, not settled.
-    assertFalse(vanished.sigStatusFuture().isDone(), "a single miss must not settle the future");
-    assertTrue(service.pendingTransactions.contains(vanished), "a single miss keeps the signature polled");
-    assertTrue(service.observedMissing.contains("vanished"), "the first miss must be remembered");
+    assertTrue(vanished.sigStatusFuture().isDone());
+    assertNull(vanished.sigStatusFuture().join(), "an expired, unseen transaction resolves to no status");
+    assertFalse(service.pendingTransactions.contains(vanished));
 
     assertSame(landedStatus, landed.sigStatusFuture().getNow(null));
     assertFalse(service.pendingTransactions.contains(landed));
-
-    // The second consecutive miss settles it.
-    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
-    service.processTransactions(contextMap(vanished));
-
-    assertTrue(vanished.sigStatusFuture().isDone());
-    assertNull(vanished.sigStatusFuture().join(), "an expired, twice-unseen transaction resolves to no status");
-    assertFalse(service.pendingTransactions.contains(vanished));
-    assertTrue(service.observedMissing.isEmpty(), "a settled signature must not be remembered as missing");
   }
 
-  /// Awaiting FINALIZED, so an observed CONFIRMED status keeps the signature
-  /// pending without settling it — which must also wipe the miss memory: the
-  /// cluster has seen the transaction, so a later nil is a fresh first miss.
+  /// One block inside the buffer: the block that could contain the
+  /// transaction is not yet finalized, so the nil could still be one lagging
+  /// node's view and the signature keeps being polled.
   @Test
-  void aVisibleStatusResetsTheConsecutiveMissCount() {
+  void aMissInsideTheSettleBufferIsNotSettled() {
     final var rpcClient = new FakeRpcClient();
+    rpcClient.blockHeight = GATE - 1;
     final var service = service(rpcClient);
 
-    final var context = txContext("sig", 10, FINALIZED, FINALIZED);
+    final var context = txContext("sig", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
     service.addTxContext(context);
-
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
-    service.processTransactions(contextMap(context));
-    assertTrue(service.observedMissing.contains("sig"));
-
-    rpcClient.sigStatuses = _ -> List.of(status(CONFIRMED, null, OptionalInt.of(5)));
-    service.processTransactions(contextMap(context));
-    assertFalse(context.sigStatusFuture().isDone());
-    assertTrue(service.pendingTransactions.contains(context));
-    assertTrue(service.observedMissing.isEmpty(), "a visible status must reset the miss count");
-
-    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
-    service.processTransactions(contextMap(context));
-    assertFalse(context.sigStatusFuture().isDone(), "after a reset, a nil is a first miss again");
 
     service.processTransactions(contextMap(context));
-    assertTrue(context.sigStatusFuture().isDone(), "the second consecutive miss settles the future");
-    assertNull(context.sigStatusFuture().join());
+
+    assertEquals(1, rpcClient.blockHeightCalls);
+    assertEquals(
+        List.of(Boolean.FALSE),
+        rpcClient.searchTransactionHistoryFlags,
+        "a pass that cannot settle a verdict must not pay for a history search"
+    );
+    assertFalse(context.sigStatusFuture().isDone(), "a miss inside the buffer must not settle the future");
+    assertTrue(service.pendingTransactions.contains(context), "a gated signature keeps being polled");
+  }
+
+  /// The earliest gate in the batch decides the history flag: one open gate
+  /// makes the whole read a potential settling read, but only transactions
+  /// whose own gate is open actually settle.
+  @Test
+  void theEarliestGateInTheBatchDecidesTheHistorySearch() {
+    final var rpcClient = new FakeRpcClient();
+    rpcClient.blockHeight = GATE;
+    final var service = service(rpcClient);
+
+    final var due = txContext("due", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+    final var recent = txContext("recent", EXPIRED_HEIGHT + 90, PROCESSED, PROCESSED);
+    service.addTxContext(due);
+    service.addTxContext(recent);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
+
+    // The closed gate is iterated first: taking the first gate instead of the
+    // minimum would skip the history search this batch is owed.
+    service.processTransactions(contextMap(recent, due));
+
+    assertEquals(1, rpcClient.blockHeightCalls);
+    assertEquals(List.of(Boolean.TRUE), rpcClient.searchTransactionHistoryFlags,
+        "an open gate anywhere in the batch makes this a potential settling read");
+    assertTrue(due.sigStatusFuture().isDone());
+    assertNull(due.sigStatusFuture().join());
+    assertFalse(recent.sigStatusFuture().isDone(), "only a transaction's own open gate settles it");
+    assertEquals(List.of(recent), List.copyOf(service.pendingTransactions));
   }
 
   @Test
@@ -135,11 +163,13 @@ final class TxExpirationMonitorServiceTests {
   @Test
   void everySignatureInTheBatchIsInspected() {
     final var rpcClient = new FakeRpcClient();
+    // Far past every gate: nothing here can still be one node's lag.
+    rpcClient.blockHeight = 1_000;
     final var service = service(rpcClient);
 
-    final var first = txContext("first", 10, FINALIZED, FINALIZED);
-    final var middle = txContext("middle", 11, FINALIZED, FINALIZED);
-    final var last = txContext("last", 12, FINALIZED, FINALIZED);
+    final var first = txContext("first", EXPIRED_HEIGHT, FINALIZED, FINALIZED);
+    final var middle = txContext("middle", EXPIRED_HEIGHT + 1, FINALIZED, FINALIZED);
+    final var last = txContext("last", EXPIRED_HEIGHT + 2, FINALIZED, FINALIZED);
     service.addTxContext(first);
     service.addTxContext(middle);
     service.addTxContext(last);
@@ -149,18 +179,11 @@ final class TxExpirationMonitorServiceTests {
     assertEquals(0, service.processTransactions(batch));
 
     for (final var context : List.of(first, middle, last)) {
-      assertFalse(context.sigStatusFuture().isDone(), context.sig() + " must survive its first miss");
-      assertTrue(service.observedMissing.contains(context.sig()), context.sig() + " was skipped");
-    }
-
-    assertEquals(0, service.processTransactions(batch));
-
-    for (final var context : List.of(first, middle, last)) {
       assertTrue(context.sigStatusFuture().isDone(), context.sig() + " was skipped");
       assertNull(context.sigStatusFuture().join());
     }
     assertTrue(service.pendingTransactions.isEmpty(), "every expired signature must be dropped");
-    assertTrue(service.observedMissing.isEmpty(), "settled signatures must not linger in the miss memory");
+    assertEquals(1, rpcClient.blockHeightCalls, "one chain progress fetch covers the whole batch");
     assertEquals(Map.of("first", first, "middle", middle, "last", last), batch,
         "nil statuses leave their contexts in the batch");
   }
@@ -173,5 +196,7 @@ final class TxExpirationMonitorServiceTests {
 
     assertEquals(0, service.processTransactions(contextMap()));
     assertEquals(List.of(List.<String>of()), rpcClient.sigStatusRequests);
+    assertEquals(List.of(Boolean.FALSE), rpcClient.searchTransactionHistoryFlags,
+        "with no gates at all there is no verdict to settle, so no history search");
   }
 }

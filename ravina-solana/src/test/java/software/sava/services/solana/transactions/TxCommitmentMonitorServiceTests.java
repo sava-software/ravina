@@ -64,8 +64,8 @@ final class TxCommitmentMonitorServiceTests {
   /// A context's block height is its block hash's `lastValidBlockHeight`, so
   /// this is the newest one that can no longer land: the confirmed height has
   /// already passed it. At `CONFIRMED_HEIGHT` exactly it is still given one
-  /// more pass — the last block it could land in may not be visible to the
-  /// status poll's node yet.
+  /// more pass — the last block it could have landed in may not be visible to
+  /// the status poll's node yet.
   private static final long HORIZON = CONFIRMED_HEIGHT - 1;
 
   private static final Duration WEB_SOCKET_TIMEOUT = Duration.ofMinutes(5);
@@ -303,6 +303,33 @@ final class TxCommitmentMonitorServiceTests {
     assertTrue(context.verifyExpired());
     assertTrue(context.retrySend());
     assertEquals(0, context.retryCount());
+  }
+
+  /// Two transactions sent in the same slot share a `lastValidBlockHeight`.
+  /// The pending set derives equality from `TxContext` ordering, so without
+  /// the signature tie-break the second `queueResult` would be a silent no-op
+  /// and its caller's future could never complete — the client-side version
+  /// of exactly the "waits indefinitely" failure this monitor exists to end.
+  @Test
+  void twoTransactionsSharingABlockHeightAreBothMonitored() {
+    final var service = service();
+
+    final var first = service.queueResult(FINALIZED, CONFIRMED, "sig-a", sendTxContext(4_242, 0), true, false);
+    final var second = service.queueResult(FINALIZED, CONFIRMED, "sig-b", sendTxContext(4_242, 0), true, false);
+
+    assertEquals(2, service.pendingTransactions.size(), "a shared block height must not drop a transaction");
+    assertNotSame(first, second);
+
+    // Settling one must not touch the other.
+    final var statuses = List.of(status(FINALIZED), NIL_STATUS);
+    rpcClient.sigStatuses = _ -> statuses;
+    final var contextA = service.pendingTransactions.stream().filter(c -> c.sig().equals("sig-a")).findFirst().orElseThrow();
+    final var contextB = service.pendingTransactions.stream().filter(c -> c.sig().equals("sig-b")).findFirst().orElseThrow();
+    service.completeFutures(contextMap(contextA, contextB), List.of("sig-a", "sig-b"), statuses);
+
+    assertTrue(first.isDone());
+    assertFalse(second.isDone(), "settling one transaction at a height must leave its sibling pending");
+    assertEquals(List.of(contextB), List.copyOf(service.pendingTransactions));
   }
 
   /// The publisher-availability mask must only ever clear the flag: an
@@ -590,9 +617,9 @@ final class TxCommitmentMonitorServiceTests {
   void theFinalizationTimeoutIsDerivedFromTheSlotDuration() {
     final var service = service();
     // A degenerate slot duration collapses the finalization timeout to zero,
-    // so the subscription is abandoned instead of being awaited: the timeout
-    // is a product of the remaining blocks and the slot duration, and a
-    // division there cannot be evaluated at all.
+    // so the subscription is abandoned instead of being awaited. The timeout
+    // scales with the slot duration; the skip-rate divisor is clamped away
+    // from zero, so the arithmetic stays evaluable even here.
     epochInfoService.epoch = null;
     epochInfoService.defaultMillisPerSlot = 0;
     webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));

@@ -154,8 +154,9 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         if (txContext != null) {
           // The context's block height is the block hash's last valid block
           // height: expired once the confirmed height passes it. At equality
-          // the last block it could land in may not be visible to the status
-          // poll's node yet, so it is given one more pass.
+          // nothing further can land — every future block is taller — but the
+          // last block it could have landed in may not be visible to the
+          // status poll's node yet, so it is given one more pass.
           final var bigBlockHeight = txContext.bigBlockHeight();
           if (bigBlockHeight.compareTo(confirmedBlockHeight) < 0) {
             expirationMonitorService.addTxContext(txContext);

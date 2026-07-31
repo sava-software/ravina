@@ -86,7 +86,7 @@ final class TxContextTests {
   }
 
   @Test
-  void contextsAreOrderedByUnsignedBlockHeight() {
+  void contextsAreOrderedByUnsignedBlockHeightThenSignature() {
     final var low = TxContext.createContext(
         Commitment.CONFIRMED, Commitment.PROCESSED, "low", sendTxContext(1L), false, false);
     final var high = TxContext.createContext(
@@ -96,6 +96,21 @@ final class TxContextTests {
 
     assertTrue(low.compareTo(high) < 0);
     assertTrue(high.compareTo(low) > 0);
-    assertEquals(0, low.compareTo(alsoLow));
+    // Two transactions sent in the same slot share a lastValidBlockHeight;
+    // comparing equal would make the pending set silently drop one of them.
+    assertTrue(low.compareTo(alsoLow) > 0, "a block height tie must be broken by signature");
+    assertTrue(alsoLow.compareTo(low) < 0);
+  }
+
+  /// A resend keeps the signature and original block height, so the resent
+  /// context must still compare equal to its original — that identity is what
+  /// lets the monitor's `remove(txContext); add(resent)` swap the right entry.
+  @Test
+  void aResentContextKeepsItsOriginalOrderingIdentity() {
+    final var original = TxContext.createContext(
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(500L), true, true);
+    final var resent = original.resent(sendTxContext(999L));
+    assertEquals(0, original.compareTo(resent));
+    assertEquals(0, resent.compareTo(original));
   }
 }

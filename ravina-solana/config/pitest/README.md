@@ -54,6 +54,12 @@ argument when the named line changes). Seeded 2026-07-27 from a full
 - `BaseTxMonitorService.run:69` `EQUAL_IF` — forces the pending-transactions
   poll to read empty, so the monitor loop sleeps forever and never reaches
   the work its test terminates on.
+- `TxExpirationMonitorService.lambda$processTransactions$1:83/85` `EQUAL_IF`
+  and `NullReturnValsMutator` — both poison the composed
+  height-then-statuses poll (83 deletes the empty-batch guard, NPE-ing the
+  gate comparison; 85 nulls the lambda's future, NPE-ing `thenCompose`), and
+  a failing courteous call is retried forever, so the poison is only
+  observable as a timeout.
 
 **epochService**
 - `EpochInfoServiceImpl.awaitInitialized:137/141` `VoidMethodCallMutator` —
@@ -223,7 +229,8 @@ with a null error calls `createResult(..., null, sig, formattedSig)`, which is
 the record the else branch already produces. Only the log line differs.
 
 **Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on a running minimum
-(`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188):
+(`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188,
+`TxExpirationMonitorService.processTransactions` 68, the earliest-gate scan):
 the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
