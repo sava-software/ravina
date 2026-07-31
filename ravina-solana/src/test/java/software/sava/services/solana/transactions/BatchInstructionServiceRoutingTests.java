@@ -227,7 +227,8 @@ final class BatchInstructionServiceRoutingTests {
     assertEquals(MAX_RETRIES, service.maxRetriesAfterExpired);
     assertEquals(LOG_CONTEXT, service.logContext);
     assertTrue(service.verifyExpired, "overloads without the flags must verify expiration");
-    assertFalse(service.retrySend, "overloads without the flags must not retry the send");
+    assertTrue(service.retrySend,
+        "overloads without the flags must opt into resending: maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry");
   }
 
   @Test

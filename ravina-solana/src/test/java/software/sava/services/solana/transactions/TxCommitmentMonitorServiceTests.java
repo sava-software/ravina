@@ -305,6 +305,45 @@ final class TxCommitmentMonitorServiceTests {
     assertEquals(0, context.retryCount());
   }
 
+  /// The publisher-availability mask must only ever clear the flag: an
+  /// explicit opt-out stays an opt-out even though a publisher could resend.
+  @Test
+  void anExplicitResendOptOutIsHonoredWithAPublisherPresent() {
+    final var service = service();
+
+    service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, false);
+
+    final var context = service.pendingTransactions.first();
+    assertFalse(context.retrySend(), "an opt-out must not be overridden by publisher availability");
+    assertTrue(context.verifyExpired());
+  }
+
+  /// The factory javadoc permits a publisher-less monitor; queueing must strip
+  /// the resend opt-in there instead of failing when the first resend is due.
+  @Test
+  void aMonitorWithoutAPublisherMasksTheResendOptIn() {
+    this.rpcClient = new FakeRpcClient();
+    this.epochInfoService = new FakeEpochInfoService();
+    final var service = new TxCommitmentMonitorService(
+        ChainItemFormatter.createDefault(),
+        rpcCaller(rpcClient),
+        epochInfoService,
+        new FakeWebSocketManager(),
+        Duration.ofMillis(MIN_SLEEP_MILLIS),
+        WEB_SOCKET_TIMEOUT,
+        null,
+        Duration.ofSeconds(1),
+        0,
+        NanoClock.SYSTEM
+    );
+
+    service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, true);
+
+    final var context = service.pendingTransactions.first();
+    assertFalse(context.retrySend(), "nothing can be resent without a publisher");
+    assertTrue(context.verifyExpired(), "the mask must only touch the resend flag");
+  }
+
   // --------------------------------------------------- response validation --
 
   @Test
@@ -528,6 +567,23 @@ final class TxCommitmentMonitorServiceTests {
     assertNotNull(future);
     assertNull(future.join());
     assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+  }
+
+  /// 32 more block heights take about `32 / (1 - skipRate)` slots — a skipped
+  /// slot produces no block — estimated at the median-plus-deviation slot
+  /// duration. Pinned as exact values so the arithmetic cannot drift into the
+  /// old always-double buffer or lose the skip-rate term.
+  @Test
+  void theFinalizationTimeoutBuffersSlotDeviationAndSkipRate() {
+    final var service = service();
+
+    // 530ms per slot at a 6% skip rate: round(32 * 530 / 0.94).
+    epochInfoService.epoch = epoch(slotStats(MEDIAN_MILLIS_PER_SLOT, ESTIMATED_STD_DEV), 0.06);
+    assertEquals(18_043L, service.finalizationTimeoutMillis());
+
+    // Without epoch info: the default slot duration, and no skip buffer.
+    epochInfoService.epoch = null;
+    assertEquals(32L * DEFAULT_MILLIS_PER_SLOT, service.finalizationTimeoutMillis());
   }
 
   @Test

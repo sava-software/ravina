@@ -10,6 +10,7 @@ import software.sava.kms.core.signing.SigningService;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.solana.alt.LookupTableCache;
@@ -42,7 +43,8 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   LoadBalancer<SolanaRpcClient> sendClients,
                                   LoadBalancer<? extends FeeProvider> feeProviders,
                                   CallWeights callWeights,
-                                  WebSocketManager webSocketManager) implements TransactionProcessor {
+                                  WebSocketManager webSocketManager,
+                                  NanoClock clock) implements TransactionProcessor {
 
   @Override
   public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
@@ -275,8 +277,8 @@ record TransactionProcessorRecord(ExecutorService executor,
     sendClients.sort();
     final var rpcClient = sendClients.withContext();
     final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
-    final long publishedAt = System.currentTimeMillis();
-    rpcClient.capacityState().claimRequest();
+    final long publishedAt = clock.currentTimeMillis();
+    rpcClient.capacityState().claimRequest(callWeights.sendTransaction());
     return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
   }
 

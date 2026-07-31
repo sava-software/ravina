@@ -119,7 +119,11 @@ final class BaseTxMonitorServiceTests {
   }
 
   static Epoch epoch(final SlotPerformanceStats slotStats) {
-    return new Epoch(0, 0, null, null, DEFAULT_MILLIS_PER_SLOT, slotStats, 0, 0, 0);
+    return epoch(slotStats, 0);
+  }
+
+  static Epoch epoch(final SlotPerformanceStats slotStats, final double epochSkipRate) {
+    return new Epoch(0, 0, null, null, DEFAULT_MILLIS_PER_SLOT, slotStats, 0, epochSkipRate, 0);
   }
 
   /// Answers RPC requests from pre-canned values and records what was asked
@@ -541,6 +545,39 @@ final class BaseTxMonitorServiceTests {
 
     assertEquals(DEFAULT_MILLIS_PER_SLOT, service.medianMillisPerSlot());
     assertEquals(DEFAULT_MILLIS_PER_SLOT, service.oneStandardDeviationMillisPerSlot());
+  }
+
+  /// The clamp is a buffer contract: readings that would shrink a `1 - rate`
+  /// buffer (negative, NaN) contribute none, and a pathological rate cannot
+  /// explode it past the 0.5 ceiling.
+  @Test
+  void theSkipRateIsClampedToABufferSafeRange() {
+    final var epochInfoService = new FakeEpochInfoService();
+    final var service = new RecordingMonitor(null, epochInfoService, Duration.ofMillis(MIN_SLEEP_MILLIS));
+    final var stats = slotStats(MEDIAN_MILLIS_PER_SLOT, ESTIMATED_STD_DEV);
+
+    epochInfoService.epoch = epoch(stats, 0.04);
+    assertEquals(0.04, service.clampedSkipRate(), "a typical rate passes through unchanged");
+
+    epochInfoService.epoch = epoch(stats, 0.5);
+    assertEquals(0.5, service.clampedSkipRate(), "exactly the ceiling is not clamped");
+
+    epochInfoService.epoch = epoch(stats, 0.9);
+    assertEquals(0.5, service.clampedSkipRate(), "a pathological rate is capped at the ceiling");
+
+    epochInfoService.epoch = epoch(stats, -0.02);
+    assertEquals(0.0, service.clampedSkipRate(), "sample noise below zero contributes no buffer");
+
+    epochInfoService.epoch = epoch(stats, -0.0);
+    // Also the strict-boundary pin: letting -0.0 through the positive branch
+    // would return it as-is rather than normalizing to positive zero.
+    assertEquals(0.0, service.clampedSkipRate(), "a negative-zero reading normalizes to positive zero");
+
+    epochInfoService.epoch = epoch(stats, Double.NaN);
+    assertEquals(0.0, service.clampedSkipRate(), "an unevaluable rate contributes no buffer");
+
+    epochInfoService.epoch = null;
+    assertEquals(0.0, service.clampedSkipRate(), "no epoch sample, no buffer");
   }
 
   // ---------------------------------------------------- completing futures --

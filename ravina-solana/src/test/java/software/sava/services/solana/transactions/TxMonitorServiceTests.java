@@ -110,7 +110,7 @@ final class TxMonitorServiceTests {
   }
 
   @Test
-  void theQueueResultDefaultDoesNotOptIntoResending() {
+  void theQueueResultDefaultOptsIntoResending() {
     final var service = new RecordingMonitorService();
     final var sendTxContext = new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L);
 
@@ -124,6 +124,7 @@ final class TxMonitorServiceTests {
     assertEquals("sig", service.sig);
     assertSame(sendTxContext, service.sendTxContext);
     assertTrue(service.verifyExpired);
-    assertFalse(service.retrySend);
+    assertTrue(service.retrySend,
+        "maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry a transaction gets");
   }
 }

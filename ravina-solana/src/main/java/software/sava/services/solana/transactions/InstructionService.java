@@ -77,7 +77,7 @@ public interface InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         logContext
     );
@@ -99,7 +99,7 @@ public interface InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         transactionFactory,
         logContext
@@ -229,7 +229,7 @@ public interface InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         logContext
     );
@@ -252,7 +252,7 @@ public interface InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         transactionFactory,
         logContext

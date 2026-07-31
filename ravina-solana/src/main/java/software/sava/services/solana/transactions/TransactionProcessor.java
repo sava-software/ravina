@@ -8,6 +8,7 @@ import software.sava.kms.core.signing.SigningService;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
+import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
@@ -35,7 +36,8 @@ public interface TransactionProcessor extends TxPublisher {
                                               final LoadBalancer<SolanaRpcClient> sendClients,
                                               final LoadBalancer<? extends FeeProvider> feeProviders,
                                               final CallWeights callWeights,
-                                              final WebSocketManager webSocketManager) {
+                                              final WebSocketManager webSocketManager,
+                                              final NanoClock clock) {
     return new TransactionProcessorRecord(
         executor,
         signingService,
@@ -48,7 +50,35 @@ public interface TransactionProcessor extends TxPublisher {
         sendClients,
         feeProviders,
         callWeights,
-        webSocketManager
+        webSocketManager,
+        clock
+    );
+  }
+
+  static TransactionProcessor createProcessor(final ExecutorService executor,
+                                              final SigningService signingService,
+                                              final LookupTableCache lookupTableCache,
+                                              final PublicKey feePayer,
+                                              final SolanaAccounts solanaAccounts,
+                                              final ChainItemFormatter formatter,
+                                              final LoadBalancer<SolanaRpcClient> rpcClients,
+                                              final LoadBalancer<SolanaRpcClient> sendClients,
+                                              final LoadBalancer<? extends FeeProvider> feeProviders,
+                                              final CallWeights callWeights,
+                                              final WebSocketManager webSocketManager) {
+    return createProcessor(
+        executor,
+        signingService,
+        lookupTableCache,
+        feePayer,
+        solanaAccounts,
+        formatter,
+        rpcClients,
+        sendClients,
+        feeProviders,
+        callWeights,
+        webSocketManager,
+        NanoClock.SYSTEM
     );
   }
 

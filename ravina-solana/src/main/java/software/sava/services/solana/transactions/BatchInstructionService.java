@@ -110,7 +110,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         logContext
     );
@@ -131,7 +131,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         transactionFactory,
         logContext
@@ -153,7 +153,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         logContext,
         batchFactory
@@ -176,7 +176,7 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         true,
-        false,
+        true,
         maxRetriesAfterExpired,
         transactionFactory,
         logContext,

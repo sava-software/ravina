@@ -131,6 +131,20 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     return slotStats == null ? epochInfoService.defaultMillisPerSlot() : slotStats.medianPercentile68();
   }
 
+  /// The epoch-wide skip rate, clamped to `[0, 0.5]`. This is a buffer input
+  /// for time estimates that divide by `1 - skipRate`, so a missing epoch
+  /// sample, a NaN, or a negative reading (sample noise) must contribute no
+  /// buffer rather than a shrunken one, and a pathological rate must not
+  /// explode the estimate.
+  protected final double clampedSkipRate() {
+    final var epochInfo = epochInfoService.epochInfo();
+    if (epochInfo == null) {
+      return 0.0;
+    }
+    final double skipRate = epochInfo.epochSkipRate();
+    return skipRate > 0.0 ? Math.min(skipRate, 0.5) : 0.0;
+  }
+
   protected final void completeFuture(final TxContext txContext) {
     txContext.completeFuture();
     pendingTransactions.remove(txContext);

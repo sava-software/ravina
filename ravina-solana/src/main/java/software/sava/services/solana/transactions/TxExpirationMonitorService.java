@@ -5,10 +5,19 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
 final class TxExpirationMonitorService extends BaseTxMonitorService {
+
+  /// Signatures whose previous history-searching poll came back nil. Even with
+  /// history searched, one nil is one node's view: the status polls are load
+  /// balanced, and a lagging endpoint can miss a transaction that landed near
+  /// its expiry boundary. Only a second consecutive miss settles the caller's
+  /// future as "never landed". Touched only by the worker thread;
+  /// package-private so tests can observe the first miss being remembered.
+  final HashSet<String> observedMissing = new HashSet<>();
 
   TxExpirationMonitorService(final ChainItemFormatter formatter,
                              final RpcCaller rpcCaller,
@@ -38,11 +47,16 @@ final class TxExpirationMonitorService extends BaseTxMonitorService {
 
     final int numSignatures = signatures.size();
     for (int i = 0; i < numSignatures; ++i) {
-      final var sigStatus = sigStatusList.get(i);
-      if (sigStatus.nil()) {
-        final var sig = signatures.get(i);
-        final var txContext = contextMap.get(sig);
-        completeFuture(txContext);
+      final var sig = signatures.get(i);
+      if (sigStatusList.get(i).nil()) {
+        if (!observedMissing.add(sig)) {
+          observedMissing.remove(sig);
+          completeFuture(contextMap.get(sig));
+        }
+      } else {
+        // A visible status resets the count: the next nil, if any, is a
+        // fresh first miss rather than the second of two.
+        observedMissing.remove(sig);
       }
     }
 

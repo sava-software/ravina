@@ -17,8 +17,10 @@ import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 import static software.sava.services.solana.transactions.BaseTxMonitorServiceTests.*;
 
 /// The expiration monitor is the terminal stage: a transaction reaches it only
-/// once its block hash is already too old to land, so a signature the cluster
-/// still cannot see is given up on rather than re-polled forever.
+/// once its block hash is already too old to land. A signature the cluster
+/// cannot see is given up on after **two consecutive** history-searching
+/// misses — one nil is one load-balanced node's view, and a lagging endpoint
+/// can miss a transaction that landed near its expiry boundary.
 ///
 /// `processTransactions` is called directly with a batch, against the same
 /// [Proxy][java.lang.reflect.Proxy]-backed RPC seam the base tests use, so no
@@ -35,7 +37,7 @@ final class TxExpirationMonitorServiceTests {
   }
 
   @Test
-  void aSignatureTheClusterCannotSeeIsGivenUpOn() {
+  void aSignatureTheClusterCannotSeeIsGivenUpOnAfterTwoConsecutiveMisses() {
     final var rpcClient = new FakeRpcClient();
     final var service = service(rpcClient);
 
@@ -59,15 +61,55 @@ final class TxExpirationMonitorServiceTests {
     assertEquals(
         List.of(Boolean.TRUE),
         rpcClient.searchTransactionHistoryFlags,
-        "the last look at an expired signature must search transaction history"
+        "every look at an expired signature must search transaction history"
     );
 
-    assertTrue(vanished.sigStatusFuture().isDone());
-    assertNull(vanished.sigStatusFuture().join(), "an expired, unseen transaction resolves to no status");
-    assertFalse(service.pendingTransactions.contains(vanished));
+    // One miss is one node's view: remembered, not settled.
+    assertFalse(vanished.sigStatusFuture().isDone(), "a single miss must not settle the future");
+    assertTrue(service.pendingTransactions.contains(vanished), "a single miss keeps the signature polled");
+    assertTrue(service.observedMissing.contains("vanished"), "the first miss must be remembered");
 
     assertSame(landedStatus, landed.sigStatusFuture().getNow(null));
     assertFalse(service.pendingTransactions.contains(landed));
+
+    // The second consecutive miss settles it.
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    service.processTransactions(contextMap(vanished));
+
+    assertTrue(vanished.sigStatusFuture().isDone());
+    assertNull(vanished.sigStatusFuture().join(), "an expired, twice-unseen transaction resolves to no status");
+    assertFalse(service.pendingTransactions.contains(vanished));
+    assertTrue(service.observedMissing.isEmpty(), "a settled signature must not be remembered as missing");
+  }
+
+  /// Awaiting FINALIZED, so an observed CONFIRMED status keeps the signature
+  /// pending without settling it — which must also wipe the miss memory: the
+  /// cluster has seen the transaction, so a later nil is a fresh first miss.
+  @Test
+  void aVisibleStatusResetsTheConsecutiveMissCount() {
+    final var rpcClient = new FakeRpcClient();
+    final var service = service(rpcClient);
+
+    final var context = txContext("sig", 10, FINALIZED, FINALIZED);
+    service.addTxContext(context);
+
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    service.processTransactions(contextMap(context));
+    assertTrue(service.observedMissing.contains("sig"));
+
+    rpcClient.sigStatuses = _ -> List.of(status(CONFIRMED, null, OptionalInt.of(5)));
+    service.processTransactions(contextMap(context));
+    assertFalse(context.sigStatusFuture().isDone());
+    assertTrue(service.pendingTransactions.contains(context));
+    assertTrue(service.observedMissing.isEmpty(), "a visible status must reset the miss count");
+
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    service.processTransactions(contextMap(context));
+    assertFalse(context.sigStatusFuture().isDone(), "after a reset, a nil is a first miss again");
+
+    service.processTransactions(contextMap(context));
+    assertTrue(context.sigStatusFuture().isDone(), "the second consecutive miss settles the future");
+    assertNull(context.sigStatusFuture().join());
   }
 
   @Test
@@ -107,10 +149,18 @@ final class TxExpirationMonitorServiceTests {
     assertEquals(0, service.processTransactions(batch));
 
     for (final var context : List.of(first, middle, last)) {
+      assertFalse(context.sigStatusFuture().isDone(), context.sig() + " must survive its first miss");
+      assertTrue(service.observedMissing.contains(context.sig()), context.sig() + " was skipped");
+    }
+
+    assertEquals(0, service.processTransactions(batch));
+
+    for (final var context : List.of(first, middle, last)) {
       assertTrue(context.sigStatusFuture().isDone(), context.sig() + " was skipped");
       assertNull(context.sigStatusFuture().join());
     }
     assertTrue(service.pendingTransactions.isEmpty(), "every expired signature must be dropped");
+    assertTrue(service.observedMissing.isEmpty(), "settled signatures must not linger in the miss memory");
     assertEquals(Map.of("first", first, "middle", middle, "last", last), batch,
         "nil statuses leave their contexts in the batch");
   }

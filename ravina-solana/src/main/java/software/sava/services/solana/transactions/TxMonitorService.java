@@ -95,6 +95,11 @@ public interface TxMonitorService extends Worker {
                                           final boolean verifyExpired,
                                           final boolean retrySend);
 
+  /// Opts into client-side resending: with `maxRetries` 0 on the wire, the
+  /// monitor's rebroadcast loop is the only retry a transaction gets, so the
+  /// convenience default is to use it. A monitor built without a
+  /// `transactionPublisher` has nothing to resend with and quietly ignores
+  /// the opt-in.
   default CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                                   final Commitment awaitCommitmentOnError,
                                                   final String sig,
@@ -106,7 +111,7 @@ public interface TxMonitorService extends Worker {
         sig,
         sendTxContext,
         verifyExpired,
-        false
+        true
     );
   }
 

@@ -375,7 +375,10 @@ final class TransactionProcessorRecordTests {
         sendClients,
         feeProviders,
         CallWeights.createDefault(),
-        null
+        null,
+        // Frozen at an epoch reading no wall clock ever reports, so a
+        // `publishedAt` stamped through it proves the injected clock was read.
+        new FrozenClock()
     );
   }
 
@@ -903,12 +906,17 @@ final class TransactionProcessorRecordTests {
     assertSame(transaction, context.transaction());
     assertEquals("BASE64-TX", context.base64Encoded());
     assertEquals(8_642L, context.blockHeight());
+    assertEquals(new FrozenClock().currentTimeMillis(), context.publishedAt(),
+        "publishedAt must come from the processor's injected clock: the resend delay is measured against it");
     assertEquals("HEALTHY-SIG", context.sendFuture().join());
     assertEquals(Commitment.FINALIZED, healthyHandler.sendCommitment);
     assertEquals("BASE64-TX", healthyHandler.sendBase64);
     assertEquals(0, unhealthyHandler.numSends);
-    // The request is charged against the client that served it.
-    assertEquals(healthyCapacity - 1, healthyMonitor.capacityState().capacity());
+    // The configured send weight is charged against the client that served it.
+    assertEquals(
+        healthyCapacity - CallWeights.createDefault().sendTransaction(),
+        healthyMonitor.capacityState().capacity()
+    );
   }
 
   @Test

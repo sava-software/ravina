@@ -169,7 +169,8 @@ final class InstructionServiceRoutingTests {
 
   private static void assertVerifyExpiredDefaults(final RecordingService service) {
     assertTrue(service.verifyExpired, "overloads without the flag must verify expiration");
-    assertFalse(service.retrySend, "overloads without the flag must not retry the send");
+    assertTrue(service.retrySend,
+        "overloads without the flag must opt into resending: maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry");
   }
 
   @Test

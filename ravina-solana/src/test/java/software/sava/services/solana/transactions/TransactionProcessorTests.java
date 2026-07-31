@@ -7,6 +7,7 @@ import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
+import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.remote.call.CallWeights;
@@ -240,6 +241,34 @@ final class TransactionProcessorTests {
     assertFalse(transaction.exceedsSizeLimit());
     // A legacy transaction carries no lookup tables.
     assertEquals(feePayer, processor.feePayer());
+  }
+
+  /// `publishedAt` is stamped through the processor's clock, so which clock
+  /// the factory wires is a behavioral contract, not plumbing trivia.
+  @Test
+  void theFactoryWiresTheGivenClockAndDefaultsToTheSystemClock() {
+    final var clock = new NanoClock() {
+      @Override
+      public long nanoTime() {
+        return 1_234_567_890L;
+      }
+
+      @Override
+      public void sleep(final long millis) {
+      }
+    };
+
+    final var explicit = TransactionProcessor.createProcessor(
+        null, null, null, key(1), SolanaAccounts.MAIN_NET, null,
+        null, null, null, null, null, clock
+    );
+    assertSame(clock, assertInstanceOf(TransactionProcessorRecord.class, explicit).clock());
+
+    final var defaulted = TransactionProcessor.createProcessor(
+        null, null, null, key(1), SolanaAccounts.MAIN_NET, null,
+        null, null, null, null, null
+    );
+    assertSame(NanoClock.SYSTEM, assertInstanceOf(TransactionProcessorRecord.class, defaulted).clock());
   }
 
   @Test

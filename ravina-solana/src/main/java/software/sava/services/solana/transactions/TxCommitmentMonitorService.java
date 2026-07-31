@@ -212,12 +212,32 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                                                  final SendTxContext sendTxContext,
                                                  final boolean verifyExpired,
                                                  final boolean retrySend) {
-    final var txContext = TxContext.createContext(awaitCommitment, awaitCommitmentOnError, sig, sendTxContext, verifyExpired, retrySend);
+    final var txContext = TxContext.createContext(
+        awaitCommitment,
+        awaitCommitmentOnError,
+        sig,
+        sendTxContext,
+        verifyExpired,
+        // The factory permits a monitor without a publisher; such a monitor
+        // has nothing to resend with, so the opt-in is masked here rather than
+        // failing when the first resend comes due.
+        retrySend && transactionPublisher != null
+    );
     pendingTransactions.add(txContext);
     return txContext.sigStatusFuture();
   }
 
   private static final CompletableFuture<TxResult> NO_RESULT = CompletableFuture.completedFuture(null);
+
+  /// How long to await a finalization notification: 32 more block heights take
+  /// about `32 / (1 - skipRate)` slots, since a skipped slot produces no
+  /// block, estimated with the same median-plus-deviation slot duration the
+  /// expiry pacing uses. An expiry here is benign — the polling monitor takes
+  /// over — so no further doubling is applied. Package-private: the value
+  /// feeds an `orTimeout`, so tests pin the arithmetic directly.
+  long finalizationTimeoutMillis() {
+    return Math.round((BLOCKS_UNTIL_FINALIZED * oneStandardDeviationMillisPerSlot()) / (1.0 - clampedSkipRate()));
+  }
 
   @Override
   public CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
@@ -270,10 +290,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
           } else {
             final var finalizedTxResultFuture = new CompletableFuture<TxResult>();
             _webSocket.signatureSubscribe(FINALIZED, false, txSig, finalizedTxResultFuture::complete);
-            final long finalizationTimeout = (BLOCKS_UNTIL_FINALIZED * medianMillisPerSlot()) << 1;
+            final long finalizationTimeout = finalizationTimeoutMillis();
             return finalizedTxResultFuture
-                // Overly conservative timeout because we will most likely observe finalization at this point.
-                // Median slot estimate plus an estimated skip rate buffer would be more accurate.
                 .orTimeout(finalizationTimeout, TimeUnit.MILLISECONDS)
                 .exceptionally(_ -> {
                   logger.log(WARNING, String.format(
