@@ -39,6 +39,18 @@ argument when the named line changes). Seeded 2026-07-27 from a full
 `qualityGate` observation that matched the prior run's population exactly.
 
 **catchAll**
+- `LookupTableCacheMap.getOrFetchTables:180` `MathMutator` — turns the
+  fetch-key cursor's `nextSetBit(i + 1)` into `nextSetBit(i - 1)`, re-finding
+  the same set bit forever while `fetchKeys` grows without bound. Detected as
+  `MEMORY_ERROR` or `TIMED_OUT` depending on which limit trips first, so it
+  only intermittently lands in the timeout column — a status flip between two
+  *detected* outcomes, audited so a `-PstrictTimeoutAudit` certifying run
+  cannot fail on the coin flip. Same batch-forever family as the
+  `refreshStaleAccounts:225` rows below. Expect the quiet-member counter to
+  nominate this row for retirement more or less permanently: `MEMORY_ERROR`
+  is its common outcome and timing out the rare one, so a quiet listing here
+  is the flip showing its usual face, not staleness — re-measure if curious,
+  but do not retire the row.
 - `LookupTableCacheMap.refreshStaleAccounts:225` `ConditionalsBoundaryMutator`
   and `ORDER_IF` — the batching loop's `from < numStale` exit: the boundary
   flavour admits `from == numStale` (an empty `subList` fetch that advances
@@ -47,11 +59,11 @@ argument when the named line changes). Seeded 2026-07-27 from a full
 - `TxCommitmentMonitorService.validateResponseAndAwaitCommitmentViaWebSocket:115`
   `EQUAL_IF` — forces the `txResult == null` route, so a completed result
   still `join()`s a websocket future the scripted fake never completes.
-- `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1:274`
+- `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1:296`
   `NakedReceiverMutator` — drops `.orTimeout(...)` (a fluent call returning
   its receiver), leaving the finalization future waiting forever (this is the
   1 `TIMED_OUT` the NAKED_RECEIVER trial table records).
-- `BaseTxMonitorService.run:69` `EQUAL_IF` — forces the pending-transactions
+- `BaseTxMonitorService.run:67` `EQUAL_IF` — forces the pending-transactions
   poll to read empty, so the monitor loop sleeps forever and never reaches
   the work its test terminates on.
 - `TxExpirationMonitorService.lambda$processTransactions$1:83/85` `EQUAL_IF`
