@@ -147,19 +147,23 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     }
     if (numRemoved < noSigStatusLength) {
       long minBlocksUntilExpiration = Long.MAX_VALUE;
-      final var expiredBlockHeight = expiredBlockHeight();
+      final var confirmedBlockHeight = confirmedBlockHeight();
       int numExpired = 0;
       for (int i = 0; i < noSigStatusLength; ++i) {
         final var txContext = noSigStatus[i];
         if (txContext != null) {
+          // The context's block height is the block hash's last valid block
+          // height: expired once the confirmed height passes it. At equality
+          // the last block it could land in may not be visible to the status
+          // poll's node yet, so it is given one more pass.
           final var bigBlockHeight = txContext.bigBlockHeight();
-          if (bigBlockHeight.compareTo(expiredBlockHeight) <= 0) {
+          if (bigBlockHeight.compareTo(confirmedBlockHeight) < 0) {
             expirationMonitorService.addTxContext(txContext);
             pendingTransactions.remove(txContext);
             ++numExpired;
           } else {
+            final long blocksRemaining = bigBlockHeight.subtract(confirmedBlockHeight).longValue();
             if (txContext.retrySend()) {
-              final long blocksRemaining = bigBlockHeight.subtract(expiredBlockHeight).longValue();
               if (blocksRemaining > minBlocksRemainingToResend) {
                 final var previousSendContext = txContext.sendTxContext();
                 if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
@@ -181,9 +185,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
               }
             }
 
-            final long blocksUntilExpiration = bigBlockHeight.subtract(expiredBlockHeight).longValue();
-            if (blocksUntilExpiration < minBlocksUntilExpiration) {
-              minBlocksUntilExpiration = blocksUntilExpiration;
+            if (blocksRemaining < minBlocksUntilExpiration) {
+              minBlocksUntilExpiration = blocksRemaining;
             }
           }
         }

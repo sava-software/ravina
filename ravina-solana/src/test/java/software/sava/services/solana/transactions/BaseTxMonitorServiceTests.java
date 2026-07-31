@@ -1,6 +1,7 @@
 package software.sava.services.solana.transactions;
 
 import org.junit.jupiter.api.Test;
+import software.sava.idl.clients.core.math.SafeMath;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.BlockHeight;
@@ -40,7 +41,6 @@ import java.util.function.Function;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
-import static software.sava.core.tx.Transaction.BLOCK_QUEUE_SIZE;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
@@ -282,7 +282,7 @@ final class BaseTxMonitorServiceTests {
         sig,
         sendTxContext,
         blockHeight,
-        new BigInteger(Long.toUnsignedString(blockHeight)),
+        SafeMath.toUnsignedBigInteger(blockHeight),
         verifyExpired,
         retrySend,
         0,
@@ -483,14 +483,18 @@ final class BaseTxMonitorServiceTests {
 
   // --------------------------------------------------- expiration horizon --
 
+  /// A pending transaction's block height is its block hash's
+  /// `lastValidBlockHeight`, so the horizon it is compared against is the
+  /// confirmed height itself — trailing it by any further offset keeps
+  /// polling a block hash the cluster stopped accepting long ago.
   @Test
-  void theExpirationHorizonTrailsTheConfirmedHeightByTheBlockQueue() {
+  void theExpirationHorizonIsTheConfirmedHeight() {
     final var rpcClient = new FakeRpcClient();
     rpcClient.blockHeight = 1_000_000;
     final var service = new RecordingMonitor(
         rpcCaller(rpcClient), new FakeEpochInfoService(), Duration.ofMillis(MIN_SLEEP_MILLIS));
 
-    assertEquals(BigInteger.valueOf(1_000_000 - BLOCK_QUEUE_SIZE), service.expiredBlockHeight());
+    assertEquals(BigInteger.valueOf(1_000_000), service.confirmedBlockHeight());
     assertEquals(1, rpcClient.blockHeightCalls);
   }
 
@@ -502,8 +506,8 @@ final class BaseTxMonitorServiceTests {
         rpcCaller(rpcClient), new FakeEpochInfoService(), Duration.ofMillis(MIN_SLEEP_MILLIS));
 
     assertEquals(
-        new BigInteger("18446744073709551615").subtract(BigInteger.valueOf(BLOCK_QUEUE_SIZE)),
-        service.expiredBlockHeight(),
+        new BigInteger("18446744073709551615"),
+        service.confirmedBlockHeight(),
         "a block height past 2^63 must not be read as negative"
     );
   }

@@ -1,12 +1,11 @@
 package software.sava.services.solana.transactions;
 
+import software.sava.idl.clients.core.math.SafeMath;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxStatus;
 
 import java.math.BigInteger;
 import java.util.concurrent.CompletableFuture;
-
-import static java.lang.Long.toUnsignedString;
 
 record TxContext(Commitment awaitCommitment,
                  Commitment awaitCommitmentOnError,
@@ -32,7 +31,7 @@ record TxContext(Commitment awaitCommitment,
         sig,
         sendTxContext,
         blockHeight,
-        new BigInteger(toUnsignedString(blockHeight)),
+        SafeMath.toUnsignedBigInteger(blockHeight),
         verifyExpired,
         retrySend,
         0,

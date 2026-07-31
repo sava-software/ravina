@@ -33,7 +33,6 @@ import java.util.function.Consumer;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.junit.jupiter.api.Assertions.*;
-import static software.sava.core.tx.Transaction.BLOCK_QUEUE_SIZE;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
@@ -62,8 +61,12 @@ import static software.sava.services.solana.transactions.BaseTxMonitorServiceTes
 final class TxCommitmentMonitorServiceTests {
 
   private static final long CONFIRMED_HEIGHT = 1_000;
-  /// The height at or below which a block hash can no longer land.
-  private static final long HORIZON = CONFIRMED_HEIGHT - BLOCK_QUEUE_SIZE;
+  /// A context's block height is its block hash's `lastValidBlockHeight`, so
+  /// this is the newest one that can no longer land: the confirmed height has
+  /// already passed it. At `CONFIRMED_HEIGHT` exactly it is still given one
+  /// more pass — the last block it could land in may not be visible to the
+  /// status poll's node yet.
+  private static final long HORIZON = CONFIRMED_HEIGHT - 1;
 
   private static final Duration WEB_SOCKET_TIMEOUT = Duration.ofMinutes(5);
 
@@ -672,10 +675,10 @@ final class TxCommitmentMonitorServiceTests {
     // 700ms of pacing from the signature statuses, against expirations one and
     // five blocks away: the soonest expiration is 530ms, which wins.
     final var polling = txContext("polling", 900, FINALIZED, FINALIZED);
-    final var soon = txContext("soon", HORIZON + 1, FINALIZED, FINALIZED,
-        sendTxContext(HORIZON + 1, PUBLISHED_LONG_AGO), true, false);
-    final var later = txContext("later", HORIZON + 5, FINALIZED, FINALIZED,
-        sendTxContext(HORIZON + 5, PUBLISHED_LONG_AGO), true, false);
+    final var soon = txContext("soon", HORIZON + 2, FINALIZED, FINALIZED,
+        sendTxContext(HORIZON + 2, PUBLISHED_LONG_AGO), true, false);
+    final var later = txContext("later", HORIZON + 6, FINALIZED, FINALIZED,
+        sendTxContext(HORIZON + 6, PUBLISHED_LONG_AGO), true, false);
     rpcClient.sigStatuses = _ -> List.of(status(PROCESSED), NIL_STATUS, NIL_STATUS);
 
     final long sleep = service.processTransactions(contextMap(polling, soon, later));
@@ -690,7 +693,7 @@ final class TxCommitmentMonitorServiceTests {
     expirationMonitor(service);
 
     final var polling = txContext("polling", 900, FINALIZED, FINALIZED);
-    final var later = txContext("later", HORIZON + 5, FINALIZED, FINALIZED, null, true, false);
+    final var later = txContext("later", HORIZON + 6, FINALIZED, FINALIZED, null, true, false);
     rpcClient.sigStatuses = _ -> List.of(status(PROCESSED), NIL_STATUS);
 
     final long sleep = service.processTransactions(contextMap(polling, later));
@@ -723,8 +726,8 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aTransactionAtTheResendBlockFloorIsNotResent() {
     final var service = service(Duration.ofSeconds(1), 3);
-    final var original = sendTxContext(HORIZON + 3, PUBLISHED_LONG_AGO);
-    final var context = txContext("sig", HORIZON + 3, FINALIZED, FINALIZED, original, true, true);
+    final var original = sendTxContext(HORIZON + 4, PUBLISHED_LONG_AGO);
+    final var context = txContext("sig", HORIZON + 4, FINALIZED, FINALIZED, original, true, true);
     service.pendingTransactions.add(context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 

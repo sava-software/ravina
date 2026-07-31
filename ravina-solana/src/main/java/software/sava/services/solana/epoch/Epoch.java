@@ -1,5 +1,6 @@
 package software.sava.services.solana.epoch;
 
+import software.sava.idl.clients.core.math.SafeMath;
 import software.sava.rpc.json.http.response.EpochInfo;
 
 import java.math.BigInteger;
@@ -38,8 +39,8 @@ public record Epoch(long startedAt,
   }
 
   private static double calculateSkipRate(final int epochCompare, final EpochInfo latest, final EpochInfo previous) {
-    final long heightDelta = new BigInteger(Long.toUnsignedString(latest.blockHeight()))
-        .subtract(new BigInteger(Long.toUnsignedString(previous.blockHeight())))
+    final long heightDelta = SafeMath.toUnsignedBigInteger(latest.blockHeight())
+        .subtract(SafeMath.toUnsignedBigInteger(previous.blockHeight()))
         .longValue();
 
     final long currentSlotIndex = latest.slotIndex();

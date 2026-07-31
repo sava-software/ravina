@@ -1,6 +1,6 @@
 package software.sava.services.solana.transactions;
 
-import software.sava.core.tx.Transaction;
+import software.sava.idl.clients.core.math.SafeMath;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.Worker;
@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
-import static java.lang.Long.toUnsignedString;
 import static java.lang.System.Logger.Level.*;
 import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
@@ -27,7 +26,6 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 abstract class BaseTxMonitorService implements Runnable, Worker {
 
   protected static final System.Logger logger = System.getLogger(TxCommitmentMonitorService.class.getName());
-  private static final BigInteger BIG_RECENT_BLOCK_QUEUE = BigInteger.valueOf(Transaction.BLOCK_QUEUE_SIZE);
 
   protected final ChainItemFormatter formatter;
   protected final RpcCaller rpcCaller;
@@ -104,13 +102,15 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     }
   }
 
-  protected final BigInteger expiredBlockHeight() {
+  /// The cluster's confirmed block height, read as unsigned. A pending
+  /// transaction's `blockHeight` is its block hash's last valid block height,
+  /// so it is expired exactly when this height passes it — no further offset.
+  protected final BigInteger confirmedBlockHeight() {
     final var confirmedBlockHeight = rpcCaller.courteousGet(
         rpcClient -> rpcClient.getBlockHeight(CONFIRMED),
-        "rpcClient::getLatestBlockHash"
+        "rpcClient::getBlockHeight"
     );
-    final var bigBlockHeight = new BigInteger(toUnsignedString(confirmedBlockHeight.height()));
-    return bigBlockHeight.subtract(BIG_RECENT_BLOCK_QUEUE);
+    return SafeMath.toUnsignedBigInteger(confirmedBlockHeight.height());
   }
 
   protected final long medianMillisPerSlot() {
