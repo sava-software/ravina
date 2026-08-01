@@ -402,3 +402,37 @@ suites are timing-sensitive today.
 
 Re-run the check after any change to suite composition, `targetTests`, or the
 mutator set — those are what perturb load and coverage.
+
+## Ratchet edges: the deliberate holes (2026-07-31 inventory)
+
+What the mutation ratchet here deliberately does not see — the shared doc's
+"edges of what the ratchet can see" inventory, instantiated for this repo.
+Since sava-build 21.5.19 the excluded-production-class advisory re-lists the
+main-source part of this inventory on every run; the counts below are its
+expected steady state, so treat those advisory lines as confirmation, not
+findings.
+
+- **Suite partitioning.** Both `catchAll` suites are catch-alls by exclusion:
+  they target the whole module package and exclude the classes the sibling
+  suites own, so the advisory names ~35 classes in `ravina-core` and ~12 in
+  `ravina-solana` every run. Each named class is mutated by its owning suite;
+  a *new* class matching no exclusion lands in `catchAll` by default, which
+  is the design. A class appearing here that no sibling suite targets would
+  be a real gap — that is the check to run when the count moves.
+- **`software.sava.kms.google.Integ`** — integration main requiring live GCP
+  credentials; excluded from `googleKms` (the advisory's 1-class group). Its
+  correctness rides on running it against real KMS, not on the ratchet.
+- **Fuzz harnesses.** Since 21.5.19 the plugin auto-excludes every
+  *registered* fuzz target's harness class (plus its nested types) from PIT;
+  the hand-written `*Fuzz*` exclusion globs are kept anyway — they also
+  cover `FuzzCorpusReplayTests` and any `*Fuzz*`-named helper that is not a
+  registered target.
+- **Kills come only from `targetTests`** — this repo keeps no integration
+  test suites outside the pattern, so nothing here is tested-but-reading-
+  `NO_COVERAGE`; `Integ` above is the only live-service artifact.
+- **Timeout-detected mutants** — the ratchet cannot see a weakened covering
+  assertion for them; the audited sets (`config/pitest/<suite>-timeouts.csv`
+  + README causes, AGENTS.md rule 18) are the compensating control.
+- **Policy acceptances** — rows argued from policy rather than equivalence
+  (`# needs-live-kms`, `# ws-timeout`) are holes by decision; their
+  arguments live in the owning module's `config/pitest/README.md`.

@@ -161,6 +161,12 @@ timeouts).
    cannot bake in a coin-flip) when nothing is new,
    `-PupdateMutationBaseline` once the new rows are triaged. A refresh
    carries a row's `# note` across a status flip, annotated for re-reading.
+   Since sava-build 21.5.19 the PIT version is part of the record: a
+   baseline write that completes stamps `config/pitest/<suite>-pitest-version`
+   (per suite — commit it). After a plugin bump changes PIT, a mismatch
+   warns on checking runs and **refuses every record-writing flag**; bump
+   deliberately by setting the file to the new version and refreshing that
+   suite, reading the churn as a real population diff, not noise.
 5. **Iterate with `-PmutateOnly=<class-glob>`** while killing a cluster —
    seconds instead of the full suite — then re-run unscoped before any
    refresh: the tooling refuses to let a scoped report touch the baseline.
@@ -278,12 +284,21 @@ timeouts).
     cause and confirm in seconds, no mutation run — every advisory the
     build printed is re-listed in a one-line-per-suite summary at the end,
     and certifying runs can pass `-PstrictTimeoutAudit` to escalate exactly
-    the kept-audit findings (unaudited newcomer, malformed row, missing
-    set) to failures; a suite acquiring its *first* timeouts seeds its set
+    the kept-audit findings (unaudited newcomer, malformed row, a member
+    whose README cause was never written, missing set) to failures; a suite
+    acquiring its *first* timeouts seeds its set
     with `pitest<Suite> -PinitTimeoutAudit`, then the causes are written by
-    hand. The verify also counts quiet members (no timeout in 3+
-    consecutive runs, tracked in `.pitest-history/`) as retirement
-    candidates — an advisory to re-measure, not delete on sight.
+    hand; a suite that has never timed out can *arm* the audit by
+    committing a comments-only csv — zero members is a legitimate set, and
+    its first timeout then warns as an unaudited newcomer instead of the
+    softer adoption hint. Since 21.5.19 a member's `# line N` comment is
+    parsed back: when a member times out only at lines absent from its
+    comment, the verify warns as line drift — the anchor the README cause
+    argues about moved, so re-read the argument (a new sibling line beside
+    a recorded one stays quiet; advisory only, like the quiet-member
+    counter: no timeout in 3+ consecutive runs, tracked in
+    `.pitest-history/`, is a retirement candidate to re-measure, not
+    delete on sight).
 
 <!-- hardening-template sha256:f6dea3f41ab7 -->
 
