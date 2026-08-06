@@ -267,6 +267,22 @@ is recorded deliberately rather than churned:
   signallable, so a clock cannot stand in for it. Every test driving a service
   loop therefore parks on real time. That seam gap, not any single test, is why
   the epoch family kept resurrecting.
+- **The `checkCycle(cycle, false)` seam is not a general substitute for
+  `run()`**, and a 2026-08-06 attempt to convert every `service.run()` site
+  proved it. `park == false` means *as if `fetchEpochNow` was signalled*, which
+  takes the signalled branch: `theLoopSamplesUntilTheClientCloses` then records
+  `[1, 1, 1]` pacing sleeps where `run()` records none, and
+  `anInterruptDuringAFailedFetchStopsTheServiceRatherThanRetrying` needs the
+  interrupt swallowing that only `run()` does. The seam substitutes only where
+  a test asserts neither the unsignalled path nor the interrupt handling — as in
+  `everySampleBeingFilteredOutDoesNotKillTheLoop`, whose swap took PIT's slowest
+  covering test in this suite from **416ms to 30ms**. Convert case by case, on
+  evidence, not in bulk.
+- One assertion is worth knowing about: `theLoopSamplesUntilTheClientCloses`
+  asserts "an uneventful loop must never sleep" and passes, while the loop
+  really parks 3 x 1ms on the `Condition`. The statement is true of the injected
+  clock and false of the wall clock, which is precisely how this cost stayed
+  invisible through four flip recurrences.
 - `CallFactoryTests` exercises the *clockless* factory overloads on purpose, so
   they run on `NanoClock.SYSTEM`. The healthy path never sleeps, but a mutant
   that makes capacity unavailable sleeps real time against an unbounded try

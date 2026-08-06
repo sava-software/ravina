@@ -512,7 +512,19 @@ final class EpochInfoServiceTests {
     );
     final var service = serviceFor(fake);
 
-    assertDoesNotThrow(service::run, "a fully filtered sample set must not kill the loop");
+    // Driven through the `park == false` seam rather than run(). With every
+    // sample filtered out there is no slotStats, so the loop's park falls back
+    // to defaultMillisPerSlot and run() waits 410ms of real time here — once
+    // per mutant, for a duration no assertion below looks at. Safe to swap only
+    // because nothing here asserts the unsignalled path: `park == false` means
+    // "as if fetchEpochNow was signalled", which is a different branch, so it
+    // is not a general substitute for run().
+    final var cycle = assertDoesNotThrow(
+        service::start, "a fully filtered sample set must not kill the loop");
+    assertNotNull(cycle, "the first fetch must start the loop");
+    assertFalse(
+        assertDoesNotThrow(() -> service.checkCycle(cycle, false)),
+        "the closed client must stop the loop");
 
     final var latest = service.epochInfo();
     assertNotNull(latest);
