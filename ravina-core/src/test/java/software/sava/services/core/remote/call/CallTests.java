@@ -39,6 +39,15 @@ final class CallTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound. Unlike the sibling test classes this one is deliberately
+      // high-iteration — `testCourteous` drives 900 calls at roughly one pacing
+      // sleep every other call — so the budget is scaled to that, not to 64. It
+      // exists only to turn a mutant that has lost its loop exit into a named
+      // assertion failure instead of a watchdog timeout; the sleeps are free, so
+      // the headroom costs nothing.
+      if (sleeps.size() > 4096) {
+        throw new AssertionError("wait loop exceeded its try budget: " + sleeps.size() + " sleeps");
+      }
       nanos += millis * 1_000_000;
     }
 

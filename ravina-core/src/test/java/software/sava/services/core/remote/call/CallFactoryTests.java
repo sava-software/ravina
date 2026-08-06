@@ -26,6 +26,13 @@ import static org.junit.jupiter.api.Assertions.*;
 /// weight) through to the capacity state, and the clockless overloads must agree with the
 /// [NanoClock#SYSTEM] ones. Scenarios are chosen so no overload ever needs to sleep, which
 /// keeps the `NanoClock.SYSTEM` variants as fast and deterministic as the clocked ones.
+///
+/// Only the clocked overloads can assert on `TestClock.sleeps`. The clock these
+/// tests inject reaches the capacity state, and nothing in `request_capacity`
+/// ever sleeps — `clock.sleep` is called by the `Call` implementations alone. A
+/// `sleeps.isEmpty()` assertion after a *clockless* construction therefore holds
+/// whatever the call does, so the ones that were here have been removed rather
+/// than left to read as coverage. Capacity assertions carry these tests.
 final class CallFactoryTests {
 
   // Frozen at a non-zero origin: capacity never replenishes on its own, so every
@@ -43,6 +50,14 @@ final class CallFactoryTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound, far above anything these tests need. Every wait loop here
+      // is bounded by maxTryClaim or maxRetries, so a run past this has lost its
+      // only exit — the mutation PIT is probing. Failing names it instead of
+      // leaving the watchdog to time the run out, which detects nothing about
+      // the assertions below and costs a full timeout budget per mutant.
+      if (sleeps.size() > 64) {
+        throw new AssertionError("wait loop exceeded its try budget: " + sleeps.size() + " sleeps");
+      }
     }
   }
 
@@ -198,7 +213,6 @@ final class CallFactoryTests {
     );
     assertEquals("courteous", call.get());
     assertEquals(7, state.capacity());
-    assertTrue(clock.sleeps.isEmpty());
 
     // Courteous, not greedy: with maxTryClaim exhausted and forceCall false it declines
     // to call at all rather than overdrawing.
@@ -231,7 +245,6 @@ final class CallFactoryTests {
     assertEquals("courteous", call.get());
     // DEFAULT_CALL_CONTEXT weighs 1.
     assertEquals(9, state.capacity());
-    assertTrue(clock.sleeps.isEmpty());
   }
 
   @Test
@@ -263,7 +276,6 @@ final class CallFactoryTests {
     );
     assertEquals("a", call.get());
     assertEquals(8, item.capacityState().capacity());
-    assertTrue(clock.sleeps.isEmpty());
   }
 
   @Test
@@ -277,7 +289,6 @@ final class CallFactoryTests {
     );
     assertEquals("a", call.get());
     assertEquals(9, item.capacityState().capacity());
-    assertTrue(clock.sleeps.isEmpty());
   }
 
   @Test
@@ -293,7 +304,6 @@ final class CallFactoryTests {
     );
     assertEquals("a", withContext.get());
     assertEquals(-3, contextItem.capacityState().capacity());
-    assertTrue(clock.sleeps.isEmpty());
 
     final var defaultItem = createItem("b", clock);
     defaultItem.capacityState().claimRequest(10);

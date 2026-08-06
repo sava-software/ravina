@@ -37,6 +37,14 @@ final class CallerTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound, far above anything these tests need. Every wait loop here
+      // is bounded by maxTryClaim or maxRetries, so a run past this has lost its
+      // only exit — the mutation PIT is probing. Failing names it instead of
+      // leaving the watchdog to time the run out, which detects nothing about
+      // the assertions below and costs a full timeout budget per mutant.
+      if (sleeps.size() > 64) {
+        throw new AssertionError("wait loop exceeded its try budget: " + sleeps.size() + " sleeps");
+      }
     }
   }
 
