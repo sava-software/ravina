@@ -1,12 +1,6 @@
 # Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
 # a reviewer-stop"); structural causes in README.md, "Audited timeout
-# sets". Every member deletes or inverts an exit
-# of a retry/wait loop.
-software.sava.services.core.remote.call.ComposedCall,get,RemoveConditionalMutator_ORDER_ELSE # cause:liveness # line 55
-software.sava.services.core.remote.call.CourteousBalancedCall,call,ConditionalsBoundaryMutator # cause:liveness # line 49
-software.sava.services.core.remote.call.CourteousBalancedCall,call,RemoveConditionalMutator_EQUAL_IF # cause:liveness # lines 35/39
-software.sava.services.core.remote.call.CourteousBalancedCall,call,RemoveConditionalMutator_ORDER_ELSE # cause:liveness # line 49
-software.sava.services.core.remote.call.CourteousCall,call,ConditionalsBoundaryMutator # cause:liveness # line 30
-software.sava.services.core.remote.call.CourteousCall,call,RemoveConditionalMutator_ORDER_ELSE # cause:liveness # line 30
-software.sava.services.core.remote.call.CourteousCall,call,RemoveConditionalMutator_ORDER_IF # cause:liveness # line 25
-software.sava.services.core.remote.call.UncheckedBalancedCall,get,RemoveConditionalMutator_ORDER_ELSE # cause:liveness # line 72
+# sets". This set is armed but empty: every former member was retired
+# 2026-08-06 once all six covering test clocks carried a sleep budget, and the
+# suite reports zero timed-out mutants solo and under gate load. A new row here
+# is a reviewer-stop, not a refill.

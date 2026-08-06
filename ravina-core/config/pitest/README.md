@@ -135,44 +135,59 @@ armed. Both members were retired, and the first correction is worth keeping:
   reads `SURVIVED` solo and `TIMED_OUT` under load. Either recurrence warns as
   an unaudited newcomer; re-add then, with the fresh observation.
 
-**calls** — every member deletes or inverts an exit of a retry/wait loop, so
-what remains is unbounded (`maxTryClaim`/`maxRetries` default to
-`Long.MAX_VALUE`) and the timeout is the observable:
+**calls** — **the whole set was retired 2026-08-06; the file is armed but
+empty.** Every member deleted or inverted an exit of a retry/wait loop, leaving
+it unbounded (`maxTryClaim`/`maxRetries` default to `Long.MAX_VALUE`) with the
+timeout as the observable. None of that was a liveness loss the harness could
+not see: each covering path waits on an injected `NanoClock`, so a budget on
+the fake clock converts "this loop has lost its exit" into a named assertion
+failure. The budgets had been added to `ComposedCallTests`, `BalancedCallTests`
+and `CourteousCallTests` only; `CallTests`, `CallerTests` and
+`CallFactoryTests` record sleeps on a frozen clock and had none, which is why
+members kept their timeout detection. With all six bounded the suite reports
+**zero** timed-out mutants on a history-free solo run *and* under
+`hardeningCertify` gate load, so every row below is now an ordinary
+assertion kill. `CallTests` carries a larger budget than its siblings on
+purpose: `testCourteous` drives 900 calls at roughly one pacing sleep every
+other call, so 64 is a real expectation there rather than a runaway.
+
+The arguments are kept because they name what each mutant destroys, and because
+a future edit that reintroduces an unbounded covering clock brings the whole
+family back at once:
 - `ComposedCall.get:55` `ORDER_ELSE` — deletes the throw-when-exhausted exit,
   so the retry loop has none: `maxRetries` can no longer be reached and no
   budget elsewhere ends it.
-- `ComposedCall.get:54` `MathMutator` — **retired 2026-08-05.** `++errorCount`
-  → `--errorCount` walks the retries-exhausted cursor the wrong way, but that
-  path is not a liveness loss: the count wraps, so the exit is still reached,
-  just after ~2^63 retries. `retriesWithBackoffDelaysUntilSuccess` already
-  observed it (the recorded sleeps become the max delay three times instead of
-  the ramp) — but `rethrowsOnceMaxRetriesIsExceeded` failed forever first, so
-  PIT saw the wait rather than the assertion. That fixture now stops failing
-  after a small attempt budget and returns a sentinel, which turns "the retry
-  limit never fired" into a failed `assertThrows` instead of a wait. Fresh
-  history-free run: `KILLED`.
+- `ComposedCall.get:54` `MathMutator` — retired earlier, 2026-08-05.
+  `++errorCount` → `--errorCount` walks the retries-exhausted cursor the wrong
+  way, but that path is not a liveness loss: the count wraps, so the exit is
+  still reached, just after ~2^63 retries. `rethrowsOnceMaxRetriesIsExceeded`
+  failed forever first, so PIT saw the wait rather than the assertion; that
+  fixture now stops failing after a small attempt budget and returns a
+  sentinel, turning "the retry limit never fired" into a failed `assertThrows`.
 - `CourteousBalancedCall.call:35/39` `EQUAL_IF` — the forced-true
   `hasCapacity` operands that unbound the failover loop (the failover-guards
   paragraph below).
-- `CourteousBalancedCall.call:45` `IncrementsMutator` — **retired 2026-08-05.**
-  `++i` → `--i` walks the try-budget cursor away from `maxTry`, so the break
-  never fires and the wait loop loses its only exit on the never-claimable
-  path. Which outcome PIT saw used to depend on the test it reached first. Both
-  test clocks here now fail after 64 recorded sleeps — a bound far above the
-  two any legitimate wait needs, so it only trips when a loop has lost its
-  exit, and it names that instead of waiting for the watchdog. With every
-  covering path failing deterministically the mutant is `KILLED` on a
-  history-free run, and this suite's only remaining timeouts are the two
-  audited `ConditionalsBoundaryMutator` members.
+- `CourteousBalancedCall.call:45` `IncrementsMutator` — retired earlier,
+  2026-08-05, when the first three clocks were bounded. Note the mutator itself
+  no longer exists: widening the loop counter to `long` on 2026-08-06 turned
+  `IINC` into `LADD`, so PIT now emits a `MathMutator` at that coordinate, and
+  it is killed by the same budgets.
 - `CourteousBalancedCall.call:49` `ConditionalsBoundaryMutator` — `<= 0` →
   `< 0`, so a zero wait re-enters the wait branch with a zero delay forever;
   `ORDER_ELSE` — deletes the claim-now branch, waiting on every iteration of
-  an effectively unbounded try budget.
+  an effectively unbounded try budget. This was the last member argued as
+  genuine liveness and the argument was wrong: the zero-delay spin records a
+  sleep per iteration, so a bounded clock sees it immediately.
 - `CourteousCall.call:25` `ORDER_IF` (the try-claim for-loop exit) and `:30`
   `ConditionalsBoundaryMutator` / `ORDER_ELSE` — the same shapes as the
   balanced variant, one class earlier.
 - `UncheckedBalancedCall.get:72` `ORDER_ELSE` — deletes the
   throw-when-exhausted exit of the balanced retry loop.
+
+The `capacity` and `loadBalance` members below are deliberately *not* treated
+this way. They spin on CPU with no `sleep` at all — a round-robin scan, a
+parser predicate — so there is no injected clock to bound and no synchronous
+reader of the stalled state. Those remain admissible watchdog detection.
 
 **capacity**
 - `CapacityStateVal.hasCapacity:192` `BooleanTrueReturnVals` — capacity
