@@ -167,14 +167,16 @@ contract, the ratchet edges, and the bugs the effort has found.
   two members here are documented as expected-quiet because their usual
   detection mode is not the timeout. Because the counter is machine-local,
   it is evidence you can see and a reviewer on another machine cannot.
-- **The audited timeout sets have two member flavours here**: structural
-  hangs (a deleted termination guard, only ever observable as a timeout) and
-  load flips, where the detection mode depends on which covering test PIT
-  reaches first. A load flip that reads `KILLED` solo needs only the audit
-  member; one that reads `SURVIVED` solo also needs a baseline row, because
-  the ratchet sees it as unkilled in that mode — those are the
-  union-insurance rows. Both causes are argued per member in the module
-  `config/pitest/README.md`, naming the class *and* the method.
+- **Every audited timeout member here is `cause:liveness`** — a mutated path
+  with no completion guarantee of its own — and each carries its argument in
+  the owning module's `config/pitest/README.md`, naming the class *and* the
+  method. A mutant that merely times out *sometimes*, because a slower covering
+  test loses a race, is not a cause: it is harness debt. All six such rows were
+  retired on 2026-08-05 by making every covering path fail deterministically
+  (bounded test clocks, a bounded park helper, a standing-by notification) or
+  by refactoring the mutation site away; the arguments are recorded per member.
+  The `# line` values on membership rows are diagnostic context only — moving
+  or reflowing source does not require touching them.
 - **Toolchain provenance is committed.** Each suite with a record carries a
   `<suite>-pitest-version` stamp *and* a `<suite>-pitest-toolchain.tsv`
   sidecar beside its baseline — 16 pairs; committing one half without the
@@ -267,7 +269,7 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   preserves every old row, seeds new rows `# untriaged`, and stamps the reviewed
 >   toolchain only after a successful fresh observation. Perform a schema
 >   migration/rollback only with a fleet pin plan. A `[history]` report may check
->   the ratchet but cannot support adding, removing, relabelling, or re-anchoring
+>   the ratchet but cannot support adding, removing, or relabelling
 >   accepted/timeout records; run `pitest<Suite> -PnoMutationHistory` first.
 > - Consumer hardening notes contain only local ownership, measurements, acceptance
 >   reasons, and provenance. `AGENTS.md` may carry this exact generated,
@@ -303,7 +305,7 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   assertion — a timeout keeps "detecting" whatever the test asserts — so
 >   each suite's timeouts are an audited set, not a count:
 >   `config/pitest/<suite>-timeouts.csv` holds line-less `class,method,mutator`
->   keys plus a comment category and reviewed `# line` anchors. Only
+>   keys plus a comment category; `# line` tags are diagnostic metadata only. Only
 >   `cause:liveness` is admissible watchdog detection after deterministic
 >   seams/budgets are exhausted: the mutated path has no path-owned finite
 >   completion guarantee. A fixture's emergency exit does not demote that
@@ -319,11 +321,12 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   `config/pitest/README.md` still holds the
 >   full structural cause per member. The verify warns on any timeout outside
 >   the set — paste the printed row, classify it, then write the cause — and on
->   members matching no mutant. Line-less identity does not widen the cause:
->   every timed-out line must match a reviewed liveness anchor, so a moved mutant
->   or same-key resource sibling at another line is a reviewer-stop. Same-line
->   copies are indistinguishable in PIT's CSV; a location needing mixed cause
->   classifications cannot be admitted as audited liveness. Strict workflows run the
+>   members matching no mutant. Membership and cause are key-level, which leaves a
+>   known blind spot when a liveness mutant and a finite sibling share the same key.
+>   Positive multiplicity drift prints all current line-full candidates for review;
+>   source-line movement itself never warns, fails, or requires re-anchoring. Adding
+>   a method, moving imports, or reflowing an expression is not a hardening record
+>   change. Strict workflows run the
 >   committed-file half before PIT; use `pitest<Suite>Debt` for the same quick
 >   manual preview. `TimeoutAuditInit` deliberately seeds an uncertifiable file —
 >   classify every row before certification. Proving a row can be retired requires
@@ -418,7 +421,7 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 > - **Time-dependent code takes a clock**, so tests advance time instead of
 >   waiting. Give test clocks a non-zero origin — a clock starting at 0 makes
 >   every "start timestamp mutated to 0" mutant equivalent by accident.
-<!-- hardening-template sha256:7176aebe35d7 -->
+<!-- hardening-template sha256:014396ea56fe -->
 
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
