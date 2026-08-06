@@ -244,6 +244,38 @@ Two mechanical points that cost real time to rediscover:
   habit worth copying: when a test you believe in will not go green, suspect
   the code before you soften the assertion.
 
+## Covering-test cost: the mechanism behind every "load flip" here
+
+PIT re-runs a suite's covering tests once per mutant, so any real wait
+multiplies by the mutant count and, under load, turns a deterministic kill into
+a watchdog timeout. That is the whole mechanism behind this repo's load-flip
+rows. `EpochInfoServiceImpl.getAndSetEpochInfo` flipped four times in five days
+and was closed only by removing per-mutant real time — twice after a fix aimed
+at the wrong cost, once by bounding a spin that was not the expensive part and
+once by driving the whole `run()` loop when only a single parked cycle was
+needed.
+
+**The rule: a load flip is harness debt, and the debt is whatever the covering
+test makes PIT repeat per mutant — so fix every covering path, not the one you
+found first.** Both failed attempts above bounded one path and declared victory.
+
+A 2026-08-06 scan inventoried ~95 such sites across the test sources of mutated
+packages, about half rated high. The flip-prone ones are closed. The remainder
+is recorded deliberately rather than churned:
+
+- `Condition.await` is not routed through `NanoClock` by design — it is
+  signallable, so a clock cannot stand in for it. Every test driving a service
+  loop therefore parks on real time. That seam gap, not any single test, is why
+  the epoch family kept resurrecting.
+- `CallFactoryTests` exercises the *clockless* factory overloads on purpose, so
+  they run on `NanoClock.SYSTEM`. The healthy path never sleeps, but a mutant
+  that makes capacity unavailable sleeps real time against an unbounded try
+  budget: deliberate coverage, latent flip surface.
+- Real executors, `HttpClient`s and PKCS12 keystore round-trips in config and
+  KMS tests cost milliseconds, not flips. Not worth churning.
+- `Backoff.single(1)` is the **seconds** overload, and several KMS fixtures use
+  it. Unreached today; worth knowing before one of those paths gains a retry.
+
 ## Time-dependent code: what a clock buys, measured
 
 `EpochInfoServiceImpl` was migrated to `NanoClock` — every wall-clock read and

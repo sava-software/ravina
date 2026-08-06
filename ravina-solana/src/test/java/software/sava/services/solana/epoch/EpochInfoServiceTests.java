@@ -619,8 +619,14 @@ final class EpochInfoServiceTests {
     awaiter.start();
     try {
       // Rendezvous: proceed once the awaiter is parked — or already finished,
-      // which is exactly what the mutants that skip the wait produce.
+      // which is exactly what the mutants that skip the wait produce. Bounded
+      // because a mutant can leave the awaiter alive and never queued, and an
+      // unbounded spin there is paid against PIT's watchdog once per mutant.
+      final long deadline = System.nanoTime() + 5_000_000_000L;
       while (awaiter.isAlive() && !hasInitializationWaiter(service)) {
+        if (System.nanoTime() - deadline > 0) {
+          throw new AssertionError("the awaiter neither parked nor finished");
+        }
         Thread.onSpinWait();
       }
 
