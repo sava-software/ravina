@@ -605,7 +605,11 @@ final class EpochInfoServiceTests {
     // runs when an immediate fetch was signalled, and here it must not run at
     // all. With a round trip of zero and a one-millisecond mean slot the gate
     // would ask for exactly 1ms, so a stray entry is unambiguous.
-    assertEquals(List.of(), clock.sleeps, "an uneventful loop must never sleep");
+    // "never asked the clock to sleep", not "never waited": the loop still
+    // parks on the real `Condition` between cycles, which no injected clock can
+    // see. This pins the backoff and the pacing gate, both of which go through
+    // the clock.
+    assertEquals(List.of(), clock.sleeps, "an uneventful loop must never ask the clock to sleep");
   }
 
   /// The parked-waiter handshake from the concurrency-harness plan (see
@@ -803,19 +807,6 @@ final class EpochInfoServiceTests {
     }
   }
 
-  private void awaitParkedOnFetchEpochNow(final EpochInfoServiceImpl service, final Thread loop) {
-    while (loop.isAlive()) {
-      service.lock.lock();
-      try {
-        if (service.lock.hasWaiters(service.fetchEpochNow)) {
-          return;
-        }
-      } finally {
-        service.lock.unlock();
-      }
-      Thread.onSpinWait();
-    }
-  }
 
   /// A client that is already closed on the very first fetch stops the service
   /// before it publishes anything.

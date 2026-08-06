@@ -286,7 +286,16 @@ is recorded deliberately rather than churned:
 - `CallFactoryTests` exercises the *clockless* factory overloads on purpose, so
   they run on `NanoClock.SYSTEM`. The healthy path never sleeps, but a mutant
   that makes capacity unavailable sleeps real time against an unbounded try
-  budget: deliberate coverage, latent flip surface.
+  budget: `CallContext.createContext(weight, minCapacity, measureCallTime)`
+  defaults **both** `maxTryClaim` and `maxRetries` to `Long.MAX_VALUE`, and
+  `CourteousCall.call` loops to `maxTryClaim`. Deliberate coverage, latent flip
+  surface, and the likeliest source of the next flip because it sits in the four
+  suites holding every remaining audited timeout member. Only partly fixable:
+  the three explicit-context sites could pass a small `maxTryClaim` through the
+  long-form `createContext`, but the `DEFAULT_CALL_CONTEXT` sites exist to test
+  that default and cannot be bounded without defeating themselves. Left alone
+  deliberately in 2026-08-06 — it has never flipped, and there is no measurement
+  behind it; fix it when one appears, per the rule above.
 - Real executors, `HttpClient`s and PKCS12 keystore round-trips in config and
   KMS tests cost milliseconds, not flips. Not worth churning.
 - `Backoff.single(1)` is the **seconds** overload, and several KMS fixtures use
