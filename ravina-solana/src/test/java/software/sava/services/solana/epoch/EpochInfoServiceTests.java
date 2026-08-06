@@ -669,6 +669,26 @@ final class EpochInfoServiceTests {
     }
   }
 
+  /// `start()` publishes initialization under `lock` and signals every waiter on
+  /// `initializedCondition`. `Condition.await` reacquires its lock before it can
+  /// return, so a `start()` that finishes still holding the lock does not merely
+  /// leak a monitor — it strands every waiter permanently, however long they are
+  /// willing to wait. Assert the release on this thread, with no waiter and no
+  /// clock: an unbalanced `lock()` is then an ordinary failure rather than a
+  /// deadlock that only some covering test is unlucky enough to observe.
+  @Test
+  void startReleasesTheInitializationLockBeforeReturning() throws InterruptedException {
+    final var fake = new FakeRpcClient(epochInfo(100, 10, 1_000_000), CLOSED_CLIENT);
+    final var service = serviceFor(fake, 1_000_000_000L, 0);
+
+    assertNotNull(service.start(), "the first fetch must start the loop");
+
+    // `isLocked`, not `tryLock`: the lock is reentrant, so the very thread that
+    // leaked it reacquires it happily and a `tryLock` probe would pass while the
+    // lock stayed held. Ask whether anyone holds it, which is the actual claim.
+    assertFalse(service.lock.isLocked(), "start() must not return holding the initialization lock");
+  }
+
   /// The pacing gate, driven one cycle at a time on the test thread through the
   /// [EpochInfoServiceImpl#checkCycle] seam: `park == false` skips the wait and
   /// proceeds as if `fetchEpochNow()` had been signalled, which is exactly the

@@ -283,6 +283,43 @@ is recorded deliberately rather than churned:
   really parks 3 x 1ms on the `Condition`. The statement is true of the injected
   clock and false of the wall clock, which is precisely how this cost stayed
   invisible through four flip recurrences.
+### A leaked monitor is a liveness mutant with a single-threaded oracle
+
+The fifth flip (2026-08-06, `epochService`) was
+`EpochInfoServiceImpl.start,VoidMethodCallMutator` at the `lock.unlock()` in
+`start()`'s `finally` — `KILLED` on the run before, `TIMED_OUT` on the next.
+It looks like a textbook `cause:liveness` member: drop the unlock and the
+initialization lock is never released, and because `Condition.await` must
+reacquire its lock before it can return, every waiter is stranded permanently
+no matter how long it is willing to wait. There is no completion guarantee to
+appeal to, so an audited row would have been defensible.
+
+It was still the wrong disposition, and the reason generalizes: **a leaked
+monitor is observable synchronously.** The hang is what happens to a *waiter*;
+the defect itself is a property of the returning thread, and
+`ReentrantLock.isLocked()` reads it directly with no second thread, no clock
+and no wait. `assertFalse(service.lock.isLocked())` after `start()` returns
+kills it in every execution mode in microseconds — and kills the matching
+`lock.lock()` removal at the same key for free, since the unbalanced `unlock()`
+then throws `IllegalMonitorStateException`.
+
+Two traps worth writing down:
+
+- **`tryLock()` is not the probe.** The lock is reentrant, so the very thread
+  that leaked it reacquires it happily; a `tryLock` assertion passes under the
+  mutant. Ask who *holds* the lock (`isLocked`, or `getHoldCount`), not whether
+  you can take it.
+- **Whether this mutant times out at all depends on which covering test PIT
+  reaches.** Single-threaded coverage fails an assertion; the rendezvous test
+  strands a real waiter. That is why it flipped, and it is why the flip was a
+  signal about the *test suite* rather than about the mutant — the same lesson
+  as every load flip above, arriving through a different door.
+
+The rule this leaves: before admitting a liveness member, ask whether the
+mutated state has a synchronous reader. Locks, latches, executor shutdown flags
+and closed-ness all do. Only the properties with no such reader — a loop that
+simply never terminates — are genuinely watchdog-only.
+
 - `CallFactoryTests` exercises the *clockless* factory overloads on purpose, so
   they run on `NanoClock.SYSTEM`. The healthy path never sleeps, but a mutant
   that makes capacity unavailable sleeps real time against an unbounded try
