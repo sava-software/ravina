@@ -37,6 +37,16 @@ final class CourteousCallTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound, far above the three sleeps the largest test here expects.
+      // Every claim loop below is bounded by maxTryClaim, so a run past this has
+      // lost its only exit — a reversed counter, a forced loop condition, or a
+      // delay gate that never takes the free-claim branch. Those are the exact
+      // mutations PIT makes here; failing names them instead of leaving the
+      // watchdog to time the run out, which detects nothing about the
+      // assertions below and costs a full timeout budget per mutant.
+      if (sleeps.size() > 64) {
+        throw new AssertionError("claim loop exceeded its try budget: " + sleeps.size() + " sleeps");
+      }
       if (!frozen) {
         nanos += millis * 1_000_000;
       }

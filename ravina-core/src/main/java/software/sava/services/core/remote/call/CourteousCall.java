@@ -22,7 +22,7 @@ final class CourteousCall<R> extends GreedyCall<R> {
 
   @Override
   public CompletableFuture<R> call() {
-    for (int i = 0; i < callContext.maxTryClaim(); ++i) {
+    for (long i = 0; i < callContext.maxTryClaim(); ++i) {
       if (capacityState.tryClaimRequest(callContext)) {
         return call.get();
       } else {

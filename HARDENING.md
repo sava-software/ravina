@@ -321,22 +321,68 @@ and closed-ness all do. Only the properties with no such reader — a loop that
 simply never terminates — are genuinely watchdog-only.
 
 - `CallFactoryTests` exercises the *clockless* factory overloads on purpose, so
-  they run on `NanoClock.SYSTEM`. The healthy path never sleeps, but a mutant
-  that makes capacity unavailable sleeps real time against an unbounded try
-  budget: `CallContext.createContext(weight, minCapacity, measureCallTime)`
-  defaults **both** `maxTryClaim` and `maxRetries` to `Long.MAX_VALUE`, and
-  `CourteousCall.call` loops to `maxTryClaim`. Deliberate coverage, latent flip
-  surface, and the likeliest source of the next flip because it sits in the four
-  suites holding every remaining audited timeout member. Only partly fixable:
-  the three explicit-context sites could pass a small `maxTryClaim` through the
-  long-form `createContext`, but the `DEFAULT_CALL_CONTEXT` sites exist to test
-  that default and cannot be bounded without defeating themselves. Left alone
-  deliberately in 2026-08-06 — it has never flipped, and there is no measurement
-  behind it; fix it when one appears, per the rule above.
-- Real executors, `HttpClient`s and PKCS12 keystore round-trips in config and
-  KMS tests cost milliseconds, not flips. Not worth churning.
-- `Backoff.single(1)` is the **seconds** overload, and several KMS fixtures use
-  it. Unreached today; worth knowing before one of those paths gains a retry.
+  they run on `NanoClock.SYSTEM`, and the short-form
+  `CallContext.createContext(weight, minCapacity, measureCallTime)` defaults
+  `maxTryClaim` to `Long.MAX_VALUE`. The healthy path never sleeps, but a mutant
+  that makes capacity unavailable waits real time against a bound no test run
+  will ever reach. That is not test debt: an unbounded courteous wait is the
+  production default, and the tests are using the API as documented. It is
+  latent flip surface all the same, and only partly removable — the three
+  explicit-context sites could pass a small `maxTryClaim` through the long-form
+  `createContext`, but the `DEFAULT_CALL_CONTEXT` sites exist to test that
+  default and cannot be bounded without defeating themselves. Left alone
+  deliberately (2026-08-06) — but note what the audit found the same day: the
+  `assertTrue(clock.sleeps.isEmpty())` in
+  `CallFactoryTests.courteousCallOverloadRoutesTheCallContextWeight` is
+  **vacuous**. The `TestClock` there is injected into the *capacity state*; the
+  call is built through the clockless overload and therefore sleeps on
+  `NanoClock.SYSTEM`, which that list can never observe. It passes whether or
+  not the call sleeps. The surrounding assertions (the routed weight, the
+  decline at `maxTryClaim = 0`) are sound and are what the test is for; the
+  sleep assertion is decoration and should not be read as pinning anything.
+
+### The `int` counter under a `long` bound (real bug, found 2026-08-06)
+
+Chasing the item above turned up a production defect rather than harness debt.
+`CallContext.maxTryClaim()` is a `long`, but both courteous claim loops counted
+with an `int` — `CourteousCall.call`'s `for (int i = 0; i < maxTryClaim(); ++i)`
+and `CourteousBalancedCall.call`'s `for (int i = 0; ; )` with
+`if (++i >= maxTry) break`. Binary numeric promotion widens `i` for the
+comparison, so the counter tops out at `Integer.MAX_VALUE`, wraps to
+`Integer.MIN_VALUE`, and the condition is true again: **any `maxTryClaim` above
+`int` range never bounds the loop.** A caller asking for a finite three billion
+tries gets an unbounded wait — the exact opposite of the request — and the
+`forceCall` fallback and the `return null` decline below the loop become
+unreachable.
+
+Every other loop counter in the `Call` hierarchy is already a `long`
+(`ComposedCall.get`, `UncheckedBalancedCall.call`), which is what marks this as
+an oversight rather than a design. Fixed by widening both counters.
+
+**The wide-value case carries no regression test, deliberately.** Reproducing
+the wrap needs `2^31` iterations, and every non-returning iteration sleeps at
+least a millisecond, so the cheapest faithful demonstration is billions of clock
+advances — precisely the real-wait harness this document spends its length
+arguing against. The small-value bound contract is covered
+(`CourteousCallTests.returnsNullAfterMaxTryClaimsWithoutForce` asserts the exact
+sleep count and the decline); the wide-value correctness is by construction.
+Recorded here because a fix with no test is otherwise indistinguishable from an
+unmotivated edit.
+
+Widening the counter did change the mutant population, which is the useful part:
+`++i` on a `long` compiles to `LADD` rather than `IINC`, so PIT swapped an
+`IncrementsMutator` for a `MathMutator` at `CourteousCall.call`, and the new
+mutant reverses the counter — an unbounded claim loop, and a fresh `TIMED_OUT`.
+It killed instantly once `CourteousCallTests`' `TestClock` got the same
+64-sleep budget `ComposedCallTests` and `BalancedCallTests` already had. That
+file had simply been missed when the budgets went in; the audited
+`CourteousCall.call` `ConditionalsBoundaryMutator` at the `delayMillis <= 0`
+gate died with it, having been recorded as watchdog-only liveness for want of a
+bounded clock rather than for want of an exit.
+
+The default itself is left as it is: `Long.MAX_VALUE` means a courteous call
+waits indefinitely rather than overdrawing, which is a defensible reading of
+"courteous", and callers wanting a bound set one explicitly.
 
 ## Time-dependent code: what a clock buys, measured
 

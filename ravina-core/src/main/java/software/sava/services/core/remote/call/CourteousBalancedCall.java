@@ -24,7 +24,7 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
     this.next = loadBalancer.withContext();
     final long maxTry = callContext.maxTryClaim();
     TRY_NEXT:
-    for (int i = 0; ; ) {
+    for (long i = 0; ; ) {
       if (this.next.capacityState().tryClaimRequest(callContext)) {
         return call.apply(this.next.item());
       } else {
