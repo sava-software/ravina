@@ -136,14 +136,18 @@ exactly.
   epoch-millis sample; `>>`->`<<` quadruples the correction) is straight-line
   arithmetic: nothing downstream loses a completion guarantee, and
   `theSampleIsStampedAtTheMidpointOfTheRoundTrip` pins the stamp inline. It
-  only ever reached the watchdog through `aParkedLoopWakesOnTheProductionFetchSignal`,
-  whose helper spun on `lock.hasWaiters` with no bound, so under load that spin
-  outlasted the watchdog and the result depended on which covering test PIT
-  reached first. The helper now carries the same kind of bound the test's own
-  `loop.join(2_000)` already had: past a five-second deadline it fails with
-  "the loop never parked on fetchEpochNow" instead of spinning. With that, a
-  history-free `pitestEpochService` leaves only the two audited
-  `awaitInitialized` timeouts, and this mutant is detected by assertion.
+  only ever reached the watchdog through `aParkedLoopWakesOnTheProductionFetchSignal`.
+  Bounding that test's spin helper was not enough — it came back under
+  `hardeningCertify` on 2026-08-06, the fourth recurrence at this coordinate,
+  because the real cost was not the spin: the test drove the whole `run()` loop,
+  so every mutant in the cycle interior re-paid a spawned thread's scheduling
+  and a `join` that only returns when the loop stops. The test now seeds the
+  cycle inline and parks exactly **one** `checkCycle(cycle, true)` on its own
+  thread. It still proves the property it owns — a production `fetchEpochNow()`
+  signal wakes a real parked waiter — while the interior it used to re-run is
+  covered inline by `fetchEpochNowPacesTheRefetchByOneSlot`. Treat this as the
+  worked example of the rule: a load flip is harness debt, and the debt is
+  whatever the covering test makes PIT repeat per mutant.
 
 ## Status
 

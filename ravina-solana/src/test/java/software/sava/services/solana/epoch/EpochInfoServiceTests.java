@@ -731,21 +731,33 @@ final class EpochInfoServiceTests {
     );
     final var service = serviceFor(fake, 1_000_000_000L, 1_000_000_000L);
 
-    final var loop = new Thread(service::run, "epoch-loop");
-    loop.start();
+    // Seed the cycle on this thread, then park exactly one on the spawned one.
+    // Driving a single checkCycle rather than run() is the point: the interior
+    // is already covered inline above, and every mutant in it would otherwise
+    // re-pay this thread's scheduling once per mutant — which is what kept
+    // turning interior kills into watchdog timeouts under load.
+    final var cycle = service.start();
+    assertNotNull(cycle, "the first fetch must start the loop");
+
+    final var parked = new Thread(() -> {
+      try {
+        service.checkCycle(cycle, true);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }, "epoch-park");
+    parked.start();
     try {
-      // Wake 1 refetches and parks again; wake 2 meets the closed client.
-      signalWhenParkedOnFetchEpochNow(service, loop);
-      signalWhenParkedOnFetchEpochNow(service, loop);
-      loop.join(2_000);
-      assertFalse(loop.isAlive(), "the closed client must stop the signalled loop");
+      signalWhenParkedOnFetchEpochNow(service, parked);
+      parked.join(2_000);
+      assertFalse(parked.isAlive(), "the production signal must wake the parked cycle");
     } finally {
-      loop.interrupt();
+      parked.interrupt();
     }
 
-    assertEquals(3, fake.epochCalls, "one fetch per wake plus the initial one");
+    assertEquals(2, fake.epochCalls, "the seeded fetch plus the signalled wake's");
     assertEquals(15, service.epochInfo().info().slotIndex());
-    assertFalse(service.lock.isLocked(), "the loop must not leak its lock");
+    assertFalse(service.lock.isLocked(), "the cycle must not leak its lock");
   }
 
   private void signalWhenParkedOnFetchEpochNow(final EpochInfoServiceImpl service, final Thread loop) {
