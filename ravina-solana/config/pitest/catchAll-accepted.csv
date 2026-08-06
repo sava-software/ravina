@@ -1,44 +1,45 @@
-software.sava.services.solana.alt.CachedAddressLookupTable,read,38,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop
-software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,141,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # capacity-hint
-software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,202,ConditionalsBoundaryMutator,SURVIVED # whole-collection-shortcut
-software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,202,RemoveConditionalMutator_ORDER_IF,SURVIVED # whole-collection-shortcut
-software.sava.services.solana.helius.client.http.HeliusJsonRpcClient,getProgramAccounts,133,MathMutator,SURVIVED # capacity-hint
-software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeParams,13,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity
-software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeRecommendedParams,69,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity
-software.sava.services.solana.load_balance.LoadBalanceUtil,lambda$createRPCLoadBalancer$0,19,NakedReceiverMutator,SURVIVED # needs-live-response
-software.sava.services.solana.transactions.BaseBatchInstructionService,batchProcess,142,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # whole-collection-shortcut
-software.sava.services.solana.transactions.BaseBatchInstructionService,processBatch,61,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,167,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,204,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,244,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,257,RemoveConditionalMutator_EQUAL_IF,SURVIVED # same-record-branches
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,258,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,processInstructions,276,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,80,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,84,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,188,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,203,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,215,ConditionalsBoundaryMutator,SURVIVED # running-minimum
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,222,ConditionalsBoundaryMutator,SURVIVED # running-minimum
-software.sava.services.solana.transactions.BaseTxMonitorService,run,89,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.TransactionProcessorRecord,lambda$transactionFactory$3,96,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop
-software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$0,265,VoidMethodCallMutator,NO_COVERAGE # ws-timeout-fallback
-software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$1,282,VoidMethodCallMutator,SURVIVED # ws-timeout-fallback
-software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$2,298,VoidMethodCallMutator,SURVIVED # ws-timeout-fallback
-software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,175,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,189,ConditionalsBoundaryMutator,SURVIVED # running-minimum
-software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,200,ConditionalsBoundaryMutator,SURVIVED # running-minimum
-software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,263,NakedReceiverMutator,SURVIVED # ws-timeout-fallback
-software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,264,NakedReceiverMutator,SURVIVED # ws-timeout-fallback
-software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,68,ConditionalsBoundaryMutator,SURVIVED # running-minimum
-software.sava.services.solana.websocket.WebSocketManager,createManager,39,NakedReceiverMutator,SURVIVED # restating-default
-software.sava.services.solana.websocket.WebSocketManagerImpl,accept,64,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.websocket.WebSocketManagerImpl,accept,71,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.websocket.WebSocketManagerImpl,accept,81,VoidMethodCallMutator,SURVIVED # log-removal
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # dcl-recheck
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,106,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,117,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck
-software.sava.services.solana.websocket.WebSocketManagerImpl,resetWebsocket,58,PrimitiveReturnsMutator,SURVIVED # log-text-only
-software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,132,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck
-software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,136,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck
+!sava-hardening-baseline-schema,1
+software.sava.services.solana.alt.CachedAddressLookupTable,read,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop # line 38
+software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,ConditionalsBoundaryMutator,SURVIVED # whole-collection-shortcut # line 202
+software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # capacity-hint # line 141
+software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,RemoveConditionalMutator_ORDER_IF,SURVIVED # whole-collection-shortcut # line 202
+software.sava.services.solana.helius.client.http.HeliusJsonRpcClient,getProgramAccounts,MathMutator,SURVIVED # capacity-hint # line 133
+software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeParams,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity # line 13
+software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeRecommendedParams,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity # line 69
+software.sava.services.solana.load_balance.LoadBalanceUtil,lambda$createRPCLoadBalancer$0,NakedReceiverMutator,SURVIVED # needs-live-response # line 19
+software.sava.services.solana.transactions.BaseBatchInstructionService,batchProcess,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # whole-collection-shortcut # line 142
+software.sava.services.solana.transactions.BaseBatchInstructionService,processBatch,VoidMethodCallMutator,SURVIVED # log-removal # line 61
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,RemoveConditionalMutator_EQUAL_IF,SURVIVED # same-record-branches # line 257
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 167
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 204
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 244
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 258
+software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 276
+software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,VoidMethodCallMutator,SURVIVED # log-removal # line 80
+software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,VoidMethodCallMutator,SURVIVED # log-removal # line 84
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 215
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 222
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 188
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 203
+software.sava.services.solana.transactions.BaseTxMonitorService,run,VoidMethodCallMutator,SURVIVED # log-removal # line 89
+software.sava.services.solana.transactions.TransactionProcessorRecord,lambda$transactionFactory$3,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop # line 96
+software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$0,VoidMethodCallMutator,NO_COVERAGE # ws-timeout-fallback # line 265
+software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$1,VoidMethodCallMutator,SURVIVED # ws-timeout-fallback # line 282
+software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$2,VoidMethodCallMutator,SURVIVED # ws-timeout-fallback # line 298
+software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 189
+software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 200
+software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 175
+software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,NakedReceiverMutator,SURVIVED # ws-timeout-fallback # line 263
+software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,NakedReceiverMutator,SURVIVED # ws-timeout-fallback # line 264
+software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 68
+software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 39
+software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 64
+software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 71
+software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 81
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # dcl-recheck # line 106
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 106
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 106
+software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 117
+software.sava.services.solana.websocket.WebSocketManagerImpl,resetWebsocket,PrimitiveReturnsMutator,SURVIVED # log-text-only # line 58
+software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 132
+software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 136

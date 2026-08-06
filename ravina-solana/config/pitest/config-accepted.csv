@@ -1,9 +1,10 @@
-software.sava.services.solana.alt.TableCacheConfig$Builder,parseProperties,61,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.config.HeliusConfig$Parser,parseProperties,69,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.config.HeliusConfig$Parser,test,85,BooleanTrueReturnValsMutator,SURVIVED # delegating-return
-software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,72,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,76,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,80,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,61,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,65,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,69,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
+!sava-hardening-baseline-schema,1
+software.sava.services.solana.alt.TableCacheConfig$Builder,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 61
+software.sava.services.solana.config.HeliusConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 69
+software.sava.services.solana.config.HeliusConfig$Parser,test,BooleanTrueReturnValsMutator,SURVIVED # delegating-return # line 85
+software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 72
+software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 76
+software.sava.services.solana.epoch.EpochServiceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 80
+software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 61
+software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 65
+software.sava.services.solana.transactions.TxMonitorConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 69

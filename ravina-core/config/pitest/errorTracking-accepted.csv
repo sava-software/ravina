@@ -1,3 +1,4 @@
-software.sava.services.core.request_capacity.trackers.RootErrorTracker,expireOldFailures,91,RemoveConditionalMutator_EQUAL_IF,SURVIVED # empty-fast-path
-software.sava.services.core.request_capacity.trackers.RootErrorTracker,expireOldFailures,97,ConditionalsBoundaryMutator,SURVIVED # equal-reassign
-software.sava.services.core.request_capacity.trackers.RootErrorTracker,produceErrorResponseSnapshot,119,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # empty-fast-path
+!sava-hardening-baseline-schema,1
+software.sava.services.core.request_capacity.trackers.RootErrorTracker,expireOldFailures,ConditionalsBoundaryMutator,SURVIVED # equal-reassign # line 97
+software.sava.services.core.request_capacity.trackers.RootErrorTracker,expireOldFailures,RemoveConditionalMutator_EQUAL_IF,SURVIVED # empty-fast-path # line 91
+software.sava.services.core.request_capacity.trackers.RootErrorTracker,produceErrorResponseSnapshot,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # empty-fast-path # line 119

@@ -176,77 +176,151 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     }
   }
 
-  @Override
-  public void run() {
-    try {
-      var samplesFuture = getSamples();
-      long now = clock.currentTimeMillis();
-      long fetchSamplesAfter = now + fetchSamplesDelayMillis;
-      var earliestEpochInfo = getAndSetEpochInfo(null, null, samplesFuture, null);
-      if (earliestEpochInfo == null) {
-        return;
-      }
-      this.initialized = true;
+  /// The state one [#checkCycle] carries into the next. Mutable and
+  /// package-private rather than re-threaded through a return value, so a test
+  /// can seed it and drive the loop interior one cycle at a time on its own
+  /// thread — the alternative being a service thread the test races and
+  /// spin-waits on, which makes every interior mutant's detection a function
+  /// of machine load rather than of what the tests assert.
+  static final class Cycle {
+
+    private Epoch earliestSample;
+    private Epoch previousSample;
+    private Epoch latestSample;
+    private SlotPerformanceStats slotStats;
+    private long meanMillisPerSlot;
+    private long fetchSamplesAfter;
+    private long endsAt;
+
+    private Cycle(final Epoch sample,
+                  final SlotPerformanceStats slotStats,
+                  final long meanMillisPerSlot,
+                  final long fetchSamplesAfter) {
+      this.earliestSample = sample;
+      this.previousSample = sample;
+      this.latestSample = sample;
+      this.slotStats = slotStats;
+      this.meanMillisPerSlot = meanMillisPerSlot;
+      this.fetchSamplesAfter = fetchSamplesAfter;
+      this.endsAt = sample.endsAt();
+    }
+
+    Epoch latestSample() {
+      return latestSample;
+    }
+  }
+
+  /// Seeds a [Cycle] from the first sample. `calculateStats` yields null when
+  /// every sample is filtered out — notably at the opening slots of an epoch,
+  /// which it skips deliberately. [Epoch] already falls back to the configured
+  /// default; the loop must too, or it dies with an NPE exactly when a new
+  /// epoch begins.
+  private Cycle newCycle(final Epoch sample, final long fetchSamplesAfter) {
+    final var slotStats = sample.slotStats();
+    return new Cycle(
+        sample,
+        slotStats,
+        slotStats == null ? defaultMillisPerSlot : slotStats.mean(),
+        fetchSamplesAfter
+    );
+  }
+
+  /// Runs exactly one iteration of the [#run] loop: park until a fetch is
+  /// requested or the next deadline arrives, refresh the performance samples if
+  /// theirs has passed, pace a signalled refetch to at least one slot, and
+  /// refetch the epoch when any of the three reasons applies. Returns false
+  /// when the service should stop, which only the closed client causes.
+  ///
+  /// `park == false` skips the wait and proceeds as if a fetch-now signal had
+  /// arrived — what a caller asking for no wait is asking for. That is the
+  /// seam: a test drives whole cycles inline, so the interior's mutants are
+  /// ordinary assertion kills instead of a race the watchdog has to catch
+  /// (shared `HARDENING.md`: the single-cycle seam).
+  boolean checkCycle(final Cycle cycle, final boolean park) throws InterruptedException {
+    final boolean fetchEpochNow;
+    if (park) {
       lock.lock();
       try {
-        initializedCondition.signalAll();
+        final long now = clock.currentTimeMillis();
+        final long sleep = Math.min(
+            cycle.fetchSamplesAfter - now,
+            (cycle.endsAt - now) + fetchEpochInfoAfterEndDelayMillis
+        );
+        fetchEpochNow = this.fetchEpochNow.await(
+            Math.max(cycle.meanMillisPerSlot, sleep), TimeUnit.MILLISECONDS);
       } finally {
         lock.unlock();
       }
+    } else {
+      fetchEpochNow = true;
+    }
 
-      logger.log(INFO, epochLogMessage(null, epoch, clock.currentTimeMillis()));
-      var previousSample = epoch;
-      var latestSample = previousSample;
-      var slotStats = latestSample.slotStats();
-      // calculateStats yields null when every sample is filtered out - notably
-      // at the opening slots of an epoch, which it skips deliberately. Epoch
-      // already falls back to the configured default; the loop must too, or it
-      // dies with an NPE exactly when a new epoch begins.
-      long meanMillisPerSlot = slotStats == null ? defaultMillisPerSlot : slotStats.mean();
+    long now = clock.currentTimeMillis();
+    final boolean fetchSamples = now >= cycle.fetchSamplesAfter;
+    if (fetchSamples) {
+      final var samples = getSamples().join();
+      now = clock.currentTimeMillis();
+      cycle.fetchSamplesAfter = now + fetchSamplesDelayMillis;
+      cycle.slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
+    }
+    if (fetchEpochNow) {
+      final long sleep = cycle.meanMillisPerSlot - (clock.currentTimeMillis() - cycle.latestSample.sampledAt());
+      if (sleep > 0) {
+        // Wait at least one slot between samples.
+        clock.sleep(sleep);
+      }
+    }
+    if (fetchEpochNow || fetchSamples || now > cycle.endsAt) {
+      final var latestSample = getAndSetEpochInfo(
+          cycle.earliestSample, cycle.previousSample, null, cycle.slotStats);
+      if (latestSample == null) {
+        return false;
+      }
+      logger.log(INFO, epochLogMessage(cycle.previousSample, latestSample, clock.currentTimeMillis()));
+      cycle.previousSample = latestSample;
+      cycle.latestSample = latestSample;
+      cycle.endsAt = latestSample.endsAt();
+      if (latestSample.epoch() > cycle.earliestSample.epoch()) {
+        cycle.earliestSample = latestSample;
+      }
+      final var latestSlotStats = latestSample.slotStats();
+      cycle.meanMillisPerSlot = latestSlotStats == null ? defaultMillisPerSlot : latestSlotStats.mean();
+    }
+    return true;
+  }
 
-      boolean fetchEpochNow;
-      for (long endsAt = epoch.endsAt(), sleep; ; ) {
-        lock.lock();
-        try {
-          now = clock.currentTimeMillis();
-          sleep = Math.min(
-              fetchSamplesAfter - now,
-              (endsAt - now) + fetchEpochInfoAfterEndDelayMillis
-          );
-          fetchEpochNow = this.fetchEpochNow.await(Math.max(meanMillisPerSlot, sleep), TimeUnit.MILLISECONDS);
-        } finally {
-          lock.unlock();
-        }
+  /// The loop's start-up: the first fetch, the publication that releases
+  /// [#awaitInitialized]'s waiters, and the seeded [Cycle]. Returns null when
+  /// the client closed on that first fetch, which is the one reason the service
+  /// never starts. Package-private beside [#checkCycle] so a test can start the
+  /// loop and then step it, both on its own thread.
+  Cycle start() throws InterruptedException {
+    final var samplesFuture = getSamples();
+    final long fetchSamplesAfter = clock.currentTimeMillis() + fetchSamplesDelayMillis;
+    final var earliestEpochInfo = getAndSetEpochInfo(null, null, samplesFuture, null);
+    if (earliestEpochInfo == null) {
+      return null;
+    }
+    this.initialized = true;
+    lock.lock();
+    try {
+      initializedCondition.signalAll();
+    } finally {
+      lock.unlock();
+    }
+    logger.log(INFO, epochLogMessage(null, epoch, clock.currentTimeMillis()));
+    return newCycle(epoch, fetchSamplesAfter);
+  }
 
-        now = clock.currentTimeMillis();
-        final boolean fetchSamples = now >= fetchSamplesAfter;
-        if (fetchSamples) {
-          final var samples = getSamples().join();
-          now = clock.currentTimeMillis();
-          fetchSamplesAfter = now + fetchSamplesDelayMillis;
-          slotStats = SlotPerformanceStats.calculateStats(samples, minMillisPerSlot, maxMillisPerSlot);
-        }
-        if (fetchEpochNow) {
-          sleep = meanMillisPerSlot - (clock.currentTimeMillis() - latestSample.sampledAt());
-          if (sleep > 0) {
-            // Wait at least one slot between samples.
-            clock.sleep(sleep);
-          }
-        }
-        if (fetchEpochNow || fetchSamples || now > endsAt) {
-          latestSample = getAndSetEpochInfo(earliestEpochInfo, previousSample, null, slotStats);
-          if (latestSample == null) {
-            return;
-          }
-          logger.log(INFO, epochLogMessage(previousSample, latestSample, clock.currentTimeMillis()));
-          previousSample = latestSample;
-          endsAt = latestSample.endsAt();
-          if (latestSample.epoch() > earliestEpochInfo.epoch()) {
-            earliestEpochInfo = latestSample;
-          }
-          final var latestSlotStats = latestSample.slotStats();
-          meanMillisPerSlot = latestSlotStats == null ? defaultMillisPerSlot : latestSlotStats.mean();
-        }
+  @Override
+  public void run() {
+    try {
+      final var cycle = start();
+      if (cycle == null) {
+        return;
+      }
+      while (checkCycle(cycle, true)) {
+        // checkCycle carries the loop's state and reports when to stop.
       }
     } catch (final InterruptedException e) {
       logger.log(INFO, "Exiting epoch service.");

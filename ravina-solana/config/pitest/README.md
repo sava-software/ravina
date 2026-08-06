@@ -2,11 +2,15 @@
 
 Each `pitest<Suite>` run is finalized by `pitest<Suite>Verify`, which diffs the
 run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
-baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
-format: `class,method,line,mutator,status`. The full process contract is
-sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests — the pre-release check, run locally before deciding to release
-(CI deliberately runs only `check`; it is not a per-commit gate).
+baseline in `<suite>-accepted.csv` and **fails on anything new**. That file
+opens with `!sava-hardening-baseline-schema,1`; rows are
+`class,method,mutator,STATUS` with `# <family-label>` and `# line N` as
+trailing comments. The full process contract is sava-build's `HARDENING.md`,
+and `./gradlew hardeningHelp` prints the installed task surface;
+`./gradlew qualityGate` runs every suite plus the unit tests, and
+`./gradlew hardeningCertify` is the pre-release check — freshly observed,
+provenance-bound, strictly audited, and run locally before deciding to release
+(CI deliberately runs only `check`; neither is a per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes:
 
@@ -15,50 +19,98 @@ A new unkilled mutant has exactly three legal outcomes:
    math, set-cover selection, capped cu price) over restating the
    implementation.
 2. **Refactor** — restructure so the mutant cannot exist.
-3. **Accept it knowingly** — re-run with `-PupdateMutationBaseline` and record
-   the reason below. Acceptance is for mutants that are *equivalent with
-   respect to observable behavior*, not for "hard to test".
+3. **Accept it knowingly** — re-run with `pitest<Suite>BaselineUpdate` and
+   record the reason below. Acceptance is for mutants that are *equivalent
+   with respect to observable behavior*, not for "hard to test".
 
-Line numbers are part of the baseline key, so unrelated edits to a mutated
-file can shift entries. Pure line drift — every new row a same-status shift
-of a stale one, populations unchanged — passes with a notice; refresh at a
-convenient moment (`-PpruneMutationBaseline` is the shrink-only option when
-nothing is new). Anything mixed in still fails: triage first, refresh after.
+Baseline keys are line-less (`class,method,mutator,STATUS`); lines ride as
+`# line` tags every refresh rewrites, so edits above a mutated method churn
+nothing. A key unkilled at a line no tag names draws the line-drift
+advisory — re-read the family argument here (the code the acceptance argues
+about moved, or a new mutant sits under an old acceptance), then let the
+next refresh rewrite the tag.
+
+Since the licensed engine generates fewer mutants (below), a few already-argued
+rows now match no mutant in a run and the plugin prints them as prune
+candidates. They are **kept**: a rebase removes no acceptance, pruning is owed
+repeated evidence, and in each case the key still exists with its remaining
+siblings `KILLED` — ArcMutate subsumed the surviving one. They are not new
+debt, and their arguments below still stand.
+
+- `epochService` `EpochInfoServiceImpl.checkCycle` `EQUAL_IF`
+  (`# fetch-disjunction-converging`) and `ORDER_IF` (`# idle-spin-only`).
+- `epochService` `EpochInfoServiceImpl.getAndSetEpochInfo` `EQUAL_IF`
+  (`# stats-recompute-guard`, two rows).
+- `catchAll` `LookupTableCacheMap.getOrFetchTables` `ORDER_IF`
+  (`# whole-collection-shortcut`).
+- `catchAll` `WebSocketManagerImpl.checkConnection` `EQUAL_IF`
+  (`# dcl-recheck`).
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
 
+## Committed toolchain provenance
+
+Each suite commits a provenance pair beside its baseline —
+`<suite>-pitest-version` and `<suite>-pitest-toolchain.tsv`, the latter binding
+PIT, the JUnit plugin, an ordered tool-classpath hash, the ArcMutate base
+version and the certificate's hash and expiry. Only the plugin's named tasks
+write them; never hand-edit either, and exactly one of the pair present is
+*torn* provenance that fails closed — this repo's state on adoption, so every
+suite here was repaired with `pitest<Suite>BaselineRebase` on 2026-08-04, the
+only path that adopts a PIT/ArcMutate/certificate/toolchain change (`fees`,
+which keeps no baseline, had a leftover orphan stamp that rebase removed). The
+root's committed `arcmutate-licence.txt` (OSSS, expires 15/08/2027) puts
+`com.arcmutate:base` 1.7.1 on PIT's tool classpath for every module, which
+*shrinks* the mutant population — licensed vs certificate-absent: `epoch`
+114/120, `alt` 57/67, `formatting` 43/45, `fees` 20/22, `config` 129/132,
+`epochService` 95/105, `catchAll` 696/750. All but one of those removals is a
+`RemoveConditionalMutator_*` sibling ArcMutate subsumes; the exception is a
+single `NullReturnValsMutator` in `catchAll`.
+
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
-Per AGENTS.md rule 18, each suite with timeout-detected mutants carries a
-membership file the verify audits; a timed-out mutant outside it is a warning
-to stop on. Members and their structural causes below — line numbers name the
-code each argument is about (the audit key is line-less, so a *new* mutant
-inside an already-listed method+mutator draws no warning; re-read the
-argument when the named line changes). Seeded 2026-07-27 from a full
-`qualityGate` observation that matched the prior run's population exactly.
+Per the reviewer-stop bullet in `AGENTS.md`, each suite with timeout-detected
+mutants carries a membership file the verify audits; a timed-out mutant
+outside it is a warning to stop on. Members and their structural causes
+below — line numbers name the code each argument is about (the audit key is
+line-less, so a *new* mutant inside an already-listed method+mutator draws no
+warning; re-read the argument when the named line changes). Seeded 2026-07-27
+from a full `qualityGate` observation that matched the prior run's population
+exactly.
 
 **catchAll**
-- `LookupTableCacheMap.getOrFetchTables:180` `MathMutator` — turns the
-  fetch-key cursor's `nextSetBit(i + 1)` into `nextSetBit(i - 1)`, re-finding
-  the same set bit forever while `fetchKeys` grows without bound. Detected as
-  `MEMORY_ERROR` or `TIMED_OUT` depending on which limit trips first, so it
-  only intermittently lands in the timeout column — a status flip between two
-  *detected* outcomes, audited so a `-PstrictTimeoutAudit` certifying run
-  cannot fail on the coin flip. Same batch-forever family as the
-  `refreshStaleAccounts:225` rows below. Expect the quiet-member counter to
-  nominate this row for retirement more or less permanently: `MEMORY_ERROR`
-  is its common outcome and timing out the rare one, so a quiet listing here
-  is the flip showing its usual face, not staleness — re-measure if curious,
-  but do not retire the row.
-- `LookupTableCacheMap.refreshStaleAccounts:225` `ConditionalsBoundaryMutator`
-  and `ORDER_IF` — the batching loop's `from < numStale` exit: the boundary
-  flavour admits `from == numStale` (an empty `subList` fetch that advances
-  nothing), the removal flavour deletes the exit outright; both batch
-  forever.
+- `LookupTableCacheMap.getOrFetchTables` `MathMutator` — **retired 2026-08-05
+  by removing the mutation site.** The manual cursor
+  `nextSetBit(i + 1)` became `nextSetBit(i - 1)`, which returns the same bit
+  forever whenever the first set bit is above zero: a non-advancing loop, so a
+  liveness loss rather than finite work. But the loop also grew `fetchKeys`
+  while spinning, so whether the watchdog or the heap tripped first decided
+  between `TIMED_OUT` and `MEMORY_ERROR` — and `MEMORY_ERROR` is not a
+  completed experiment, so the coordinate could never be honest evidence. The
+  traversal is now `fetchBitset.stream().forEachOrdered(...)` into the same
+  pre-sized mutable list: same selection, same order, same mutability, no
+  hand-written progress arithmetic left to mutate. A history-free
+  `pitestCatchAll` shows no `MathMutator` at any `getOrFetchTables` line at
+  all, which is the evidence for the retirement — absence, not whichever limit
+  won. The suite population fell 696 -> 694 accordingly.
+- `LookupTableCacheMap.refreshStaleAccounts:219` `ConditionalsBoundaryMutator`
+  — the batching loop's `from < numStale` exit, admitting `from == numStale`
+  (an empty `subList` fetch that advances nothing), so the loop batches
+  forever. Its `ORDER_IF` sibling, which deleted that exit outright, was a
+  member on the same argument until 2026-08-04 and was **retired with the
+  mutant**: the licensed ArcMutate engine subsumes it, so the run generates
+  no such mutant. Without `arcmutate-licence.txt` the open-PIT population
+  puts it back; re-add the member then, with the fresh observation.
 - `TxCommitmentMonitorService.validateResponseAndAwaitCommitmentViaWebSocket:115`
-  `EQUAL_IF` — forces the `txResult == null` route, so a completed result
-  still `join()`s a websocket future the scripted fake never completes.
+  `EQUAL_IF` — **retired 2026-08-05.** Forcing the `txResult == null` route
+  makes a rejected transaction await the websocket anyway. That was only ever
+  a wait because `aRejectedTransactionIsNotAwaitedOverTheWebSocket` awaits
+  `FINALIZED` while standing only a `CONFIRMED` notification by, so the
+  wrongful await blocked instead of returning. Both commitments now stand by:
+  the mutated route returns an error-free result, which the test's
+  `BlockhashNotFound` assertion rejects outright, and the unmutated route
+  still short-circuits before subscribing. `KILLED` on a history-free run.
 - `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1:296`
   `NakedReceiverMutator` — drops `.orTimeout(...)` (a fluent call returning
   its receiver), leaving the finalization future waiting forever (this is the
@@ -79,6 +131,19 @@ argument when the named line changes). Seeded 2026-07-27 from a full
   (line 137) turns the not-initialized wait into a spin that never observes
   the signal, and removing `lock.unlock()` (line 141) leaves the service
   lock held so the next locker deadlocks. Both only observable as timeouts.
+- `EpochInfoServiceImpl.getAndSetEpochInfo:88` `MathMutator` — **retired
+  2026-08-05.** Corrupting the round-trip midpoint (`-`->`+` yields an absolute
+  epoch-millis sample; `>>`->`<<` quadruples the correction) is straight-line
+  arithmetic: nothing downstream loses a completion guarantee, and
+  `theSampleIsStampedAtTheMidpointOfTheRoundTrip` pins the stamp inline. It
+  only ever reached the watchdog through `aParkedLoopWakesOnTheProductionFetchSignal`,
+  whose helper spun on `lock.hasWaiters` with no bound, so under load that spin
+  outlasted the watchdog and the result depended on which covering test PIT
+  reached first. The helper now carries the same kind of bound the test's own
+  `loop.join(2_000)` already had: past a five-second deadline it fails with
+  "the loop never parked on fetchEpochNow" instead of spinning. With that, a
+  history-free `pitestEpochService` leaves only the two audited
+  `awaitInitialized` timeouts, and this mutant is detected by assertion.
 
 ## Status
 
@@ -307,7 +372,9 @@ What remains, verified by hand-applying each mutant:
   (`initializationReleasesAParkedAwaiterWithThePublishedEpoch`) killed the
   `awaitInitialized` slow path, its lock/unlock removals and `run`'s
   `initializedCondition.signalAll()`. The signal-while-parked test
-  (`fetchEpochNowWakesTheParkedLoopAndPacesTheRefetchByOneSlot`) then killed
+  (`aParkedLoopWakesOnTheProductionFetchSignal`, whose interior assertions
+  moved to the inline `fetchEpochNowPacesTheRefetchByOneSlot` when the
+  single-cycle seam landed 2026-08-01) then killed
   what "`fetchEpochNow == true` is not deterministically producible" used to
   excuse: `fetchEpochNow()`'s `signal()`, the pacing gate and its entire
   once-unreachable block (the one-slot sleep math, its `> 0` boundary and
@@ -331,7 +398,8 @@ What remains, verified by hand-applying each mutant:
 Several rows are `# note`-marked duplicates from 2026-07-23: the 21.5.10
 plugin's multiset comparison materialized sibling mutants the old set-based
 compare collapsed — compound conditions and multi-op expressions emit one
-mutant per operand at a single `class,method,line,mutator` coordinate. Each
+mutant per operand at a single PIT coordinate (`class,method,line,mutator`;
+the baseline key that indexes them is line-less). Each
 sibling was accepted into the family above that already covers its line (the
 `sleep` expression feeding only `await`, the fetch disjunction, the
 `getAndSetEpochInfo` stats-recompute guard — `# stats-recompute-guard`,
@@ -419,8 +487,9 @@ deliberately **not** routed through the clock — it is signallable, so a clock
 cannot stand in for it, and the handshake mutants that need a second thread
 parked in `awaitInitialized` remain out of reach.
 
-When hand-editing a baseline, normalise the mutator name the way the verify
-task does — strip the `org.pitest.mutationtest.engine.gregor.mutators.` package
-**and** the `returns.` sub-package. A row spelled `returns.NullReturnValsMutator`
-sits in the file but never matches, so the entry is reported as new forever.
-Prefer `-PupdateMutationBaseline`, which writes the canonical form.
+Don't hand-edit a baseline: `pitest<Suite>BaselineUpdate` and its siblings
+are the only supported writers, and the mutator name they emit is normalised
+the way the verify reads it — the package `org.pitest.…mutators.` **and** the
+`returns.` sub-package stripped. That normalisation is why hand-editing bites:
+a row spelled `returns.NullReturnValsMutator` sits in the file but never
+matches, so the entry is reported as new forever.

@@ -27,6 +27,13 @@ final class ComposedCallTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound, far above anything these tests need (the largest
+      // expectation is three sleeps): every retry loop here is bounded by
+      // maxRetries, so a run past this has lost its only exit. Failing names
+      // that instead of waiting for the watchdog.
+      if (sleeps.size() > 64) {
+        throw new AssertionError("retry loop exceeded its budget: " + sleeps.size() + " sleeps");
+      }
       nanos += millis * 1_000_000;
     }
   }
@@ -55,7 +62,14 @@ final class ComposedCallTests {
     final var attempts = new AtomicInteger();
     final var call = Call.createComposedCall(
         () -> {
-          attempts.incrementAndGet();
+          // Safety exit: the retry cursor must advance, so the limit below has
+          // to fire on the third attempt. A cursor that walks the other way
+          // would retry until the count wrapped, so the fixture stops failing
+          // and returns a sentinel instead — that turns "the limit never
+          // fired" into a failed assertion rather than a wait.
+          if (attempts.incrementAndGet() > 8) {
+            return CompletableFuture.completedFuture(-1L);
+          }
           return CompletableFuture.failedFuture(new IllegalStateException("always"));
         },
         Backoff.linear(MILLISECONDS, 10, 30),

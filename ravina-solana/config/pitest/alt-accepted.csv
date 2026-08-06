@@ -1,9 +1,10 @@
-software.sava.services.solana.alt.ScoredTable,scoreTables,29,RemoveConditionalMutator_EQUAL_IF,SURVIVED # min-score-threshold
-software.sava.services.solana.alt.ScoredTable,scoreTables,38,MathMutator,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTable,scoreTables,39,RemoveConditionalMutator_EQUAL_IF,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTable,scoreTables,58,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTable,scoreTables,61,MathMutator,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTableMeta,scoreTables,28,MathMutator,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTableMeta,scoreTables,29,RemoveConditionalMutator_EQUAL_IF,SURVIVED # min-score-threshold
-software.sava.services.solana.alt.ScoredTableMeta,scoreTables,49,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # set-cover-invariant
-software.sava.services.solana.alt.ScoredTableMeta,scoreTables,52,MathMutator,SURVIVED # set-cover-invariant
+!sava-hardening-baseline-schema,1
+software.sava.services.solana.alt.ScoredTable,scoreTables,MathMutator,SURVIVED # set-cover-invariant # line 38
+software.sava.services.solana.alt.ScoredTable,scoreTables,MathMutator,SURVIVED # set-cover-invariant # line 61
+software.sava.services.solana.alt.ScoredTable,scoreTables,RemoveConditionalMutator_EQUAL_IF,SURVIVED # min-score-threshold # line 29
+software.sava.services.solana.alt.ScoredTable,scoreTables,RemoveConditionalMutator_EQUAL_IF,SURVIVED # set-cover-invariant # line 39
+software.sava.services.solana.alt.ScoredTable,scoreTables,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # set-cover-invariant # line 58
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,MathMutator,SURVIVED # set-cover-invariant # line 28
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,MathMutator,SURVIVED # set-cover-invariant # line 52
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,RemoveConditionalMutator_EQUAL_IF,SURVIVED # min-score-threshold # line 29
+software.sava.services.solana.alt.ScoredTableMeta,scoreTables,RemoveConditionalMutator_ORDER_ELSE,SURVIVED # set-cover-invariant # line 49

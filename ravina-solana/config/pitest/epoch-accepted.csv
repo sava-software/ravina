@@ -1,2 +1,3 @@
-software.sava.services.solana.epoch.Epoch,create,84,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # duplicated-computation
-software.sava.services.solana.epoch.SlotPerformanceStats,calculateStats,42,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # duplicated-computation
+!sava-hardening-baseline-schema,1
+software.sava.services.solana.epoch.Epoch,create,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # duplicated-computation # line 84
+software.sava.services.solana.epoch.SlotPerformanceStats,calculateStats,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # duplicated-computation # line 42

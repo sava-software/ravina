@@ -1,3 +1,3 @@
-# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
-# README.md, "Audited timeout sets".
-software.sava.services.core.request_capacity.CapacityStateVal,hasCapacity,BooleanTrueReturnValsMutator # line 192
+# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
+# a reviewer-stop"); structural causes in README.md, "Audited timeout sets".
+software.sava.services.core.request_capacity.CapacityStateVal,hasCapacity,BooleanTrueReturnValsMutator # cause:liveness # line 192

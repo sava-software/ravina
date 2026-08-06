@@ -1,10 +1,11 @@
-software.sava.services.core.config.NetConfigRecord$Parser,parseProperties,95,NakedReceiverMutator,SURVIVED # absolute-path-equivalent
-software.sava.services.core.config.NetConfigRecord$Parser,test,129,NakedReceiverMutator,SURVIVED # absolute-path-equivalent
-software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,72,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,76,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,51,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,55,RemoveConditionalMutator_EQUAL_IF,SURVIVED # always-true-guard
-software.sava.services.core.config.ServiceConfigUtil,configFilePath,19,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # jls-non-null
-software.sava.services.core.config.ServiceConfigUtil,configFilePaths,44,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # jls-non-null
-software.sava.services.core.net.http.WebHookConfig$Parser,test,157,BooleanTrueReturnValsMutator,SURVIVED # delegating-return
-software.sava.services.core.remote.call.BackoffConfig,finer,82,ConditionalsBoundaryMutator,SURVIVED # equal-units
+!sava-hardening-baseline-schema,1
+software.sava.services.core.config.NetConfigRecord$Parser,parseProperties,NakedReceiverMutator,SURVIVED # absolute-path-equivalent # line 95
+software.sava.services.core.config.NetConfigRecord$Parser,test,NakedReceiverMutator,SURVIVED # absolute-path-equivalent # line 129
+software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 72
+software.sava.services.core.config.RemoteHttpResourceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 76
+software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 51
+software.sava.services.core.config.RemoteResourceConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # always-true-guard # line 55
+software.sava.services.core.config.ServiceConfigUtil,configFilePath,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # jls-non-null # line 19
+software.sava.services.core.config.ServiceConfigUtil,configFilePaths,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # jls-non-null # line 44
+software.sava.services.core.net.http.WebHookConfig$Parser,test,BooleanTrueReturnValsMutator,SURVIVED # delegating-return # line 157
+software.sava.services.core.remote.call.BackoffConfig,finer,ConditionalsBoundaryMutator,SURVIVED # equal-units # line 82

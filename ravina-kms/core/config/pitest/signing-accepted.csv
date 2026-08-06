@@ -1,5 +1,6 @@
-software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile,25,NakedReceiverMutator,SURVIVED # suffix-on-full-path
-software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,95,ConditionalsBoundaryMutator,SURVIVED # mark-sentinel
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,125,RemoveConditionalMutator_EQUAL_IF,SURVIVED # converging-dispatch
+!sava-hardening-baseline-schema,1
+software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile,NakedReceiverMutator,SURVIVED # suffix-on-full-path # line 25
+software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,ConditionalsBoundaryMutator,SURVIVED # mark-sentinel # line 95
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch # line 125
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch # line 125
+software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_IF,SURVIVED # converging-dispatch # line 125

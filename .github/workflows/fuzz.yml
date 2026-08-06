@@ -1,11 +1,6 @@
 name: Fuzz
 
 on:
-  schedule:
-    # weekly soak; findings surface as workflow failures with the crash
-    # input attached — commit each one as a named seed + regression test
-    # (see the fuzz corpora under each module's src/test/resources/fuzz)
-    - cron: "29 5 * * 1"
   workflow_dispatch:
     inputs:
       max-fuzz-time:
@@ -33,7 +28,14 @@ jobs:
 
       # Integer ceiling in bash rather than expression math, which has no rounding
       # and would hand the runner a fraction whenever max-fuzz-time is not a
-      # multiple of 60.
+      # multiple of 60. The 8 is the registered target count and is the one
+      # number here that is still hand-maintained: the run itself uses `fuzzAll`,
+      # which is derived from the registrations and cannot drift, but a target
+      # added without bumping this multiplier under-budgets the step timeout,
+      # which fails the run partway through the campaign (a *step* timeout
+      # fails; it is the job-level default below that cancels). `fuzzAll`'s
+      # receipts (one <project>/build/hardening/local-fuzz.tsv per project)
+      # list the targets that actually ran.
       - id: budget
         name: Compute fuzz time budget
         env:
@@ -55,11 +57,7 @@ jobs:
           ./gradlew --stacktrace --continue
           -PjavaVersion=${{ steps.setup.outputs.java-version }}
           -PmaxFuzzTime=${{ inputs.max-fuzz-time || '900' }}
-          :ravina-core:fuzzBackoff :ravina-core:fuzzCapacityConfig
-          :ravina-core:fuzzCapacityState :ravina-core:fuzzConfigs
-          :ravina-core:fuzzConfigParity
-          :ravina-solana:fuzzConfigs :ravina-solana:fuzzConfigParity
-          :ravina-kms-core:fuzzSigningConfig
+          fuzzAll
         env:
           ORG_GRADLE_PROJECT_savaGithubPackagesUsername: ${{ github.actor }}
           ORG_GRADLE_PROJECT_savaGithubPackagesPassword: ${{ secrets.READ_SAVA_PACKAGES }}

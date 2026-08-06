@@ -1,3 +1,4 @@
-software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,110,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,114,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop
-software.sava.services.solana.config.ChainItemFormatter,commaSeparateInteger,45,ConditionalsBoundaryMutator,SURVIVED # same-value-fast-path
+!sava-hardening-baseline-schema,1
+software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 110
+software.sava.services.solana.config.ChainItemFormatter$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # null-guard-noop # line 114
+software.sava.services.solana.config.ChainItemFormatter,commaSeparateInteger,ConditionalsBoundaryMutator,SURVIVED # same-value-fast-path # line 45

@@ -2,11 +2,18 @@
 
 Each `pitest<Suite>` run is finalized by `pitest<Suite>Verify`, which diffs the
 run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
-baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
-format: `class,method,line,mutator,status`. The full process contract is
-sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests — the pre-release check, run locally before deciding to release
-(CI deliberately runs only `check`; it is not a per-commit gate).
+baseline in `<suite>-accepted.csv` and **fails on anything new**. The file
+opens with `!sava-hardening-baseline-schema,1`; each row is
+`class,method,mutator,STATUS`, with `# <family-label>` and `# line N` as
+trailing comments. Baseline writes are named tasks
+(`pitest<Suite>BaselineUpdate` and its siblings); the old `-P` writer
+properties were removed in sava-build 21.5.22 and now fail the build at
+configuration time, and `./gradlew hardeningHelp` prints the installed
+surface. The full process contract is sava-build's `HARDENING.md`;
+`./gradlew qualityGate` runs every suite plus the unit tests, and
+`./gradlew hardeningCertify` is the pre-release check — freshly observed,
+provenance-bound, strictly audited, and run locally before deciding to release
+(CI deliberately runs only `check`; neither is a per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes:
 
@@ -15,19 +22,42 @@ A new unkilled mutant has exactly three legal outcomes:
    elapsed nanos, selection order after errors) over restating the
    implementation.
 2. **Refactor** — restructure so the mutant cannot exist.
-3. **Accept it knowingly** — re-run with `-PupdateMutationBaseline` and record
-   the reason below. Acceptance is for mutants that are *equivalent with
-   respect to observable behavior*, not for "hard to test".
+3. **Accept it knowingly** — re-run with `pitest<Suite>BaselineUpdate` and
+   record the reason below. Acceptance is for mutants that are *equivalent
+   with respect to observable behavior*, not for "hard to test".
 
-Line numbers are part of the baseline key, so unrelated edits to a mutated
-file can shift entries: the verify task then reports both stale and "new"
-rows. Confirm the new rows are the shifted old ones, then refresh with
-`-PupdateMutationBaseline`.
+Baseline keys are line-less (`class,method,mutator,STATUS`); lines ride as
+`# line` tags every refresh rewrites, so edits above a mutated method churn
+nothing. A key unkilled at a line no tag names draws the line-drift
+advisory — re-read the family argument here (the code the acceptance argues
+about moved, or a new mutant sits under an old acceptance), then let the
+next refresh rewrite the tag.
+
+## Committed toolchain provenance
+
+Each suite commits a provenance pair beside its baseline:
+`<suite>-pitest-version` (the plain PIT version) and
+`<suite>-pitest-toolchain.tsv` (a schema-1 TSV binding PIT, the JUnit plugin,
+an ordered tool-classpath SHA-256, the ArcMutate base version and the
+certificate's SHA-256 and expiry). Both are plugin-written, never hand-edited;
+exactly one of the pair present is *torn* provenance and fails closed. That
+was this module's state on adoption (a 21.5.19-era version stamp with no
+sidecar), so every suite here was repaired on 2026-08-04 with
+`pitest<Suite>BaselineRebase` — the only path that adopts a
+PIT/ArcMutate/certificate change. The repository root carries a committed
+`arcmutate-licence.txt` (OSSS certificate, expires 15/08/2027), whose mere
+presence puts `com.arcmutate:base` 1.7.1 on PIT's tool classpath for every
+module; the licensed engine subsumes `RemoveConditionalMutator_*` siblings, so
+its populations are smaller than open PIT's — licensed vs certificate-absent
+here: backoff 79/94, capacity 109/121, loadBalance 158/170, calls 94/110,
+config 330/357, errorTracking 53/58, catchAll 190/202. All but one of those
+removals is a `RemoveConditionalMutator_*` sibling; the exception is a single
+`NullReturnValsMutator` in `config`.
 
 ## Timeout-detected mutants: baseline covers both execution modes
 
 Some mutants remove a loop bound and are detected only by PIT's timeout
-(`TIMED_OUT` counts as detected, so `-PupdateMutationBaseline` does *not*
+(`TIMED_OUT` counts as detected, so `pitest<Suite>BaselineUpdate` does *not*
 write it to the baseline). Timeout detection is **load-dependent**, and this
 was measured, not assumed:
 
@@ -52,40 +82,88 @@ from catching them if a future edit makes them genuinely survive.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
-Per AGENTS.md rule 18, each suite with timeout-detected mutants carries a
-membership file the verify audits; a timed-out mutant outside it is a warning
-to stop on. Members and their structural causes below — line numbers name the
-code each argument is about (the audit key itself is line-less, so a *new*
-mutant inside an already-listed method+mutator draws no warning; re-read the
-argument when the named line changes). Seeded 2026-07-27 from a full
+Per the reviewer-stop bullet in `AGENTS.md`, each suite with timeout-detected
+mutants carries a membership file the verify audits; a timed-out mutant
+outside it is a warning to stop on. Members and their structural causes
+below — line numbers name the code each argument is about (the audit key
+itself is line-less, so a *new* mutant inside an already-listed
+method+mutator draws no warning; re-read the argument when the named line
+changes). Seeded 2026-07-27 from a full
 `qualityGate` observation that matched the prior run's population exactly.
 
-**backoff**
-- `Backoff.fibonacci:71` `ORDER_ELSE` — deletes the start-loop wrap guard and
-  reintroduces the constructor hang (the overflow-guard-sweep paragraph
-  below); a hang is only observable as a timeout.
-- `ExponentialBackoffErrorHandler.<init>:14` `ORDER_IF` and
-  `ConditionalsBoundaryMutator` — the measured load flips this file's
-  timeout-mode note opens with: `SURVIVED` solo, `TIMED_OUT` alongside other
-  suites. Baselined `# saturation-sweep`; membership audits the detected
-  mode.
+**backoff** — the set is deliberately empty; the file stays to keep the audit
+armed. Both members were retired, and the first correction is worth keeping:
+
+- `Backoff.fibonacci:71` `ORDER_ELSE` — **retired 2026-08-05, and the argument
+  that held it here was wrong.** It was recorded as reintroducing "the
+  constructor hang", but deleting the wrap guard does not hang: the walk still
+  advances every iteration, and `(previous, current) -> (current,
+  previous + current)` is a bijection mod 2^64, so the orbit is purely
+  periodic and the remaining exit `initialRetryDelay <= current` is still
+  reached. For the no-ceiling config it is reached after ~1.4e19 iterations —
+  `F(3*2^62 - 2) mod 2^64` is exactly `2^63 - 1`, verified by fast doubling and
+  by brute force for k=4..13. That is finite excessive work, not a liveness
+  loss, so watchdog membership was never the honest disposition. Replaced by
+  `anInitialDelayJustPastTheLargestFibonacciStartsAtThatFibonacciAndClampsToTheCap`,
+  which asserts the guard's own contract at the smallest initial delay that
+  reaches it: one step past F(92) the sum wraps, the guard must stop there, and
+  a guardless walk re-meets the exit after a handful of wrapped values from the
+  wrong pair. It is a test of its own precisely so the assertion is reachable
+  without first constructing the no-ceiling config. The mutant now reads
+  `KILLED` in a fresh history-free run, and the suite reports no timeouts at
+  all.
+- `ExponentialBackoffErrorHandler.<init>:14` `ORDER_IF` — **retired 2026-08-04
+  with the mutant itself.** It was a load flip of the same family as the
+  `ConditionalsBoundaryMutator` measurement this file's timeout-mode note
+  opens with (`SURVIVED` solo, `TIMED_OUT` alongside other suites) — a
+  different mutant on the same line, flipping the same way — and its
+  `# saturation-sweep` baseline row still stands, but the
+  licensed ArcMutate engine subsumes the line-14 `ORDER_IF` operands, so no
+  such mutant is generated any more: the loop guard's remaining
+  `ORDER_ELSE`/`ConditionalsBoundary`/`Math` siblings carry the line. Its
+  line-14 sibling `ConditionalsBoundaryMutator` had already been retired on
+  2026-08-02 for a different reason: 21 consecutive quiet runs on the
+  quiet-member counter. Why it went quiet was never established — an earlier
+  draft here blamed the `NanoClock` migration for removing the waits behind
+  it, which the dates refute (the migration landed 2026-07-17 and this flip
+  was first recorded on 2026-07-19, after it), so treat the retirement as
+  resting on the counter alone. That mutant is still generated under the
+  licensed engine and still carries its two `# saturation-sweep` rows. Only
+  the `ORDER_IF` retirement is conditional on the toolchain: without
+  `arcmutate-licence.txt` the open-PIT
+  population puts that mutant back (94 mutants instead of 79), where it still
+  reads `SURVIVED` solo and `TIMED_OUT` under load. Either recurrence warns as
+  an unaudited newcomer; re-add then, with the fresh observation.
 
 **calls** — every member deletes or inverts an exit of a retry/wait loop, so
 what remains is unbounded (`maxTryClaim`/`maxRetries` default to
 `Long.MAX_VALUE`) and the timeout is the observable:
-- `ComposedCall.get:54` `MathMutator` — `++errorCount` no longer advances the
-  retries-exhausted cursor; `:55` `ORDER_ELSE` — deletes the
-  throw-when-exhausted exit. Both retry forever.
+- `ComposedCall.get:55` `ORDER_ELSE` — deletes the throw-when-exhausted exit,
+  so the retry loop has none: `maxRetries` can no longer be reached and no
+  budget elsewhere ends it.
+- `ComposedCall.get:54` `MathMutator` — **retired 2026-08-05.** `++errorCount`
+  → `--errorCount` walks the retries-exhausted cursor the wrong way, but that
+  path is not a liveness loss: the count wraps, so the exit is still reached,
+  just after ~2^63 retries. `retriesWithBackoffDelaysUntilSuccess` already
+  observed it (the recorded sleeps become the max delay three times instead of
+  the ramp) — but `rethrowsOnceMaxRetriesIsExceeded` failed forever first, so
+  PIT saw the wait rather than the assertion. That fixture now stops failing
+  after a small attempt budget and returns a sentinel, which turns "the retry
+  limit never fired" into a failed `assertThrows` instead of a wait. Fresh
+  history-free run: `KILLED`.
 - `CourteousBalancedCall.call:35/39` `EQUAL_IF` — the forced-true
   `hasCapacity` operands that unbound the failover loop (the failover-guards
   paragraph below).
-- `CourteousBalancedCall.call:45` `IncrementsMutator` — `++i` → `--i` walks
-  the try-budget cursor away from `maxTry`, so the `i >= maxTry` break never
-  fires and the wait loop loses its only exit on the never-claimable path.
-  Detection mode depends on which covering test PIT runs first: a scenario
-  whose capacity replenishes kills it by assertion, the exhaustion path only
-  by timeout (`KILLED` at the 2026-07-27 seed, `TIMED_OUT` solo on
-  2026-07-29) — detected either way, so membership audits the timeout mode.
+- `CourteousBalancedCall.call:45` `IncrementsMutator` — **retired 2026-08-05.**
+  `++i` → `--i` walks the try-budget cursor away from `maxTry`, so the break
+  never fires and the wait loop loses its only exit on the never-claimable
+  path. Which outcome PIT saw used to depend on the test it reached first. Both
+  test clocks here now fail after 64 recorded sleeps — a bound far above the
+  two any legitimate wait needs, so it only trips when a loop has lost its
+  exit, and it names that instead of waiting for the watchdog. With every
+  covering path failing deterministically the mutant is `KILLED` on a
+  history-free run, and this suite's only remaining timeouts are the two
+  audited `ConditionalsBoundaryMutator` members.
 - `CourteousBalancedCall.call:49` `ConditionalsBoundaryMutator` — `<= 0` →
   `< 0`, so a zero wait re-enters the wait branch with a zero delay forever;
   `ORDER_ELSE` — deletes the claim-now branch, waiting on every iteration of
@@ -155,6 +233,24 @@ fibonacci hang guard. They are detected, not baselined; if load ever flips one
 to `SURVIVED`, union it per the timeout-mode note above.
 
 ## Triaged equivalent mutants (accepted with reasons)
+
+### Kept prune candidates (2026-08-04)
+
+The licensed engine generates fewer mutants, so three already-argued rows now
+match no mutant in a licensed run and the plugin prints them as prune
+candidates. All three were **kept**: a rebase removes no acceptance, and
+pruning is owed repeated evidence. They are not new debt, and the arguments
+below still stand.
+
+- `ExponentialBackoffErrorHandler.<init>` `RemoveConditionalMutator_ORDER_IF`
+  (`backoff`, `# saturation-sweep`) — the mutant itself is no longer generated
+  at all, the same subsumption that retired its timeout-audit member above.
+- `CourteousBalancedCall.call` `RemoveConditionalMutator_ORDER_IF` (`calls`,
+  `# single-item-pool`) — the key still exists, but its surviving sibling is
+  subsumed; the remaining siblings read `KILLED`.
+- `UriCapacityConfig$Parser.parseProperties`
+  `RemoveConditionalMutator_EQUAL_IF` (`catchAll`, `# unreachable-guard`) —
+  the mutant itself is no longer generated at all.
 
 **Dropped `toAbsolutePath` normalisation** `# absolute-path-equivalent` (`config`) — `NakedReceiverMutator`
 on `NetConfigRecord$Parser` lines 95/129, `Path.of(keyStorePath).toAbsolutePath()`.
@@ -432,13 +528,22 @@ Three distinct shapes, not one:
    **2b. Signal delivered while parked** *(banked)*: `Condition.await(timeout)`
    returns true only on a real signal, which is why the whole
    `fetchEpochNow == true` branch of the epoch loop used to be unreachable.
-   Cleared by `fetchEpochNowWakesTheParkedLoopAndPacesTheRefetchByOneSlot`:
+   Cleared by `aParkedLoopWakesOnTheProductionFetchSignal`:
    the loop runs on a spawned thread and parks for the *epoch remainder*
    (both wait deadlines pushed out, so a healthy run never times out of the
    await and every refetch is signal-driven); the test signals through the
    production `fetchEpochNow()` while still holding the reentrant service
    lock after observing the waiter, so a signal can never race a wake-up and
-   be lost; and the fake's round-trip knob shapes each wake's one-slot pacing
+   be lost. The *interior* that wake reaches is no longer driven from that
+   thread: since 2026-08-01 the loop body is the package-private single-cycle
+   seam `checkCycle(Cycle, boolean park)`, and
+   `fetchEpochNowPacesTheRefetchByOneSlot` steps it inline — waiting on
+   another thread's progress made every interior mutant's *detection mode* a
+   function of machine load, which the seam narrows but does not close (see
+   that module's README, the `getAndSetEpochInfo:88` audit member, re-audited
+   2026-08-04 after it flipped again). What remains thread-driven is the
+   park/signal handshake itself, which is the only part that needs two
+   threads. The fake's round-trip knob shapes each wake's one-slot pacing
    computation through +1, exactly 0 and −1, turning the block's math,
    boundary and `clock.sleep` mutants into exact single-value kills. Two
    subtleties the first draft got wrong, kept here so they stay learned: the

@@ -1,5 +1,6 @@
-# Audited timeout-detected mutants (AGENTS.md rule 18); structural causes in
-# README.md, "Audited timeout sets". Same two members as loadBalance — both
+# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
+# a reviewer-stop"); structural causes in README.md, "Audited timeout
+# sets". Same two members as loadBalance — both
 # suites mutate LoadBalancerConfig.
-software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,lambda$parseProperties$3,BooleanTrueReturnValsMutator # line 116
-software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_ELSE # line 116
+software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,lambda$parseProperties$3,BooleanTrueReturnValsMutator # cause:liveness # line 116
+software.sava.services.core.remote.load_balance.LoadBalancerConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_ELSE # cause:liveness # line 116

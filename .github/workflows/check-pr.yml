@@ -1,7 +1,7 @@
 name: Gradle Check PR
 
 on:
-  pull_request_target:
+  pull_request:
     types: [ opened, synchronize, reopened ]
 
 concurrency:
@@ -9,6 +9,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    uses: sava-software/sava-build/.github/workflows/build.yml@main
+  check:
+    uses: sava-software/sava-build/.github/workflows/check-pr.yml@main
     secrets: inherit

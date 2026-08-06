@@ -30,9 +30,11 @@ Suite composition is part of the cost, not just the coverage:
 (excluded from `catchAll`) because it was the slowest thing in a shared suite,
 and `fees` restricts `targetTests` to the one class that covers it. Both are
 commented at the registration. Ten suites also override the mutator set —
-`fees` adds `EXPERIMENTAL_BIG_DECIMAL` and solana's `catchAll` adds
+`fees` adds `EXPERIMENTAL_BIG_DECIMAL`, solana's `catchAll` and `epoch` add
 `EXPERIMENTAL_BIG_INTEGER` (big-number math is method calls, invisible to
-`STRONGER`), and every suite where it fires adds `EXPERIMENTAL_NAKED_RECEIVER`
+`STRONGER`; `epoch`'s was found by the plugin's mutator-blindness scan in
+2026-07-26, not by the hand trial that missed it), and every suite where it
+fires adds `EXPERIMENTAL_NAKED_RECEIVER`
 (2026-07-22 trial; fluent receiver-typed calls — builder chains,
 `Duration.truncatedTo`, `JsonIterator.skip` — are expressions, invisible to
 `VoidMethodCallMutator`). The trial fired 144 mutants across 10 of 16 suites,
@@ -62,50 +64,57 @@ Two mechanical points that cost real time to rediscover:
   `*Fuzz*`, not `*Tests`/`*Fuzz`. Every test and fuzz harness here has nested
   helpers (`…Fuzz$Parser`, `…Tests$StubService`), and without the trailing
   wildcard PIT mutates them as if they were production code.
-- When hand-editing a baseline, normalise the mutator name the way the verify
-  task does — strip the `org.pitest.…mutators.` package **and** the `returns.`
-  sub-package. A row spelled `returns.NullReturnValsMutator` sits in the file
-  and never matches, so its entry is reported new forever. Prefer
-  `-PupdateMutationBaseline`, which writes the canonical form.
-- **Status is part of the row.** A `NO_COVERAGE -> SURVIVED` flip is two
-  different rows at one coordinate; anything that matches baseline rows by
-  `class,method,line,mutator` alone lets a stale row consume the live
-  mutant's match and delete the wrong entry (shared casebook: the
-  status-blind prune). Never script against a baseline — the refresh flags
-  are mutually exclusive and cover the cases: `-PupdateMutationBaseline`
-  (full rewrite, after new rows are triaged; carries a dropped row's
-  `# note` across a status flip, annotated for re-reading),
-  `-PunionMutationBaseline` (adds flip insurance), and
-  `-PpruneMutationBaseline` (shrink-only — drops rows matching nothing this
-  run, writes nothing, and keeps `TIMED_OUT` coordinates and pending
-  coverage flips; the always-safe cleanup after a pass that killed rows).
+- **Don't hand-edit a baseline or a provenance record.** Since sava-build
+  21.5.22 the named tasks are the only supported writer for those, and the old
+  `-P` writer flags are gone — `./gradlew hardeningHelp` prints the installed
+  set (`pitest<Suite>BaselineUpdate` / `…Union` / `…Prune` / `…Rebase`,
+  `pitest<Suite>TimeoutAuditInit`, `pitestModeCompareUnion`,
+  `migrateMutationBaselines`). Two edits are by hand by design: the audited
+  timeout sets, whose membership rows are pasted and whose causes are written
+  in an unversioned format no writer task rewrites; and the family label on a
+  new accepted row, which every writer seeds `# untriaged` and only triage
+  replaces. Two
+  reasons the baseline tooling exists at all, both learned here: the mutator
+  name has to be normalised exactly the way the verify does (strip the
+  `org.pitest.…mutators.` package **and** the `returns.` sub-package, or a row
+  spelled `returns.NullReturnValsMutator` never matches and is reported new
+  forever); and **status is part of the
+  row** — a `NO_COVERAGE -> SURVIVED` flip is two different rows at one
+  coordinate, so anything matching by `class,method,mutator` alone lets a
+  stale row consume the live mutant's match and delete the wrong entry
+  (shared casebook: the status-blind prune). Never script against a baseline.
 - PIT's conditional mutators, verified empirically here: `*_IF` forces the
   condition **true**, `*_ELSE` forces it **false**.
 
 - **Scale verification to the change.** Iterate with the module's `test`;
   before handing off, run only the `pitest<Suite>`(s) whose mutated code the
-  change can reach. `./gradlew qualityGate` — unit tests plus every PIT
-  suite, each diffed against its accepted baseline in the module's
-  `config/pitest/` — is the **pre-release** check, owned by the local release
+  change can reach. The **pre-release** check is `./gradlew hardeningCertify`
+  — every suite freshly observed, serialized, provenance-bound, with strict
+  timeout and ownership audits — and it is owned by the local release
   checklist: CI deliberately runs only `check` (serialized PIT suites are too
-  slow for hosted runners), so run the gate locally before deciding to
-  release, not per commit.
+  slow for hosted runners), so certify locally before deciding to release,
+  not per commit. Receipts are project-scoped: an unqualified run writes five,
+  one per hardening project, each with its own session UUID.
 - A new unkilled mutant has exactly three legal outcomes: **kill it** with a
   test (prefer asserting the property it breaks — pacing as a function of
   requested delays, capacity after a dock — over restating the
   implementation), **refactor** it out of existence, or **accept it** with a
-  written reason in the module's `config/pitest/README.md`. Never run
-  `-PupdateMutationBaseline` just to make the build pass.
-- Line-number churn from editing a mutated file shows up as paired stale +
-  "new" baseline entries. When the drift is pure — every new entry a
-  same-status shift of a stale one, populations unchanged — the verify
-  passes with a notice; refresh at a convenient moment. Anything mixed in
-  still fails and is triage first, refresh after. While killing a cluster,
-  iterate with `-PmutateOnly=<class-glob>` (seconds instead of the full
-  suite); the ratchet skips scoped runs and a scoped report can never
-  refresh a baseline, so finish with an unscoped run.
+  written reason in the module's `config/pitest/README.md`. Before writing the
+  killing test, say what external property it asserts and against which
+  oracle; if the oracle contradicts what the code does today, the mutant found
+  a bug and the first commit is a failing regression test, not a passing
+  assertion. Never run a baseline-writing task just to make the build pass.
+- Baseline keys are line-less (`class,method,mutator,STATUS`) under a
+  `!sava-hardening-baseline-schema,1` header, so editing a mutated file churns
+  nothing — lines ride as `# line` tags every refresh rewrites, and a key
+  unkilled at a line no tag names draws the line-drift advisory (re-read the
+  family argument; the anchor moved, or a new mutant sits under an old
+  acceptance — the documented same-key swap). While killing a cluster, iterate
+  with `-PmutateOnly=<class-glob>` (seconds instead of the full suite); the
+  ratchet skips scoped runs and a scoped report can never refresh a baseline,
+  so finish with an unscoped run.
 - **Every accepted row carries a short family label** (`# log-removal`,
-  `# concurrency-deferred`, …) whose full argument lives in this module's
+  `# saturation-sweep`, …) whose full argument lives in this module's
   `config/pitest/README.md`; the verify summary counts rows per label, so
   triage state is a number the build prints. Refreshes seed genuinely new
   rows as `# untriaged` — triage means replacing that label. Carry markers
@@ -132,11 +141,18 @@ Two mechanical points that cost real time to rediscover:
   assign null over an already-null field; and `return super.test(...)`
   return-value mutations where the supertype only ever returns true.
 - **A few mutants are detected only by PIT's timeout, and that is
-  load-dependent** — the same mutant can report `SURVIVED` when its suite runs
-  alone and `TIMED_OUT` (detected) under `qualityGate`. The baselines
-  deliberately carry the union of both modes; four such rows are known. Don't
-  strip a row because one run shows it detected, and don't bulk-add every
-  `TIMED_OUT` row either — that would blind the ratchet to real regressions.
+  load-dependent** — the same mutant can report `SURVIVED` (or `KILLED`) when
+  its suite runs alone and `TIMED_OUT` (detected) in a multi-suite invocation.
+  The baselines deliberately carry the union of both modes, and the audited
+  timeout sets carry the rest; both are per-member arguments in the module
+  `config/pitest/README.md`, never a count. Don't strip a row because one run
+  shows it detected, and don't bulk-add every `TIMED_OUT` row either — that
+  would blind the ratchet to real regressions. The most recent instance:
+  `EpochInfoServiceImpl.getAndSetEpochInfo` `MathMutator` was retired on
+  2026-08-01 once the single-cycle seam made it rare, and came back on
+  2026-08-04 in a multi-suite `BaselineRebase` invocation while every solo run
+  and the same day's `hardeningCertify` read `KILLED`. A narrowed window is
+  not a closed one.
 - The concurrency-blocked debt is **fully banked** (latch shapes 2026-07-23,
   CAS losers 2026-07-24 — the `# concurrency-deferred` label no longer exists
   in any baseline). The latch shapes fell to `ReentrantLock.hasWaiters`
@@ -153,9 +169,27 @@ Two mechanical points that cost real time to rediscover:
 - Reports: `build/reports/pitest/<suite>/` (HTML + `mutations.csv`).
 - **Randomized tests use fixed seeds**: the ratchet needs deterministic
   kills; per-run exploration is the fuzz targets' job.
-- Fuzz: `./gradlew :ravina-core:fuzzBackoff -PmaxFuzzTime=60` (etc. —
-  `fuzz<Target>`; default 60s). Harnesses are `*Fuzz.java` in the ordinary
-  test sources: a `final` class exposing only
+- Fuzz: `./gradlew :ravina-core:fuzzBackoff -PmaxFuzzTime=60` for one target
+  (`fuzz<Target>`; default 60s), or `./gradlew --continue fuzzAll
+  -PmaxFuzzTime=<seconds>` for every registered target in a project — that
+  aggregate is derived from the registrations, so unlike a hand-written
+  workflow task list it cannot drift, and the budget applies **per target**,
+  with `-PmaxParallelFuzzTargets=<n>` bounding how many run at once.
+  Campaigns are run locally and their budget recorded with the release; the
+  weekly GitHub soak was retired on 2026-08-04 and scheduled runs are not
+  release evidence (`fuzz.yml` keeps `workflow_dispatch` only, and
+  `fuzzWorkflowInSync` is now a deprecated no-op). **The budget is wall clock,
+  not CPU**, and that is measured here, not assumed: the plugin serializes PIT
+  suites behind a single-permit execution lock but places no such lock on fuzz
+  targets, and under `org.gradle.configuration-cache=true` (which this repo
+  sets) Gradle runs task nodes without taking a project lock — so `fuzzAll`
+  started all 8 targets at once, five of them inside `:ravina-core`, and
+  finished 8 × 121s of requested fuzzing in 135s of wall clock. Four identical
+  120s campaigns then spanned 60.8M to 85.0M total executions — a 40% spread
+  on the same command, which is what a contended core count looks like.
+  Record the per-target run counts alongside the budget; a budget alone is not
+  a reproducible unit of work. Harnesses are `*Fuzz.java`
+  in the ordinary test sources: a `final` class exposing only
   `public static void fuzzerTestOneInput(byte[] data)`, **no Jazzer imports**.
   Contract: garbage in → `RuntimeException` out (catch and return); invariant
   violations throw `AssertionError`/`IllegalStateException` and are findings.
@@ -369,12 +403,14 @@ plugin pre-wires it.** Open-source PIT
 alone cannot do it: the CLI accepts the history flags but registers only
 `ErroringHistoryFactory`, which throws — prototyped and abandoned here on
 2026-07-21 *(casebook: the 11× "speedup" that did no work)*.
-Activation is dropping `arcmutate-licence.txt` at the repo root
-(free OSS licences exist — obtaining one is a maintainer decision); history
-then lives at `<module>/.pitest-history/<suite>.hist` (already git-ignored
-here). Two rules come with it: the pre-release `qualityGate`, baseline
-refreshes, and convergence runs all take `-PnoMutationHistory` — anything
-that writes or certifies the record is re-earned from scratch — and a
+Activation is the presence of `arcmutate-licence.txt` at the repo root, and
+since 2026-08-04 this repo commits one (OSSS, expires 15/08/2027 — see the
+ratchet-edges bullet on what it does to the population); history then lives at
+`<module>/.pitest-history/<suite>.hist` (already git-ignored here). Two rules
+come with it: anything that writes or certifies the record re-earns every
+status from scratch — `hardeningCertify` and every named baseline writer turn
+history off themselves, and `pitestConverge` still needs
+`-PnoMutationHistory` on the command line — and a
 `[history]`-marked summary means fast is expected; suspicion transfers to
 the exit code and the marker.
 
@@ -403,24 +439,31 @@ suites are timing-sensitive today.
 Re-run the check after any change to suite composition, `targetTests`, or the
 mutator set — those are what perturb load and coverage.
 
-## Ratchet edges: the deliberate holes (2026-07-31 inventory)
+## Ratchet edges: the deliberate holes (2026-07-31 inventory, extended 2026-08-04)
 
 What the mutation ratchet here deliberately does not see — the shared doc's
 "edges of what the ratchet can see" inventory, instantiated for this repo.
-Since sava-build 21.5.19 the excluded-production-class advisory re-lists the
-main-source part of this inventory on every run; the counts below are its
-expected steady state, so treat those advisory lines as confirmation, not
-findings.
+The excluded-production-class advisory used to re-list most of this inventory
+on every run, so the habit was to reconcile its lines against an expected
+count. That is no longer true: once the audit learned to subtract
+sibling-suite ownership and to honour `declineExclusionAudit`, everything
+below went silent. **A line naming a class is now a finding, not
+confirmation.**
 
-- **Suite partitioning.** Both `catchAll` suites are catch-alls by exclusion:
-  they target the whole module package and exclude the classes the sibling
-  suites own, so the advisory names ~35 classes in `ravina-core` and ~12 in
-  `ravina-solana` every run. Each named class is mutated by its owning suite;
-  a *new* class matching no exclusion lands in `catchAll` by default, which
-  is the design. A class appearing here that no sibling suite targets would
-  be a real gap — that is the check to run when the count moves.
+- **Suite partitioning is a handoff, not a hole.** Both `catchAll` suites are
+  catch-alls by exclusion: they target the whole module package and exclude
+  the classes the sibling suites own (~35 in `ravina-core`, ~12 in
+  `ravina-solana`). The excluded-production-class advisory subtracts classes
+  a sibling suite *effectively* mutates, so this partition is silent — it
+  named all ~47 of them every run until sava-build fixed the audit to
+  recognise the ownership category. What still fires is a class **no** suite
+  mutates: that is a real gap, and the advisory naming one is the check to
+  act on rather than to reconcile against an expected count.
 - **`software.sava.kms.google.Integ`** — integration main requiring live GCP
-  credentials; excluded from `googleKms` (the advisory's 1-class group). Its
+  credentials; excluded from `googleKms` and argued there with
+  `declineExclusionAudit`, so the advisory is silent about it until the
+  exclusion stops swallowing anything (then the record is reported as
+  deletable). Its
   correctness rides on running it against real KMS, not on the ratchet.
 - **Fuzz harnesses.** Since 21.5.19 the plugin auto-excludes every
   *registered* fuzz target's harness class (plus its nested types) from PIT;
@@ -432,7 +475,36 @@ findings.
   `NO_COVERAGE`; `Integ` above is the only live-service artifact.
 - **Timeout-detected mutants** — the ratchet cannot see a weakened covering
   assertion for them; the audited sets (`config/pitest/<suite>-timeouts.csv`
-  + README causes, AGENTS.md rule 18) are the compensating control.
+  + README causes, and the template's reviewer-stop bullet in `AGENTS.md`) are
+  the compensating control.
 - **Policy acceptances** — rows argued from policy rather than equivalence
-  (`# needs-live-kms`, `# ws-timeout`) are holes by decision; their
+  (`# needs-live-kms`, `# ws-timeout-fallback`) are holes by decision; their
   arguments live in the owning module's `config/pitest/README.md`.
+- **The mutant population is a function of the toolchain, and the certificate
+  is part of it** (added 2026-08-04 with the sava-build 21.5.22 adoption).
+  `arcmutate-licence.txt` at the repository root puts `com.arcmutate:base` on
+  PIT's tool classpath for every module, and its subsumption filter removes
+  **196 of 2550 mutants (7.7%)** repo-wide — measured by running every suite
+  with and without the certificate on the same commit. 194 of the 196 are
+  `RemoveConditionalMutator_*` siblings (`ORDER_IF` −96, `EQUAL_IF` −67,
+  `ORDER_ELSE` −31, `EQUAL_ELSE` untouched); the remaining two are
+  `NullReturnValsMutator`, one in core's `config` and one in solana's
+  `catchAll`. Nothing about that is
+  visible in a suite's percentage, which is why the committed provenance pair
+  (`<suite>-pitest-version` + `<suite>-pitest-toolchain.tsv`) binds PIT, the
+  JUnit plugin, the ordered tool classpath, the ArcMutate base version and the
+  certificate's hash and expiry: a run whose identity differs from the record
+  refuses to write and routes through `pitest<Suite>BaselineRebase`. Two
+  consequences to keep in mind. Comparing populations across a certificate
+  change is meaningless, so `-PnoMutationHistory` deliberately turns off only
+  ArcMutate's result reuse and never its engine. And twelve already-argued
+  items now name mutants the licensed engine does not generate: ten accepted
+  rows, which are **kept** (a rebase removes no acceptance), and two audited
+  timeout members, which were **retired with their mutants**. All twelve come
+  back the moment the certificate is absent — which is exactly when the two
+  retired members would be owed again.
+- **The certificate expires.** The OSSS certificate expires 15/08/2027, and
+  the plugin refuses to run once its one-month grace ends. That is a build
+  outage with a date on it, not a ratchet hole — but it is on this list
+  because the population, and therefore every baseline in `config/pitest/`,
+  changes the day the repo runs without it.

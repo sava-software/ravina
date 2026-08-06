@@ -10,11 +10,7 @@ import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.BitSet;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -177,9 +173,7 @@ final class LookupTableCacheMap implements LookupTableCache {
           }
         } else {
           final var fetchKeys = new ArrayList<PublicKey>(numToFetch);
-          for (int i = fetchBitset.nextSetBit(0); i >= 0; i = fetchBitset.nextSetBit(i + 1)) {
-            fetchKeys.add(lookupTableKeys.get(i));
-          }
+          fetchBitset.stream().forEachOrdered(i -> fetchKeys.add(lookupTableKeys.get(i)));
 
           final var lookupTableAccounts = Call.createCourteousCall(
               rpcClients, rpcClient -> rpcClient.getAccounts(fetchKeys),

@@ -30,9 +30,14 @@ hardening {
       // test-only logging scope; named for what it does rather than *Tests*,
       // so it needs an exclusion of its own (trailing * covers nested types)
       "software.sava.kms.google.LogSilencer*",
-      // integration main; requires live GCP credentials
+      // integration main; requires live GCP credentials (argued below)
       "software.sava.kms.google.Integ"
     )
     targetTests = "software.sava.kms.google.*Test*"
+    declineExclusionAudit(
+      "software.sava.kms.google.Integ",
+      "integration main that only runs against live GCP KMS; its correctness is " +
+          "observed by running it, not by any harness this ratchet can reach"
+    )
   }
 }

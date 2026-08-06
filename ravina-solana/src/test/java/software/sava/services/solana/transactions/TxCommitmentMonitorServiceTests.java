@@ -448,9 +448,14 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aRejectedTransactionIsNotAwaitedOverTheWebSocket() throws InterruptedException {
     final var service = service();
-    // A confirmation is standing by, so awaiting one would visibly return that
-    // instead of the rejection — and would return promptly either way.
+    // Notifications for both the awaited commitment and its escalation are
+    // standing by, so a route that wrongly awaits returns one of them — an
+    // error-free result the assertions below reject — instead of blocking on a
+    // notification that never arrives. The awaited commitment is the one that
+    // matters here: standing only the other one by would leave a wrongful
+    // await waiting rather than failing.
     webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
+    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
     final var context = new SendTxContext(
         null, CompletableFuture.failedFuture(preflightFailure()), null, null, 1, 0);
 

@@ -2,25 +2,48 @@
 
 Each `pitest<Suite>` run is finalized by `pitest<Suite>Verify`, which diffs the
 run's unkilled mutants (`SURVIVED` and `NO_COVERAGE`) against the accepted
-baseline in `<suite>-accepted.csv` and **fails on anything new**. Baseline row
-format: `class,method,line,mutator,status`. The full process contract is
-sava-build's `HARDENING.md`; `./gradlew qualityGate` runs every suite plus the
-unit tests — the pre-release check, run locally before deciding to release
-(CI deliberately runs only `check`; it is not a per-commit gate).
+baseline in `<suite>-accepted.csv` and **fails on anything new**. That file
+opens with `!sava-hardening-baseline-schema,1`; each row is
+`class,method,mutator,STATUS`, with `# <family-label>` and `# line N` as
+trailing comments. The full process contract is sava-build's `HARDENING.md`,
+and `./gradlew hardeningHelp` prints the installed task surface;
+`./gradlew qualityGate` runs every suite plus the unit tests, and
+`./gradlew hardeningCertify` is the pre-release check —
+freshly observed, provenance-bound, strictly audited, and run locally before
+deciding to release (CI deliberately runs only `check`; neither is a
+per-commit gate).
 
 A new unkilled mutant has exactly three legal outcomes: **kill it** with a
 test, **refactor** it out of existence, or **accept it** with a written reason
 below — acceptance is for mutants *equivalent with respect to observable
-behavior*, never for "hard to test". Line numbers are part of the baseline
-key; after confirming churned rows are shifted old ones, refresh with
-`-PupdateMutationBaseline`.
+behavior*, never for "hard to test". Baseline keys are line-less, so edits
+above a mutated method churn nothing; lines ride as `# line` tags that
+`pitest<Suite>BaselineUpdate` rewrites, and a key unkilled at a line no tag
+names draws the line-drift advisory (re-read the argument here, then let the
+next refresh rewrite the tag).
 
 See `../../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
 
 ## Status
 
-No untriaged debt: both accepted entries have a reason below.
+No untriaged debt: all four accepted rows — three families — have a reason
+below.
+
+## Committed toolchain provenance
+
+Beside the baseline this suite commits a provenance pair:
+`httpKms-pitest-version` and `httpKms-pitest-toolchain.tsv` (a schema-1 TSV
+binding PIT, the JUnit plugin, an ordered tool-classpath SHA-256, the
+ArcMutate base version and the certificate's SHA-256 and expiry). Only the
+plugin's named tasks write either file; committing just one of the pair is
+torn provenance and fails closed. `pitest<Suite>BaselineRebase` is the only
+path that adopts a PIT, ArcMutate, certificate or toolchain change or repairs
+torn provenance. The repository root's committed `arcmutate-licence.txt`
+licenses the engine for every module, which *shrinks* the population: 44
+mutants here against 49 with the certificate absent, the difference being
+`RemoveConditionalMutator_*` siblings ArcMutate subsumes. Every accepted row
+below still matches a mutant, so this module has no prune candidates.
 
 ## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
 
@@ -41,7 +64,7 @@ executor wiring via the package-private `httpClient` field — and 1 accepted
 builds a byte-identical request — the recorded-request test asserts the URI
 and would see any real change. The explicit `.GET()` stays for the reader.
 
-**Allocation-only copy elision** `# alloc-only-copy` — `HttpKMSClient.sign` line 70
+**Allocation-only copy elision** `# alloc-only-copy` — `HttpKMSClient.sign` line 71
 `RemoveConditionalMutator_EQUAL_ELSE` on
 `offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(...)`.
 Forcing the copy branch always produces a byte-identical array; only the

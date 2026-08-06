@@ -1,5 +1,6 @@
-software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,67,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough
-software.sava.services.core.remote.load_balance.ArrayLoadBalancer,withContext,99,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,18,PrimitiveReturnsMutator,SURVIVED # comparator-null-order
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,18,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # comparator-null-order
-software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,18,RemoveConditionalMutator_EQUAL_IF,SURVIVED # comparator-null-order
+!sava-hardening-baseline-schema,1
+software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough # line 67
+software.sava.services.core.remote.load_balance.ArrayLoadBalancer,withContext,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # equal-fallthrough # line 99
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,PrimitiveReturnsMutator,SURVIVED # comparator-null-order # line 18
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # comparator-null-order # line 18
+software.sava.services.core.remote.load_balance.SortedLoadBalancer,lambda$static$0,RemoveConditionalMutator_EQUAL_IF,SURVIVED # comparator-null-order # line 18

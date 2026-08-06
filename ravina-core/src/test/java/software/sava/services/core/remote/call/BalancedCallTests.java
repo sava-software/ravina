@@ -40,6 +40,14 @@ final class BalancedCallTests {
     @Override
     public void sleep(final long millis) {
       sleeps.add(millis);
+      // Safety bound, far above anything a courteous wait legitimately needs
+      // here (the largest expectation in this class is two sleeps): every wait
+      // loop below is bounded by a try budget, so a run that blows past this
+      // has lost its only exit. Failing here turns that into a named assertion
+      // instead of a wait nobody can interpret.
+      if (sleeps.size() > 64) {
+        throw new AssertionError("wait loop exceeded its try budget: " + sleeps.size() + " sleeps");
+      }
       if (!frozen) {
         nanos += millis * 1_000_000;
       }

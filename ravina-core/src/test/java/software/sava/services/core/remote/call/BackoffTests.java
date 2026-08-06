@@ -141,10 +141,22 @@ final class BackoffTests {
     assertEquals(f92, extreme.initialDelay(NANOSECONDS));
     assertEquals(f92, extreme.delay(1, NANOSECONDS));
     assertEquals(Long.MAX_VALUE, extreme.delay(2, NANOSECONDS));
+  }
 
-    // An initial past F(92) with a finite cap above it: same saturated shape,
-    // with the ramp clamped to the cap from the first error.
+  @Test
+  void anInitialDelayJustPastTheLargestFibonacciStartsAtThatFibonacciAndClampsToTheCap() {
+    // The start-selection wrap guard's own contract, asserted at the smallest
+    // initial delay that reaches it: one step past F(92) the running sum wraps
+    // negative, and the guard must stop the walk there and start at F(92).
+    // Deleting the guard does not hang here — the walk meets the exit test
+    // again after a handful of wrapped values — it starts from the wrong pair,
+    // which these values detect. It is deliberately a test of its own so the
+    // assertion is reachable without first constructing the no-ceiling config
+    // above, whose exit a guardless walk reaches only after ~1.4e19 steps.
+    final long f92 = 7_540_113_804_746_346_429L;
+    final long bigCap = 8_000_000_000_000_000_000L;
     final var invertedCap = Backoff.fibonacci(NANOSECONDS, 7_600_000_000_000_000_000L, bigCap);
+    assertEquals(f92, invertedCap.initialDelay(NANOSECONDS));
     assertEquals(f92, invertedCap.delay(1, NANOSECONDS));
     assertEquals(bigCap, invertedCap.delay(2, NANOSECONDS));
   }
