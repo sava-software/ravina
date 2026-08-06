@@ -331,15 +331,18 @@ simply never terminates — are genuinely watchdog-only.
   explicit-context sites could pass a small `maxTryClaim` through the long-form
   `createContext`, but the `DEFAULT_CALL_CONTEXT` sites exist to test that
   default and cannot be bounded without defeating themselves. Left alone
-  deliberately (2026-08-06) — but note what the audit found the same day: the
-  `assertTrue(clock.sleeps.isEmpty())` in
-  `CallFactoryTests.courteousCallOverloadRoutesTheCallContextWeight` is
-  **vacuous**. The `TestClock` there is injected into the *capacity state*; the
-  call is built through the clockless overload and therefore sleeps on
-  `NanoClock.SYSTEM`, which that list can never observe. It passes whether or
-  not the call sleeps. The surrounding assertions (the routed weight, the
-  decline at `maxTryClaim = 0`) are sound and are what the test is for; the
-  sleep assertion is decoration and should not be read as pinning anything.
+  deliberately (2026-08-06): it has never flipped, and bounding the file's
+  `TestClock` does not reach it — these calls sleep on `SYSTEM`, which no
+  injected clock observes.
+
+  The audit did find something real in the same file, since fixed: **five**
+  `assertTrue(clock.sleeps.isEmpty())` assertions were vacuous. The `TestClock`
+  is injected into the *capacity state*, and nothing in `request_capacity` ever
+  sleeps — `clock.sleep` is called by the `Call` implementations alone — so
+  after a clockless construction the list could not fill whatever the call did.
+  They were removed rather than left to read as coverage, and the class doc now
+  says why, so they are not reintroduced. The two assertions after *clocked*
+  constructions are genuine and stayed.
 
 ### The `int` counter under a `long` bound (real bug, found 2026-08-06)
 
