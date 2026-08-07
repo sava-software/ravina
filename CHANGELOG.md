@@ -1,5 +1,29 @@
 # Changelog
 
+## [25.6.0](https://github.com/sava-software/ravina/compare/25.5.2...25.6.0) (2026-08-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transactions:** Convenience overloads without explicit flags now resend pending transactions every retrySendDelay (default 5s) until the block hash expires, and every send claims the configured sendTransaction call weight (default 10, previously an unweighted 1) — revisit retrySend flags, retrySendDelay and CallWeights.sendTransaction if capacity budgets assumed the old behavior. Expiry verdicts also arrive ~60s sooner now that the horizon arithmetic is fixed, and TransactionProcessor.createProcessor gained a NanoClock overload.
+
+### Features
+
+* **pitest:** add audited timeout sets and enable additional mutators ([a1a5b78](https://github.com/sava-software/ravina/commit/a1a5b789452446e4e5bb6a4ee479eb56ea0131bd))
+* **transactions:** rebroadcast by default, weighted sends, and skip-rate-aware timing ([eed0d38](https://github.com/sava-software/ravina/commit/eed0d38aaacbac42d4ce7a0596b35968c720099d))
+
+
+### Bug Fixes
+
+* **core:** bound the courteous claim loops with a long counter ([a74d6c7](https://github.com/sava-software/ravina/commit/a74d6c7ac16207dcde2b3f5530cdf40b3d30d266))
+* **transactions:** break block-height ties by signature and gate expiry on chain progress ([3efb384](https://github.com/sava-software/ravina/commit/3efb38412b42b8d5ae3e75b009b73b093d546b0a))
+* **transactions:** expire at lastValidBlockHeight instead of a block queue later ([c1fbba1](https://github.com/sava-software/ravina/commit/c1fbba1268e912cea297612e3bf4955c546a59c3))
+
+
+### Miscellaneous Chores
+
+* release 25.6.0 ([503261f](https://github.com/sava-software/ravina/commit/503261fcfaf0ba0fd17b30737a0d97ae5971c98f))
+
 ## [25.5.2](https://github.com/sava-software/ravina/compare/25.5.1...25.5.2) (2026-07-24)
 
 
