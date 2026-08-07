@@ -342,6 +342,59 @@ final class WebSocketManagerTests {
     assertSame(manager, builder.onOpen());
     assertSame(manager, builder.onClose());
     assertSame(manager, builder.onError());
+    // The ping handler is never the manager itself: a ping failure has to be counted before it
+    // may mean the same thing as any other failure.
+    assertNotNull(builder.onPingError());
+    assertNotSame(manager, builder.onPingError());
+  }
+
+  /// A ping failure is the only evidence that a socket still reporting itself open has stopped
+  /// carrying traffic — no close or error arrives for a half open connection. It used to be
+  /// logged and dropped, so nothing recovered such a connection.
+  ///
+  /// It is a threshold rather than a single failure because a re-connect grows the backoff, so
+  /// one lost ping must not tear down a link that still works.
+  @Test
+  void pingFailuresReconnectOnlyOnceEnoughOfThemAccumulate() {
+    final var builder = new FakeBuilder();
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
+    final var webSocket = manager.webSocket();
+    assertNotNull(webSocket);
+    final var fake = builder.only();
+
+    final var failure = new IOException("ping timed out");
+    withoutManagerLogging(() -> {
+      for (int i = 1; i < WebSocketManagerImpl.PING_FAILURE_THRESHOLD; ++i) {
+        builder.onPingError().accept(webSocket, failure);
+        assertEquals(0, fake.closeCount, "a flaky ping must not tear down a working socket");
+        assertEquals(i, manager.pingFailures.get());
+      }
+      // the one that crosses the threshold is treated as any other websocket failure
+      builder.onPingError().accept(webSocket, failure);
+    });
+    assertEquals(1, fake.closeCount, "enough failed pings must close the socket");
+
+    // opening a connection clears the count, so the next connection starts from zero
+    builder.onOpen().accept(webSocket);
+    assertEquals(0, manager.pingFailures.get());
+  }
+
+  /// A prototype which carries its own ping handler keeps it, and it runs whether or not the
+  /// threshold was crossed — the manager's counting composes with it rather than replacing it.
+  @Test
+  void aPrototypesPingHandlerRunsOnEveryFailure() {
+    final var pinged = new ArrayList<Throwable>();
+    final var builder = new FakeBuilder();
+    builder.onPingError((ws, throwable) -> pinged.add(throwable));
+
+    final var manager = new WebSocketManagerImpl(new TestBackoff(-1, -1), builder, null, NanoClock.SYSTEM);
+    final var webSocket = manager.webSocket();
+    assertNotNull(webSocket);
+
+    final var failure = new IOException("ping timed out");
+    withoutManagerLogging(() -> builder.onPingError().accept(webSocket, failure));
+    assertEquals(List.of(failure), pinged, "the prototype's handler must see the first failure too");
+    assertEquals(1, manager.pingFailures.get());
   }
 
   /// A prototype that carries handlers keeps them: the manager's own handler
