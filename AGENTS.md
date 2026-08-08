@@ -234,7 +234,10 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   task; before handing off, run only the `pitest<Suite>`(s) whose mutated
 >   code the change can reach — including suites in dependent modules that
 >   call a changed API, and the owning suite for test-only edits (a weakened
->   test is exactly what the ratchet catches). The full `hardeningCertify` — every
+>   test is exactly what the ratchet catches). When the production-class inventory
+>   changes (add/remove/rename/move), or mutation target/exclusion rules change,
+>   also run the cheap whole-population
+>   `mutationOwnershipAudit` before handoff. The full `hardeningCertify` — every
 >   suite freshly observed, serialized, provenance-bound, diffed against
 >   `config/pitest/`, with strict timeout and ownership audits — is the pre-release
 >   check, owned by CI or by the release checklist (this repo records which); it is
@@ -284,6 +287,15 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   the comparison is a multiset: never hand-dedupe. When one sibling
 >   survives, the verify names the killed sibling's test — the survivor is
 >   the opposite branch direction; triage it as its own mutant.
+> - **A survivor contradicted by an existing oracle may be contaminated evidence.**
+>   Open PIT's HTML **Covering tests** list, then compare the same scoped,
+>   history-free population with and without isolation:
+>   `-PmutateOnly=<class> -PnoMutationHistory`, then
+>   `-PmutateOnly=<class> -PisolateMutants`. An isolation-only kill points
+>   to state leaked between mutants — commonly a thread, executor, handler, or
+>   static fixture whose cleanup an earlier assertion failure skipped. Put
+>   teardown in `finally`/`try`-with-resources and rerun normally, history-free;
+>   isolated execution is diagnostic evidence, never a baseline decision.
 > - **Stubs and fixtures return distinguishable, non-default values.** A stub
 >   returning null/0/""/true/empty makes the matching return-value mutant
 >   equivalent by accident of the fixture — the clock non-zero-origin rule
@@ -309,10 +321,24 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   `cause:liveness` is admissible watchdog detection after deterministic
 >   seams/budgets are exhausted: the mutated path has no path-owned finite
 >   completion guarantee. A fixture's emergency exit does not demote that
->   liveness loss to resource work; record the fixture bound in the README. Seeded
->   `cause:untriaged`, missing/unknown categories, and finite `cause:resource`
->   work are reviewer-stops. Resource behavior gets a deterministic contract
->   test/fix when promised, otherwise a stable `SURVIVED` equivalence argument —
+>   liveness loss to resource work; record the fixture bound in the README. If that
+>   bound is the claimed deterministic oracle, compare it with PIT's
+>   `duration × timeoutFactor + timeoutConst`: a bound that cannot fail first
+>   contributes no cause evidence, so shorten it and re-observe history-free. A
+>   later emergency ceiling may coexist with production liveness but cannot prove it.
+>   A straight-line path with no loop, retry, lock, wait, blocking
+>   call, or external completion dependency is not credible liveness evidence.
+>   Before
+>   admitting liveness, prove the mutated path receives the clock/budget the test
+>   observes, and check for a synchronous state reader that can expose the defect
+>   without waiting. A `TestClock` on a collaborator cannot observe a subject using
+>   the system clock. Seeded
+>   `cause:untriaged`, missing/unknown categories, finite `cause:resource`, and
+>   `cause:harness` work are reviewer-stops. `cause:harness` is the explicit
+>   non-certifying holding state for a demonstrated finite covering-path/watchdog
+>   race; it never makes the timeout admissible. Resource behavior gets a
+>   deterministic contract test/fix when promised, otherwise a stable `SURVIVED`
+>   equivalence argument —
 >   never silent timeout membership. Liveness authorizes valid `TIMED_OUT`
 >   evidence only, never `MEMORY_ERROR`: if a non-advancing loop races the heap
 >   against the watchdog, make every covering path fail deterministically without
@@ -321,16 +347,27 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   `config/pitest/README.md` still holds the
 >   full structural cause per member. The verify warns on any timeout outside
 >   the set — paste the printed row, classify it, then write the cause — and on
->   members matching no mutant. Membership and cause are key-level, which leaves a
->   known blind spot when a liveness mutant and a finite sibling share the same key.
->   Positive multiplicity drift prints all current line-full candidates for review;
+>   members matching no mutant. Membership and cause are key-level, so a liveness
+>   token claims every sibling under that key. A key proven to mix liveness and
+>   finite causes is not representable as an honest certifying row: split/refactor
+>   it into distinct method keys or eliminate the ambiguous site, then re-observe
+>   history-free. A source-line qualifier cannot fix the identity without making
+>   formatting a release gate. Positive multiplicity drift prints all current
+>   line-full candidates for review;
 >   source-line movement itself never warns, fails, or requires re-anchoring. Adding
 >   a method, moving imports, or reflowing an expression is not a hardening record
 >   change. Strict workflows run the
 >   committed-file half before PIT; use `pitest<Suite>Debt` for the same quick
 >   manual preview. `TimeoutAuditInit` deliberately seeds an uncertifiable file —
->   classify every row before certification. Proving a row can be retired requires
->   `pitest<Suite> -PnoMutationHistory`; assisted reports are previews and do not
+>   classify every row before certification. For an otherwise admissible liveness
+>   member, do not retire it until the tool emits its 3+ distinct fresh full-run quiet
+>   notice over identical evidence inputs and the absence is confirmed under the
+>   relevant solo/gate load. A finite KILLED↔TIMED_OUT race is benign only to baseline
+>   arithmetic, never certifying evidence; repair/retime its covering path instead of
+>   admitting it or waiting on the liveness-retirement rule. The quiet stash
+>   is a machine-local nomination: never copy or merge it, and retain the row when a
+>   same-input gate confirmation is unavailable. Assisted reports are
+>   previews and do not
 >   advance timeout status or quiet-run evidence.
 > - **A flaky harness is worse than recorded debt.** If an interleaving or a
 >   boundary cannot be made deterministic, accept the mutant with a written
@@ -394,15 +431,19 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 >   one usually means the run did less than you think. Read the task's evidence
 >   markers and scope; only a fresh full certification may support a release.
 >   The process itself needs no ArcMutate licence and applies to any Java package.
-> - **Transient infra failures are not results.** PIT `MINION_DIED` fails
+> - **Invalid execution outcomes are not results.** PIT `MINION_DIED` fails
 >   before writing a report, so it cannot corrupt one — re-run the suite; a
 >   Gradle-worker `EOFException` death is the same shape, and a per-mutant
 >   `RUN_ERROR` often first observed in a multi-suite run is the same
 >   shape smaller (load average itself proves nothing; the hardening parser refuses
 >   the report rather than certifying PIT's detected score). The refusal and
 >   `pitest<Suite>Debt` name every offending row; retain the coordinate before a
->   quiet re-run replaces the report, because the same coordinate twice is a defect,
->   not load. The daemon log
+>   quiet re-run replaces the report. `RUN_ERROR` alone diagnoses neither load nor
+>   memory and never justifies changing threads or heap; record load/RSS as context,
+>   retry once quietly, and tune only when PIT explicitly diagnoses a process-resource
+>   failure. A repeat at the same coordinate is not evidence
+>   of load: investigate the mutated bytecode, its covering tests, and the tool failure.
+>   The daemon log
 >   (`~/.gradle/daemon/<version>/daemon-<pid>.out.log`) keeps a failed build's
 >   full output even when the shell discarded it — read it before calling a
 >   failure unexplained.
@@ -421,7 +462,7 @@ re-synced only through `./gradlew hardeningAgentTemplate`:
 > - **Time-dependent code takes a clock**, so tests advance time instead of
 >   waiting. Give test clocks a non-zero origin — a clock starting at 0 makes
 >   every "start timestamp mutated to 0" mutant equivalent by accident.
-<!-- hardening-template sha256:014396ea56fe -->
+<!-- hardening-template sha256:46f7174e51fb -->
 
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
