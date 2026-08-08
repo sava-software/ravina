@@ -197,8 +197,8 @@ condition **false** converges to the behaviour the tests already pin (the
 skipped branch was an optimisation or an early-out whose fallback computes the
 same result), while the forced-**true** sibling at the same coordinate is
 killed. Sites: `CachedAddressLookupTable.read` line 38 and
-`TransactionProcessorRecord.lambda$transactionFactory$3` line 94 (`catchAll`),
-`EpochInfoServiceImpl.run` line 248 (`epochService`).
+`TransactionProcessorRecord.lambda$transactionFactory$3` line 96 (`catchAll`),
+`EpochInfoServiceImpl.checkCycle` line 287 (`epochService`).
 
 ## Mutator set: the experimental BigDecimal/BigInteger trial
 
@@ -287,7 +287,7 @@ record (middle = 0, min = max = median, stddev 0).
 
 **Whole-collection shortcut over an internal copy** `# whole-collection-shortcut` (`catchAll`) — guards of
 the form `to - from == size` that choose between the collection itself and a
-`subList`/`copyOfRange` of the whole thing: `LookupTableCacheMap` line 188 and
+`subList`/`copyOfRange` of the whole thing: `LookupTableCacheMap` line 196 and
 `BaseBatchInstructionService.batchProcess` line 142. Both branches yield equal
 contents, and in each case the array or list is internal, so no caller-visible
 reference identity distinguishes them. (The sibling at
@@ -301,7 +301,7 @@ branch: joining a one-element list returns that element, exactly what the
 
 **Capacity hints** `# capacity-hint` (`catchAll`) — `HeliusJsonRpcClient` line 133
 `MathMutator` on the `StringBuilder` pre-size expression, and the
-`LookupTableCacheMap` empty-list guard at line 126: allocation shape only,
+`LookupTableCacheMap` empty-list guard at line 137: allocation shape only,
 identical output.
 
 **Both branches build the same record** `# same-record-branches` (`catchAll`) —
@@ -391,7 +391,7 @@ What remains, verified by hand-applying each mutant:
 - *Only observable as a longer or shorter `await`* (`# await-pacing-only`):
   the pacing `sleep` feeds only `await(Math.max(mean, sleep))`, and `await`
   is deliberately not clock-routed because it is signallable.
-- *The fetch-disjunction remnants at line 236*: forcing an operand true
+- *The fetch-disjunction remnants at line 273*: forcing an operand true
   (`# fetch-disjunction-converging`) is indistinguishable when every wake
   fetches anyway, and the `now > endsAt` ORDER/boundary forms
   (`# idle-spin-only`) are evaluated only when the prior terms are false,
@@ -413,7 +413,7 @@ samples and so the same stats); no new behaviour class was introduced. Two of th
 six originally materialized here — the pacing-block subtraction and the
 fetch disjunction's samples operand — have since been *killed* by the
 signal-while-parked harness. Same event, one row:
-`WebSocketManagerImpl.checkConnection` line 106 in `catchAll`, the sibling
+`WebSocketManagerImpl.checkConnection` line 149 in `catchAll`, the sibling
 operand of the outer double-checked condition.
 
 **`WebSocketManagerImpl` (8)** — was 12: the 2026-07-21 `NanoClock`
