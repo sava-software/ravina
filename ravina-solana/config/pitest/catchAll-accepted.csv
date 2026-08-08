@@ -43,3 +43,4 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,Rem
 software.sava.services.solana.websocket.WebSocketManagerImpl,resetWebsocket,PrimitiveReturnsMutator,SURVIVED # log-text-only # line 58
 software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 132
 software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 136
+software.sava.services.solana.websocket.WebSocketManagerImpl,onPingFailure,VoidMethodCallMutator,SURVIVED # log-removal # line 100
