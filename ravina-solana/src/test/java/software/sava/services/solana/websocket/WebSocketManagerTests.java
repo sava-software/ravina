@@ -161,6 +161,16 @@ final class WebSocketManagerTests {
     }
 
     @Override
+    public SolanaRpcWebsocket.Builder maxMessageLength(final int maxMessageLength) {
+      return this;
+    }
+
+    @Override
+    public int maxMessageLength() {
+      return 0;
+    }
+
+    @Override
     public SolanaRpcWebsocket.Builder reConnectDelay(final long reConnectDelay) {
       return this;
     }
