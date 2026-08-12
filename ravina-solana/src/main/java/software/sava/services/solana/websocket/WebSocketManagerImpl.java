@@ -4,202 +4,580 @@ import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.LongFunction;
+import java.util.function.Supplier;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsocket>, SolanaRpcWebsocket.OnClose, BiConsumer<SolanaRpcWebsocket, Throwable> {
+final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsocket>,
+    SolanaRpcWebsocket.OnClose, BiConsumer<SolanaRpcWebsocket, Throwable> {
 
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
 
-  /// How many ping failures on one connection before it is treated as dead.
-  ///
-  /// A failed ping is the only evidence available that a socket which still reports itself open
-  /// has stopped carrying traffic — no close or error arrives for a half open connection, and
-  /// `closed()` reports only that `close()` was called. It was previously logged and dropped, so
-  /// nothing recovered such a connection.
-  ///
-  /// It is a threshold rather than a single failure because reconnecting increments the backoff,
-  /// so treating one lost ping as a dead socket would punish a merely flaky connection by
-  /// repeatedly tearing down a link that still works. Pings are only sent after a quiet period,
-  /// so a healthy connection sends few and fails none, and reaching this count is a strong
-  /// signal rather than a marginal one.
-  ///
-  /// Failures are counted per connection rather than consecutively: the websocket reports no
-  /// ping success, so there is nothing to reset a consecutive count against. The count is
-  /// cleared when a connection opens.
-  static final int PING_FAILURE_THRESHOLD = 3;
+  private enum State {
+    NEW, CREATING, CONNECTING, OPEN, BACKING_OFF, CLOSED
+  }
+
+  @FunctionalInterface
+  interface RetryScheduler {
+
+    void schedule(long delayMillis, CompletableFuture<Void> retry);
+  }
+
+  // The explicit-clock factory is polling-only: it installs the same cancellable ownership
+  // token as the automatic scheduler, but no independent clock domain completes that token.
+  static final RetryScheduler POLLING_RETRY_SCHEDULER = (_, _) -> {
+  };
+
+  static final class DelayedRetryScheduler implements RetryScheduler {
+
+    private final LongFunction<Executor> delayedExecutor;
+
+    DelayedRetryScheduler() {
+      this(delayMillis -> CompletableFuture.delayedExecutor(delayMillis, MILLISECONDS));
+    }
+
+    DelayedRetryScheduler(final LongFunction<Executor> delayedExecutor) {
+      this.delayedExecutor = Objects.requireNonNull(delayedExecutor);
+    }
+
+    @Override
+    public void schedule(final long delayMillis, final CompletableFuture<Void> retry) {
+      delayedExecutor.apply(Math.max(0, delayMillis)).execute(() -> retry.complete(null));
+    }
+  }
+
+  private record Drive(SolanaRpcWebsocket webSocket,
+                       CompletableFuture<Void> retryToCancel,
+                       boolean create,
+                       boolean connect) {
+  }
+
+  private record FailureClaim(int errorCount,
+                              long sequence,
+                              CompletableFuture<?> attempt) {
+  }
+
+  private record Resources(CompletableFuture<Void> retry,
+                           CompletableFuture<?> attempt,
+                           SolanaRpcWebsocket webSocket,
+                           SolanaRpcWebsocket creatingWebSocket) {
+  }
 
   private final NanoClock clock;
   // package-private so same-package tests can inspect factory-built prototypes
   final SolanaRpcWebsocket.Builder builderPrototype;
   private final Backoff backoff;
   private final Consumer<SolanaRpcWebsocket> onNewWebSocket;
-  private final Consumer<SolanaRpcWebsocket> onOpen;
-  private final SolanaRpcWebsocket.OnClose onClose;
-  private final BiConsumer<SolanaRpcWebsocket, Throwable> onError;
-  private final BiConsumer<SolanaRpcWebsocket, Throwable> onPingError;
-  private final AtomicInteger errorCount;
-  /// Ping failures seen on the current connection, cleared each time one opens.
-  final AtomicInteger pingFailures;
-  final ReentrantLock lock; // package-private: tests assert the loop never leaks it
+  private final RetryScheduler retryScheduler;
+  final ReentrantLock lock;
+  /// Every wrapper this manager creates shares ONE underlying `java.net.http.WebSocket.Builder`:
+  /// `SolanaRpcWebsocketBuilder` holds a single instance, `create()` writes `connectTimeout` on
+  /// it, and every `connect()` calls `buildAsync` on that same object. The JDK specifies that
+  /// builder as unsafe for concurrent use, and sava-rpc's own reservation is per-websocket, so it
+  /// cannot exclude a successor created while a predecessor is still inside `buildAsync`. This is
+  /// that external synchronization. It is deliberately separate from [#lock]: it is held across
+  /// collaborator calls, which `lock` never is. Ordering is one-way — both acquisitions happen
+  /// after `locked(...)` has returned, so no thread holds `lock` while waiting for this one.
+  final ReentrantLock builderLock;
+
   private volatile SolanaRpcWebsocket webSocket;
-  private volatile long connectionDelay;
-  private volatile boolean needsConnect;
-  private volatile long lastWebSocketConnect;
+  private volatile State state;
+  private int errorCount;
+  private long retryStartedAtNanos;
+  private long retryDelayNanos;
+  private long retrySequence;
+  private CompletableFuture<Void> scheduledRetry;
+  private CompletableFuture<?> connectFuture;
+  private SolanaRpcWebsocket creatingWebSocket;
+  // This is the two-phase failure-policy claim: while true, BACKING_OFF cannot advance;
+  // terminal close is the only competing transition and clears the claim.
+  private boolean retryPolicyPending;
 
   WebSocketManagerImpl(final Backoff backoff,
                        final SolanaRpcWebsocket.Builder builderPrototype,
                        final Consumer<SolanaRpcWebsocket> onNewWebSocket,
                        final NanoClock clock) {
-    this.clock = clock;
-    this.builderPrototype = builderPrototype;
-    this.backoff = backoff;
+    this(backoff, builderPrototype, onNewWebSocket, clock, new DelayedRetryScheduler());
+  }
+
+  WebSocketManagerImpl(final Backoff backoff,
+                       final SolanaRpcWebsocket.Builder builderPrototype,
+                       final Consumer<SolanaRpcWebsocket> onNewWebSocket,
+                       final NanoClock clock,
+                       final RetryScheduler retryScheduler) {
+    this.clock = Objects.requireNonNull(clock);
+    final var suppliedPrototype = Objects.requireNonNull(builderPrototype);
+    this.backoff = Objects.requireNonNull(backoff);
     this.onNewWebSocket = onNewWebSocket;
-    final var onOpen = builderPrototype.onOpen();
-    this.onOpen = onOpen == null ? this : this.andThen(onOpen);
-    final var onClose = builderPrototype.onClose();
-    this.onClose = onClose == null ? this : this.andThen(onClose);
-    final var onError = builderPrototype.onError();
-    this.onError = onError == null ? this : this.andThen(onError);
-    // Not `this`: the manager is already the onError BiConsumer, and a ping failure has to be
-    // counted before it is allowed to mean the same thing.
-    final BiConsumer<SolanaRpcWebsocket, Throwable> countPingFailure = this::onPingFailure;
-    final var onPingError = builderPrototype.onPingError();
-    this.onPingError = onPingError == null ? countPingFailure : countPingFailure.andThen(onPingError);
-    this.errorCount = new AtomicInteger(0);
-    this.pingFailures = new AtomicInteger(0);
-    this.lock = new ReentrantLock(false);
-    this.connectionDelay = backoff.initialDelay(TimeUnit.MILLISECONDS);
-  }
+    this.retryScheduler = Objects.requireNonNull(retryScheduler);
 
-  private long resetWebsocket() {
-    final int errorCount = this.errorCount.incrementAndGet();
-    final long connectionDelay = this.connectionDelay = backoff.delay(errorCount, TimeUnit.MILLISECONDS);
-    this.webSocket = null;
-    return connectionDelay;
-  }
-
-  @Override
-  public void accept(final SolanaRpcWebsocket websocket) {
-    this.errorCount.set(0);
-    this.pingFailures.set(0);
-    logger.log(INFO, "WebSocket connected to " + websocket.endpoint().getHost());
-  }
-
-  /// Counts a failed ping, and once enough have failed on this connection treats it exactly as
-  /// any other websocket failure: reset, close, and reconnect on the backoff.
-  private void onPingFailure(final SolanaRpcWebsocket webSocket, final Throwable throwable) {
-    final int pingFailures = this.pingFailures.incrementAndGet();
-    if (pingFailures < PING_FAILURE_THRESHOLD) {
-      logger.log(WARNING, String.format(
-          "Failed to ping %s [%d/%d before re-connecting].",
-          webSocket.endpoint().getHost(), pingFailures, PING_FAILURE_THRESHOLD
-      ), throwable);
-    } else {
-      accept(webSocket, throwable);
-    }
-  }
-
-  @Override
-  public void accept(final SolanaRpcWebsocket webSocket, final int statusCode, final String reason) {
-    final long connectionDelay = resetWebsocket();
-    webSocket.close();
-    logger.log(WARNING, String.format(
-        "Websocket closed [statusCode=%d] [reason=%s]. Can re-connect in %d seconds.",
-        statusCode, reason, connectionDelay
-    ));
-  }
-
-  @Override
-  public void accept(final SolanaRpcWebsocket websocket, final Throwable throwable) {
-    final long connectionDelay = resetWebsocket();
-    websocket.close();
-    logger.log(WARNING, String.format(
-        "Websocket failure. Can re-connect in %d seconds.",
-        TimeUnit.MILLISECONDS.toSeconds(connectionDelay)
-    ), throwable);
-  }
-
-  private SolanaRpcWebsocket createWebSocket() {
-    final var webSocket = builderPrototype
-        .onOpen(onOpen)
-        .onClose(onClose)
-        .onError(onError)
-        .onPingError(onPingError)
-        .create();
-
-    if (onNewWebSocket != null) {
-      onNewWebSocket.accept(webSocket);
-    }
-    return webSocket;
-  }
-
-  private boolean canConnect() {
-    return (clock.currentTimeMillis() - this.lastWebSocketConnect) > this.connectionDelay;
-  }
-
-  @Override
-  public void checkConnection() {
-    if (this.webSocket == null || (this.needsConnect && canConnect())) {
-      lock.lock();
+    // Preserve the subscription policy before disabling the builder's fixed reconnect throttle:
+    // an unset resend delay is derived from reConnectDelay, so changing only the latter silently
+    // changes unanswered-request escalation too. The fluent return values matter for immutable
+    // or decorating Builder implementations.
+    //
+    // A prototype with no throttle to disable needs no preservation: the derived resend delay is
+    // a pure function of the reconnect and check delays, so re-asserting the value it already
+    // reports cannot move it. Skipping the write there keeps the manager off
+    // `subscriptionResendDelay(long)`, which is an additive 25.9.0 capability a Builder may
+    // inherit as a throwing default — unlike `reConnectDelay(long)`, which every Builder must
+    // implement.
+    var normalized = suppliedPrototype;
+    if (suppliedPrototype.reConnectDelay() != 0L) {
+      final long subscriptionResendDelay = suppliedPrototype.subscriptionResendDelay();
       try {
-        var webSocket = this.webSocket;
-        final boolean needsConnect;
-        if (webSocket == null) {
-          webSocket = createWebSocket();
-          needsConnect = this.needsConnect = true;
-        } else {
-          needsConnect = this.needsConnect;
-        }
-        if (needsConnect && canConnect()) {
-          this.webSocket = webSocket;
-          this.needsConnect = false;
-          this.lastWebSocketConnect = clock.currentTimeMillis();
-          webSocket.connect();
-        }
-      } finally {
-        lock.unlock();
+        normalized = Objects.requireNonNull(
+            suppliedPrototype.subscriptionResendDelay(subscriptionResendDelay)
+        );
+      } catch (final UnsupportedOperationException unsupported) {
+        throw new IllegalArgumentException(
+            "This websocket Builder cannot retain its subscriptionResendDelay, so its "
+                + "reConnectDelay cannot be zeroed without silently re-pacing subscription "
+                + "escalation. Set reConnectDelay(0) on the builder before supplying it.",
+            unsupported
+        );
       }
+    }
+    final var prototype = Objects.requireNonNull(normalized.reConnectDelay(0L));
+    final var prototypeOnOpen = prototype.onOpen();
+    final Consumer<SolanaRpcWebsocket> onOpen = prototypeOnOpen == null
+        ? this : this.andThen(prototypeOnOpen);
+    final var prototypeOnClose = prototype.onClose();
+    final SolanaRpcWebsocket.OnClose onClose = prototypeOnClose == null
+        ? this : this.andThen(prototypeOnClose);
+    final var prototypeOnError = prototype.onError();
+    final BiConsumer<SolanaRpcWebsocket, Throwable> onError = prototypeOnError == null
+        ? this : this.andThen(prototypeOnError);
+    this.builderPrototype = Objects.requireNonNull(
+        prototype.onOpen(onOpen).onClose(onClose).onError(onError)
+    );
+
+    this.lock = new ReentrantLock(false);
+    this.builderLock = new ReentrantLock(false);
+    this.state = State.NEW;
+  }
+
+  private <T> T locked(final Supplier<T> action) {
+    lock.lock();
+    try {
+      return action.get();
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  private <T> T builderLocked(final Supplier<T> action) {
+    builderLock.lock();
+    try {
+      return action.get();
+    } finally {
+      builderLock.unlock();
+    }
+  }
+
+  private static void cancel(final CompletableFuture<?> future) {
+    if (future != null) {
+      future.cancel(false);
+    }
+  }
+
+  private SolanaRpcWebsocket ensureWebSocket() {
+    if (state == State.CLOSED) {
+      return null;
+    }
+    final var current = webSocket;
+    if (current != null && current.closed()) {
+      detachTerminalWebSocket(current);
+    }
+    final long nowNanos = clock.nanoTime();
+    final Drive drive = locked(() -> {
+      if (state == State.CLOSED) {
+        return new Drive(null, null, false, false);
+      }
+      final var managed = webSocket;
+      if (managed == null) {
+        if (state == State.CREATING
+            || (state == State.BACKING_OFF && !retryDue(nowNanos))) {
+          return new Drive(null, null, false, false);
+        }
+        final var retry = scheduledRetry;
+        scheduledRetry = null;
+        state = State.CREATING;
+        return new Drive(null, retry, true, false);
+      }
+      if (state == State.BACKING_OFF && retryDue(nowNanos)) {
+        final var retry = scheduledRetry;
+        scheduledRetry = null;
+        state = State.CONNECTING;
+        return new Drive(managed, retry, false, true);
+      }
+      return new Drive(managed, null, false, false);
+    });
+
+    cancel(drive.retryToCancel());
+    if (drive.create()) {
+      return createAndConnect();
+    }
+    if (drive.connect()) {
+      connect(drive.webSocket());
+    }
+    return webSocket == drive.webSocket() ? drive.webSocket() : null;
+  }
+
+  private boolean retryDue(final long nowNanos) {
+    return !retryPolicyPending && nowNanos - retryStartedAtNanos >= retryDelayNanos;
+  }
+
+  private SolanaRpcWebsocket createAndConnect() {
+    SolanaRpcWebsocket candidate = null;
+    try {
+      candidate = Objects.requireNonNull(builderLocked(builderPrototype::create));
+      final var created = candidate;
+      final boolean registered = locked(() -> {
+        if (state != State.CREATING || webSocket != null || creatingWebSocket != null) {
+          return false;
+        }
+        creatingWebSocket = created;
+        return true;
+      });
+      if (!registered) {
+        candidate.close();
+        return null;
+      }
+      if (onNewWebSocket != null) {
+        onNewWebSocket.accept(candidate);
+      }
+      final boolean published = locked(() -> {
+        if (state != State.CREATING
+            || webSocket != null
+            || creatingWebSocket != created) {
+          return false;
+        }
+        creatingWebSocket = null;
+        webSocket = created;
+        state = State.CONNECTING;
+        return true;
+      });
+      if (!published) {
+        // Once registered, the candidate belongs to manager.close(); publication can lose only
+        // to that terminal transition, which has already captured and closed it.
+        return null;
+      }
+      connect(candidate);
+      return webSocket == candidate ? candidate : null;
+    } catch (final RuntimeException | Error failure) {
+      close();
+      throw failure;
+    }
+  }
+
+  private void connect(final SolanaRpcWebsocket current) {
+    final CompletableFuture<?> attempt;
+    try {
+      attempt = builderLocked(current::connect);
+    } catch (final RuntimeException failure) {
+      connectionAttemptFailed(current, null, failure);
+      return;
+    } catch (final Error failure) {
+      // The create path guards this same call through createAndConnect's Error arm. The retry
+      // path does not: it commits CONNECTING and consumes the retry token under the lock before
+      // driving connect() off-lock, so an unguarded Error would leave a websocket that is
+      // neither closed() nor retried — no callback, no timer and no later accessor can leave
+      // CONNECTING. Terminal rather than backed off, because the wrapper's own attempt is left
+      // unsettled and its single-flight guard then hands every later connect() a future that
+      // never completes.
+      close();
+      throw failure;
+    }
+    if (attempt == null) {
+      final long delay = beginFailure(current, null);
+      detachTerminalWebSocket(current);
+      if (delay >= 0) {
+        logger.log(WARNING, "Websocket became terminal while connecting. Re-connecting in "
+            + delay + " milliseconds.");
+      }
+      return;
+    }
+
+    final boolean installed = locked(() -> {
+      if (webSocket != current || state != State.CONNECTING || connectFuture != null) {
+        return false;
+      }
+      connectFuture = attempt;
+      return true;
+    });
+    if (!installed) {
+      attempt.cancel(false);
+      return;
+    }
+    attempt.whenComplete((_, failure) -> {
+      if (failure != null) {
+        connectionAttemptFailed(current, attempt, failure);
+      } else {
+        markOpen(current, attempt);
+      }
+    });
+  }
+
+  private void connectionAttemptFailed(final SolanaRpcWebsocket current,
+                                       final CompletableFuture<?> attempt,
+                                       final Throwable failure) {
+    final long delay = beginFailure(current, attempt);
+    if (delay >= 0) {
+      logger.log(WARNING, "Websocket connection attempt failed. Re-connecting in "
+          + delay + " milliseconds.", failure);
+    }
+  }
+
+  private void detachTerminalWebSocket(final SolanaRpcWebsocket current) {
+    final CompletableFuture<?> attempt = locked(() -> {
+      if (webSocket == current && state != State.CLOSED) {
+        final var pending = connectFuture;
+        webSocket = null;
+        connectFuture = null;
+        if (state != State.BACKING_OFF) {
+          state = State.NEW;
+        }
+        return pending;
+      }
+      return null;
+    });
+    cancel(attempt);
+  }
+
+  private long beginFailure(final SolanaRpcWebsocket current,
+                            final CompletableFuture<?> expectedAttempt) {
+    final FailureClaim claim = locked(() -> {
+      if (webSocket != current
+          || (state != State.CONNECTING && state != State.OPEN)
+          || (expectedAttempt != null && connectFuture != expectedAttempt)) {
+        return null;
+      }
+      final var attempt = connectFuture;
+      connectFuture = null;
+      state = State.BACKING_OFF;
+      retryPolicyPending = true;
+      return new FailureClaim(++errorCount, ++retrySequence, attempt);
+    });
+    if (claim == null) {
+      return -1;
+    }
+    cancel(claim.attempt());
+
+    final long retryDelay;
+    final long failureStartedAtNanos;
+    final long schedulingStartedAtNanos;
+    try {
+      failureStartedAtNanos = clock.nanoTime();
+      if (!retryPolicyPending()) {
+        return -1;
+      }
+      retryDelay = Math.max(0, backoff.delay(claim.errorCount(), MILLISECONDS));
+      if (!retryPolicyPending()) {
+        return -1;
+      }
+      schedulingStartedAtNanos = clock.nanoTime();
+    } catch (final RuntimeException collaboratorFailure) {
+      close();
+      logger.log(WARNING, "Unable to calculate the websocket reconnect policy; manager closed.",
+          collaboratorFailure);
+      return -1;
+    } catch (final Error collaboratorFailure) {
+      close();
+      throw collaboratorFailure;
+    }
+
+    final long delayNanos = MILLISECONDS.toNanos(retryDelay);
+    final boolean installed = locked(() -> {
+      if (!retryPolicyPending) {
+        return false;
+      }
+      retryStartedAtNanos = failureStartedAtNanos;
+      retryDelayNanos = delayNanos;
+      retryPolicyPending = false;
+      return true;
+    });
+    if (!installed) {
+      return -1;
+    }
+    final long scheduleDelayMillis = ceilMillisUntilDeadline(
+        delayNanos - (schedulingStartedAtNanos - failureStartedAtNanos)
+    );
+    scheduleRetry(scheduleDelayMillis, claim.sequence());
+    return scheduleDelayMillis;
+  }
+
+  private boolean retryPolicyPending() {
+    return locked(() -> retryPolicyPending);
+  }
+
+  private void scheduleRetry(final long delayMillis, final long expectedSequence) {
+    final var retry = new CompletableFuture<Void>();
+    try {
+      retryScheduler.schedule(delayMillis, retry);
+    } catch (final RuntimeException failure) {
+      logger.log(WARNING, "Unable to schedule the websocket reconnect.", failure);
+      return;
+    }
+    final boolean installed = locked(() -> {
+      if (state != State.BACKING_OFF
+          || retrySequence != expectedSequence
+          || scheduledRetry != null) {
+        return false;
+      }
+      scheduledRetry = retry;
+      return true;
+    });
+    if (installed) {
+      retry.whenComplete((_, failure) -> {
+        if (failure == null) {
+          try {
+            retryReady(retry);
+          } catch (final RuntimeException | Error wakeFailure) {
+            // This stage is discarded, and CompletableFuture records an action's throwable on
+            // it rather than rethrowing, so a wake that fails has no caller and no uncaught
+            // handler to reach. A terminal failure here stops reconnecting for good; report it
+            // or the manager dies in silence. The rethrow only completes the discarded stage,
+            // exactly as before, and keeps the semantics intact for a future retaining caller.
+            logger.log(WARNING,
+                "Scheduled websocket reconnect failed; no further reconnect is scheduled.",
+                wakeFailure);
+            throw wakeFailure;
+          }
+        }
+      });
+    } else {
+      retry.cancel(false);
+    }
+  }
+
+  private void retryReady(final CompletableFuture<Void> retry) {
+    final long nowNanos = clock.nanoTime();
+    final long remainingNanos;
+    final long expectedSequence;
+    lock.lock();
+    try {
+      if (scheduledRetry != retry || state != State.BACKING_OFF) {
+        return;
+      }
+      scheduledRetry = null;
+      remainingNanos = retryDelayNanos - (nowNanos - retryStartedAtNanos);
+      expectedSequence = retrySequence;
+    } finally {
+      lock.unlock();
+    }
+    if (remainingNanos <= 0) {
+      ensureWebSocket();
+      return;
+    }
+    scheduleRetry(ceilMillisUntilDeadline(remainingNanos), expectedSequence);
+  }
+
+  private static long ceilMillisUntilDeadline(final long remainingNanos) {
+    if (remainingNanos <= 0) {
+      return 0;
+    }
+    final long wholeMillis = NANOSECONDS.toMillis(remainingNanos);
+    return MILLISECONDS.toNanos(wholeMillis) == remainingNanos ? wholeMillis : wholeMillis + 1;
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket current) {
+    // The onOpen callback names no attempt: it can arrive before the attempt future settles.
+    markOpen(current, null);
+  }
+
+  /// The one transition to OPEN, reached by either independent piece of evidence that the
+  /// connection is live: the `onOpen` callback, and the attempt future, which
+  /// [SolanaRpcWebsocket#connect()] documents as completing "once the underlying WebSocket is
+  /// connected". Neither is guaranteed — the library permits `onOpen` before the future settles,
+  /// and a wrapping builder may complete the attempt without ever delivering `onOpen` — so the
+  /// manager takes whichever arrives first and lets the state guard make the other a no-op.
+  /// Without this, a connection that never reports `onOpen` stays CONNECTING with `errorCount`
+  /// never cleared, so its backoff keeps escalating across successful reconnects.
+  ///
+  /// `expectedAttempt` fences the future path by attempt identity: a wrapper is reused across
+  /// reconnects, so `webSocket == current` alone would let a stale predecessor's completion open
+  /// the successor that now occupies CONNECTING. The `onOpen` path passes null, the same
+  /// no-attempt convention [#beginFailure] uses for transport callbacks.
+  private void markOpen(final SolanaRpcWebsocket current,
+                        final CompletableFuture<?> expectedAttempt) {
+    final CompletableFuture<?> attempt;
+    lock.lock();
+    try {
+      if (webSocket != current
+          || state != State.CONNECTING
+          || (expectedAttempt != null && connectFuture != expectedAttempt)) {
+        return;
+      }
+      attempt = connectFuture;
+      connectFuture = null;
+      errorCount = 0;
+      state = State.OPEN;
+    } finally {
+      lock.unlock();
+    }
+    cancel(attempt);
+    logger.log(INFO, "WebSocket connected to " + current.endpoint().getHost());
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket current, final int statusCode, final String reason) {
+    final long delay = beginFailure(current, null);
+    if (delay >= 0) {
+      logger.log(WARNING, "Websocket closed [statusCode=" + statusCode + "] [reason="
+          + reason + "]. Re-connecting in " + delay + " milliseconds.");
+    }
+  }
+
+  @Override
+  public void accept(final SolanaRpcWebsocket current, final Throwable failure) {
+    final long delay = beginFailure(current, null);
+    if (delay >= 0) {
+      logger.log(WARNING, "Websocket failure. Re-connecting in " + delay + " milliseconds.", failure);
     }
   }
 
   @Override
   public SolanaRpcWebsocket webSocket() {
-    var webSocket = this.webSocket;
-    if (webSocket == null) {
-      lock.lock();
-      try {
-        webSocket = this.webSocket;
-        if (webSocket == null) {
-          webSocket = createWebSocket();
-          final long now = clock.currentTimeMillis();
-          if ((now - this.lastWebSocketConnect) > this.connectionDelay) {
-            this.needsConnect = false;
-            this.lastWebSocketConnect = now;
-            webSocket.connect();
-          } else {
-            needsConnect = true;
-          }
-          this.webSocket = webSocket;
-        }
-      } finally {
-        lock.unlock();
-      }
-    }
-    return webSocket;
+    return ensureWebSocket();
   }
 
   @Override
   public void close() {
-    final var webSocket = this.webSocket;
-    if (webSocket != null) {
-      webSocket.close();
+    final Resources resources = locked(() -> {
+      if (state == State.CLOSED) {
+        return new Resources(null, null, null, null);
+      }
+      state = State.CLOSED;
+      final var resourcesToClose = new Resources(
+          scheduledRetry, connectFuture, webSocket, creatingWebSocket
+      );
+      scheduledRetry = null;
+      connectFuture = null;
+      webSocket = null;
+      creatingWebSocket = null;
+      retryPolicyPending = false;
+      return resourcesToClose;
+    });
+    cancel(resources.retry());
+    cancel(resources.attempt());
+    if (resources.webSocket() != null) {
+      resources.webSocket().close();
+    }
+    if (resources.creatingWebSocket() != null
+        && resources.creatingWebSocket() != resources.webSocket()) {
+      resources.creatingWebSocket().close();
     }
   }
 }

@@ -43,8 +43,6 @@ debt, and their arguments below still stand.
   (`# stats-recompute-guard`, two rows).
 - `catchAll` `LookupTableCacheMap.getOrFetchTables` `ORDER_IF`
   (`# whole-collection-shortcut`).
-- `catchAll` `WebSocketManagerImpl.checkConnection` `EQUAL_IF`
-  (`# dcl-recheck`).
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
@@ -246,7 +244,69 @@ A fluent call returning its receiver type is an expression, invisible to
 ## Triaged equivalent mutants (accepted with reasons)
 
 **Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals:
-log output is not part of any behavioral contract.
+log output is not part of any behavioral contract. The websocket entries include the warning for
+a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, the
+warnings emitted when retry-policy calculation or the optional automatic scheduler rejects a
+wake-up, and the connection-open `INFO` in `markOpen`.
+
+One websocket log is deliberately **not** in this family and is killed by an assertion instead:
+the failure of a scheduled wake, reported inside `scheduleRetry`'s completion action. That path
+has no caller — `CompletableFuture` records the action's throwable on a stage the manager
+discards — so the record is the only externally observable evidence that reconnection has stopped
+for good. There the log *is* the contract, which is why
+`aFailedScheduledWakeIsReportedRatherThanSwallowed` asserts it. Asserting a log anywhere the
+behaviour is observable by other means would contradict this family's argument rather than harden
+anything.
+
+**Websocket diagnostics-only branches** `# ws-log-only` (`catchAll`) — the boundary and
+`ORDER_IF` mutants around `delay >= 0` in `accept`, `connect`, and
+`connectionAttemptFailed` only suppress a zero-delay warning or emit one for a stale `-1` result.
+The six `beginFailure` return mutants likewise change only that gate or the delay printed in the
+message. On those return paths either no failure claim was accepted, terminal close invalidated
+the claim, or retry timing and wake ownership were already installed; changing the returned
+number cannot alter manager state or schedule another attempt.
+
+**Exact-zero retry deadline** `# retry-deadline-zero` (`catchAll`) — changing the
+`remainingNanos <= 0` boundary at exactly zero reaches the rounding expression instead of its
+fast return. That expression converts zero nanoseconds to zero milliseconds and returns the same
+zero-delay scheduler wake; negative and positive remainders retain their original branches.
+
+**Overlapping websocket ownership guards** `# ws-ownership-overlap` (`catchAll`) — the surviving
+directions remove one condition already implied by another locked state, identity, or generation
+check. A manager drive is the only path that can install a connect future; registration's
+`CREATING` claim implies both websocket slots are empty; publication retains the exact creating
+candidate unless `close` atomically clears it with the state; one retry sequence has only one
+installing scheduler call; and an installed retry token exists only while `BACKING_OFF`. The
+opposite branch directions, which reject or admit work without those authoritative checks, are
+killed by the reentrant and stale-predecessor tests.
+
+One row in this family is accepted for a *harness* reason rather than an equivalence one, and is
+labelled as such here because the distinction matters: `lambda$connect$0` `EQUAL_IF` removes the
+`webSocket != current` guard on the connect-attempt installation. Reaching it needs a successor
+that has entered `CONNECTING` and not yet installed its future while a predecessor resumes.
+Serializing the shared JDK builder (`builderLock`, see
+`theSharedWebSocketBuilderIsOnlyTouchedUnderTheBuilderLock`) closed the interleaving the covering
+test used to arrange: a successor can no longer be *inside* `connect()` while a predecessor is,
+so the remaining window is the few instructions between releasing `builderLock` and taking
+`lock`. That window is real and the guard is still required — this is not an equivalent mutant —
+but no deterministic harness can hit it, and this repository prefers a written acceptance to a
+spin-wait.
+
+**Websocket terminal-state invariants** `# ws-terminal-invariant` (`catchAll`) — after the first
+manager `close`, every captured resource field is cleared, so forcing a later close through the
+same snapshot-and-clear block still produces four null resources. While creation is live,
+`creatingWebSocket` and `webSocket` are mutually exclusive under the same lock, so the comparison
+which prevents closing one object through both slots cannot distinguish a reachable state.
+
+**Retry-sequence direction** `# retry-sequence-direction` (`catchAll`) — the retry sequence is an
+equality token, not an ordered counter. Replacing its increment with a decrement still gives every
+successive failure a distinct value and rejects the same stale scheduler completions.
+
+**Detached-state normalization only** `# state-normalization-only` (`catchAll`) — after a terminal
+wrapper is detached, `webSocket` is null. The same accessor immediately takes the creation path
+from `NEW`, `CONNECTING`, or `OPEN`; preserving `BACKING_OFF` is the only behavioral branch and is
+unchanged. Assigning `NEW` therefore normalizes the internal state name without changing the
+candidate created, the backoff deadline, or any return value.
 
 **Redundant null-guard assignment** `# null-guard-noop` (`config`, `formatting`) — builder
 `parseProperties` guards of the shape `if (x != null) this.field = x;`:
@@ -412,27 +472,28 @@ the stats from the same completed samples future, which joins to the same
 samples and so the same stats); no new behaviour class was introduced. Two of the
 six originally materialized here — the pacing-block subtraction and the
 fetch disjunction's samples operand — have since been *killed* by the
-signal-while-parked harness. Same event, one row:
-`WebSocketManagerImpl.checkConnection` line 149 in `catchAll`, the sibling
-operand of the outer double-checked condition.
+signal-while-parked harness.
 
-**`WebSocketManagerImpl` (8)** — was 12: the 2026-07-21 `NanoClock`
-migration killed the two `elapsed == connectionDelay` millisecond boundaries
-(now exact strict-inequality tests on an injected clock), the
-`webSocket == null` re-check, and — together with the retained-pending-connect
-test — one of the `canConnect()` pair, whose blocking state ("requires real
-time to pass") a test clock now reaches deterministically. The same migration
-killed the staleness boundary in `LookupTableCacheMap.refreshStaleAccounts`
-and the resend-delay boundary in `TxCommitmentMonitorService` — five rows
-total, none replaced. What remains here: double-checked-locking re-reads
-whose condition is already true when re-evaluated (`# dcl-recheck`),
-`resetWebsocket`'s return value that only reaches log text
-(`# log-text-only`), and logging removals.
+**Temporarily retained obsolete websocket rows** — ten `WebSocketManagerImpl`
+rows no longer match any mutant: six ownership guards from the previous manager
+(`# dcl-recheck`), `resetWebsocket` (`# log-text-only`), `onPingFailure`
+(`# log-removal`), the former nullable-scheduler guard (`# ws-log-only`), and one
+of the three `accept` `# log-removal` rows — the connection-open log moved to
+`markOpen` when the open transition gained its second caller, so that row's
+mutant is now the `markOpen` `# log-removal` row and only the two remaining
+`accept` rows (the close and failure warnings) still match a mutant. The
+acceptance relocated; it was not retired. None of the ten is
+a current acceptance argument. Under sava-build
+21.5.25, `pitestCatchAllBaselinePrune` is suite-wide, and the same report also
+offers the intentionally retained ArcMutate-subsumed
+`LookupTableCacheMap.getOrFetchTables` `ORDER_IF` row; pruning would delete all
+eleven. Keep these ten only until selective cleanup is available or the owner
+approves retiring the LookupTable insurance.
 
 **Wall-clock websocket confirmation fallback** `# ws-timeout-fallback` (`catchAll`) —
-`TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 239/240
+`TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 263/264
 (`NakedReceiverMutator` on `.orTimeout(...)` / `.exceptionally(...)`) and the
-`NO_COVERAGE` `VoidMethodCallMutator` at line 241 inside that fallback lambda.
+`NO_COVERAGE` `VoidMethodCallMutator` at line 265 inside that fallback lambda.
 `CompletableFuture.orTimeout` schedules on the JVM-global delayed executor,
 which is real time and cannot be routed through `NanoClock`, so firing the
 timeout deterministically is impossible in-harness — the fallback lambda never
