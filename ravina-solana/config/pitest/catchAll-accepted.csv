@@ -2,7 +2,6 @@
 software.sava.services.solana.alt.CachedAddressLookupTable,read,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop # line 38
 software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,ConditionalsBoundaryMutator,SURVIVED # whole-collection-shortcut # line 196
 software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # capacity-hint # line 137
-software.sava.services.solana.alt.LookupTableCacheMap,getOrFetchTables,RemoveConditionalMutator_ORDER_IF,SURVIVED # whole-collection-shortcut # line 202
 software.sava.services.solana.helius.client.http.HeliusJsonRpcClient,getProgramAccounts,MathMutator,SURVIVED # capacity-hint # line 133
 software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeParams,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity # line 13
 software.sava.services.solana.helius.client.http.request.PriorityFeeRequest,serializeRecommendedParams,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # single-join-identity # line 69
@@ -35,15 +34,6 @@ software.sava.services.solana.transactions.TxExpirationMonitorService,processTra
 software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 62
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 551
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 560
-software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 487
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # dcl-recheck # line 106
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 106
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 106
-software.sava.services.solana.websocket.WebSocketManagerImpl,checkConnection,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 117
-software.sava.services.solana.websocket.WebSocketManagerImpl,resetWebsocket,PrimitiveReturnsMutator,SURVIVED # log-text-only # line 58
-software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 132
-software.sava.services.solana.websocket.WebSocketManagerImpl,webSocket,RemoveConditionalMutator_EQUAL_IF,SURVIVED # dcl-recheck # line 136
-software.sava.services.solana.websocket.WebSocketManagerImpl,onPingFailure,VoidMethodCallMutator,SURVIVED # log-removal # line 100
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,ConditionalsBoundaryMutator,SURVIVED # ws-log-only # line 550
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,ConditionalsBoundaryMutator,SURVIVED # ws-log-only # line 559
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,RemoveConditionalMutator_ORDER_IF,SURVIVED # ws-log-only # line 550
@@ -59,7 +49,6 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,connectionAttemptFa
 software.sava.services.solana.websocket.WebSocketManagerImpl,connectionAttemptFailed,VoidMethodCallMutator,SURVIVED # log-removal # line 350
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$beginFailure$0,MathMutator,SURVIVED # retry-sequence-direction # line 383
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$close$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-terminal-invariant # line 572
-software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$connect$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 313
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$createAndConnect$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 250
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$createAndConnect$0,RemoveConditionalMutator_EQUAL_IF,SURVIVED # ws-ownership-overlap # line 250
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$createAndConnect$1,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 264
@@ -68,7 +57,6 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$createAndCon
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$detachTerminalWebSocket$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # state-normalization-only # line 361
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$scheduleRetry$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 446
 software.sava.services.solana.websocket.WebSocketManagerImpl,retryReady,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 483
-software.sava.services.solana.websocket.WebSocketManagerImpl,scheduleRetry,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-log-only # line 326
 software.sava.services.solana.websocket.WebSocketManagerImpl,scheduleRetry,VoidMethodCallMutator,SURVIVED # log-removal # line 442
 software.sava.services.solana.websocket.WebSocketManagerImpl,beginFailure,PrimitiveReturnsMutator,SURVIVED # ws-log-only # line 400
 software.sava.services.solana.websocket.WebSocketManagerImpl,beginFailure,PrimitiveReturnsMutator,SURVIVED # ws-log-only # line 407
@@ -77,5 +65,4 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,beginFailure,Primit
 software.sava.services.solana.websocket.WebSocketManagerImpl,beginFailure,VoidMethodCallMutator,SURVIVED # log-removal # line 405
 software.sava.services.solana.websocket.WebSocketManagerImpl,ceilMillisUntilDeadline,ConditionalsBoundaryMutator,SURVIVED # retry-deadline-zero # line 500
 software.sava.services.solana.websocket.WebSocketManagerImpl,markOpen,VoidMethodCallMutator,SURVIVED # log-removal # line 544
-software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$connect$0,RemoveConditionalMutator_EQUAL_IF,SURVIVED # ws-ownership-overlap # line 313
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$installConnectAttempt$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 337

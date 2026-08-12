@@ -32,17 +32,29 @@ next refresh rewrite the tag.
 
 Since the licensed engine generates fewer mutants (below), a few already-argued
 rows now match no mutant in a run and the plugin prints them as prune
-candidates. They are **kept**: a rebase removes no acceptance, pruning is owed
-repeated evidence, and in each case the key still exists with its remaining
-siblings `KILLED` — ArcMutate subsumed the surviving one. They are not new
-debt, and their arguments below still stand.
+candidates. In `epochService` they are **kept**: a rebase removes no acceptance,
+pruning is owed repeated evidence, and in each case the key still exists with its
+remaining siblings `KILLED` — ArcMutate subsumed the surviving one. They are not
+new debt, and their arguments below still stand.
 
 - `epochService` `EpochInfoServiceImpl.checkCycle` `EQUAL_IF`
   (`# fetch-disjunction-converging`) and `ORDER_IF` (`# idle-spin-only`).
 - `epochService` `EpochInfoServiceImpl.getAndSetEpochInfo` `EQUAL_IF`
   (`# stats-recompute-guard`, two rows).
-- `catchAll` `LookupTableCacheMap.getOrFetchTables` `ORDER_IF`
-  (`# whole-collection-shortcut`).
+
+`catchAll` no longer carries such a row. It held one —
+`LookupTableCacheMap.getOrFetchTables` `ORDER_IF` (`# whole-collection-shortcut`)
+— as insurance against a run made without `com.arcmutate:base`, alongside twelve
+rows left dead by the websocket rewrite. Because prune is suite-wide, keeping the
+insurance meant keeping all thirteen, and the pile had grown large enough to
+obscure what the record actually argued. The owner retired the insurance on
+2026-08-12 and all thirteen were pruned together, after the same candidate set was
+observed under both the solo and `qualityGate` loads with `-PnoMutationHistory`.
+**The consequence is real and worth knowing before you hit it:** a `catchAll` run
+whose tool classpath lacks the ArcMutate certificate will generate that
+`ORDER_IF` mutant again and fail the ratchet on an unrecorded row. That is a
+missing certificate, not a regression — restore it, or re-accept the row under
+its old `# whole-collection-shortcut` argument, which still holds.
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
@@ -472,21 +484,16 @@ six originally materialized here — the pacing-block subtraction and the
 fetch disjunction's samples operand — have since been *killed* by the
 signal-while-parked harness.
 
-**Temporarily retained obsolete websocket rows** — ten `WebSocketManagerImpl`
-rows no longer match any mutant: six ownership guards from the previous manager
-(`# dcl-recheck`), `resetWebsocket` (`# log-text-only`), `onPingFailure`
-(`# log-removal`), the former nullable-scheduler guard (`# ws-log-only`), and one
-of the three `accept` `# log-removal` rows — the connection-open log moved to
-`markOpen` when the open transition gained its second caller, so that row's
-mutant is now the `markOpen` `# log-removal` row and only the two remaining
-`accept` rows (the close and failure warnings) still match a mutant. The
-acceptance relocated; it was not retired. None of the ten is
-a current acceptance argument. Under sava-build
-21.5.25, `pitestCatchAllBaselinePrune` is suite-wide, and the same report also
-offers the intentionally retained ArcMutate-subsumed
-`LookupTableCacheMap.getOrFetchTables` `ORDER_IF` row; pruning would delete all
-eleven. Keep these ten only until selective cleanup is available or the owner
-approves retiring the LookupTable insurance.
+**Retired websocket rows** — the websocket rewrite left twelve `WebSocketManagerImpl`
+rows arguing about code that no longer exists, and they were pruned on 2026-08-12:
+six ownership guards from the previous manager (`# dcl-recheck`), `resetWebsocket`
+(`# log-text-only`), `onPingFailure` (`# log-removal`), the former nullable-scheduler
+guard (`# ws-log-only`), two `lambda$connect$0` rows orphaned when the attempt claim
+moved into `installConnectAttempt`, and one of the three `accept` `# log-removal`
+rows. That last one did not lose coverage: the connection-open log moved to
+`markOpen` when the open transition gained its second caller, so its acceptance is
+now the `markOpen` `# log-removal` row, and the two remaining `accept` rows are the
+close and failure warnings.
 
 **Wall-clock websocket confirmation fallback** `# ws-timeout-fallback` (`catchAll`) —
 `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 263/264
