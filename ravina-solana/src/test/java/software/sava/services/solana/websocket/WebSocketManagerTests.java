@@ -202,6 +202,10 @@ final class WebSocketManagerTests {
     /// Models a Builder that predates the additive `subscriptionResendDelay(long)` capability and
     /// therefore inherits its throwing interface default.
     private boolean legacyResendDelaySetter;
+    /// Models an immutable or decorating Builder whose timing setters return a NEW instance
+    /// rather than `this`. The manager must thread those return values through instead of
+    /// assuming the prototype mutated in place.
+    private boolean immutableTimingSetters;
     private boolean copyConnectResults = true;
     private Runnable duringCreate;
     private Runnable duringConnect;
@@ -296,6 +300,11 @@ final class WebSocketManagerTests {
 
     @Override
     public SolanaRpcWebsocket.Builder reConnectDelay(final long reConnectDelay) {
+      if (immutableTimingSetters) {
+        final var copy = new FakeBuilder(this);
+        copy.reConnectDelay = reConnectDelay;
+        return copy;
+      }
       this.reConnectDelay = reConnectDelay;
       return this;
     }
@@ -325,6 +334,11 @@ final class WebSocketManagerTests {
         // describing a Builder that predates this additive capability even if sava-rpc changes
         // what declining it does.
         return SolanaRpcWebsocket.Builder.super.subscriptionResendDelay(subscriptionResendDelay);
+      }
+      if (immutableTimingSetters) {
+        final var copy = new FakeBuilder(this);
+        copy.subscriptionResendDelay = subscriptionResendDelay;
+        return copy;
       }
       this.subscriptionResendDelay = subscriptionResendDelay;
       return this;
@@ -1903,6 +1917,81 @@ final class WebSocketManagerTests {
     assertUnlocked(manager);
   }
 
+  /// The gap between `connect()` returning and its attempt being claimed is off-lock, so a
+  /// wrapper replacement can overtake a predecessor there and reach CONNECTING with its own
+  /// attempt not yet installed. Wrapper identity is the only fence that separates them at that
+  /// moment: the state matches and the slot is empty. Arranged through the
+  /// [WebSocketManagerImpl#installConnectAttempt] seam, because both threads hold no lock there
+  /// and the meeting cannot be staged from outside.
+  @Test
+  void aPredecessorConnectCannotInstallItsFutureIntoAConnectingSuccessor() {
+    final var builder = new FakeBuilder();
+    final var predecessorAtSeam = new CountDownLatch(1);
+    final var releasePredecessor = new CountDownLatch(1);
+    final var successorAtSeam = new CountDownLatch(1);
+    final var releaseSuccessor = new CountDownLatch(1);
+    final var seamArmed = new AtomicInteger();
+
+    final var manager = new WebSocketManagerImpl(
+        new TestBackoff(13, 13), builder, null, new TestClock(10_100), new ManualRetryScheduler()
+    ) {
+      @Override
+      boolean installConnectAttempt(final SolanaRpcWebsocket current,
+                                    final CompletableFuture<?> attempt) {
+        final int arrival = seamArmed.incrementAndGet();
+        if (arrival == 1) {
+          predecessorAtSeam.countDown();
+          await(releasePredecessor);
+        } else if (arrival == 2) {
+          successorAtSeam.countDown();
+          await(releaseSuccessor);
+        }
+        return super.installConnectAttempt(current, attempt);
+      }
+    };
+
+    final var predecessorAttempt = new CompletableFuture<Void>();
+    final var successorAttempt = new CompletableFuture<Void>();
+    builder.connectResults.add(predecessorAttempt);
+    builder.connectResults.add(successorAttempt);
+
+    CompletableFuture<SolanaRpcWebsocket> predecessorWake = null;
+    CompletableFuture<SolanaRpcWebsocket> successorWake = null;
+    try {
+      predecessorWake = CompletableFuture.supplyAsync(manager::webSocket);
+      await(predecessorAtSeam);
+      final var predecessor = builder.only();
+      predecessor.proxy.close();
+
+      // The successor detaches the terminal wrapper, publishes itself into CONNECTING, and stops
+      // at the same seam with its own attempt still unclaimed.
+      successorWake = CompletableFuture.supplyAsync(manager::webSocket);
+      await(successorAtSeam);
+      assertEquals(2, builder.created.size());
+
+      releasePredecessor.countDown();
+      assertNull(await(predecessorWake),
+          "the predecessor must not be handed back once its wrapper was replaced");
+
+      releaseSuccessor.countDown();
+      await(successorWake);
+      assertTrue(predecessor.connectAttempts.getLast().isCancelled(),
+          "the predecessor future must not occupy the successor's empty connection slot");
+      assertFalse(builder.created.get(1).connectAttempts.getLast().isCancelled(),
+          "the successor must still own the slot it published itself into");
+    } finally {
+      releasePredecessor.countDown();
+      releaseSuccessor.countDown();
+      if (predecessorWake != null) {
+        await(predecessorWake);
+      }
+      if (successorWake != null) {
+        await(successorWake);
+      }
+      manager.close();
+    }
+  }
+
   /// Every wrapper built from one prototype shares a single underlying
   /// `java.net.http.WebSocket.Builder`: `create()` writes `connectTimeout` on it and every
   /// `connect()` calls `buildAsync` on it, and the JDK specifies that builder as unsafe for
@@ -1960,6 +2049,31 @@ final class WebSocketManagerTests {
     assertNotNull(manager.webSocket());
   }
 
+  /// The constructor threads each timing setter's return value rather than assuming the
+  /// prototype mutated in place, because an immutable or decorating Builder returns a new
+  /// instance. Otherwise the manager would keep configuring — and hand to `create()` — a
+  /// prototype that still carries the throttle it believed it had disabled.
+  @Test
+  void anImmutableBuilderIsNormalizedThroughItsReturnedInstances() {
+    final var builder = new FakeBuilder();
+    builder.immutableTimingSetters = true;
+    builder.reConnectDelay = 47L;
+    builder.subscriptionResendDelay = 71L;
+
+    final var manager = new WebSocketManagerImpl(
+        new TestBackoff(13, 13), builder, null, new TestClock(10_150), new ManualRetryScheduler()
+    );
+
+    assertNotSame(builder, manager.builderPrototype,
+        "an immutable builder must not be mistaken for the configured prototype");
+    assertEquals(0L, manager.builderPrototype.reConnectDelay(),
+        "the throttle must be disabled on the instance the manager kept");
+    assertEquals(71L, manager.builderPrototype.subscriptionResendDelay(),
+        "the resend delay must survive on the instance the manager kept");
+    assertEquals(47L, builder.reConnectDelay,
+        "the caller's builder must be left untouched");
+  }
+
   /// The case that genuinely needs the capability: zeroing a non-zero throttle would silently
   /// re-pace subscription escalation unless the derived delay is pinned first. Failing loudly at
   /// construction, naming the remedy, beats either propagating a bare
@@ -1980,14 +2094,15 @@ final class WebSocketManagerTests {
         "the message must name the remedy: " + failure.getMessage());
   }
 
-  /// The future-first ordering, which is the one the attempt-completion path introduced: the
-  /// attempt reports the connection live, and an `onOpen` for that same connection follows. The
-  /// open must be counted once. The oracle is the failure pacing, not the log — a redundant open
-  /// changes no state a caller can observe, and this module's own `# log-removal` argument is
-  /// that log output is not a behavioural contract, so asserting a log count here would hard-code
-  /// the opposite.
+  /// Both open signals may arrive for one connection, in the order the attempt-completion path
+  /// introduced: the attempt reports the connection live and an `onOpen` follows. Dual delivery
+  /// must be harmless — the pacing ends up reset either way. This does not prove exactly-once:
+  /// two identical resets are indistinguishable from one, and a redundant open changes no state
+  /// a caller can observe, so there is nothing exact to assert. The state guard that makes the
+  /// second signal inert is pinned by `aLateOnOpenCannotOpenABackedOffConnection`, where opening
+  /// twice *is* observable.
   @Test
-  void aConnectFutureOpenIsCountedOnceWhenOnOpenFollows() {
+  void dualOpenSignalsForOneConnectionAreHarmless() {
     final var clock = new TestClock(9_250);
     final var builder = new FakeBuilder();
     final var backoff = new RecordingBackoff(29, 43);
@@ -2009,7 +2124,7 @@ final class WebSocketManagerTests {
 
     withoutManagerLogging(() -> fake.fireError(new IOException("later failure")));
     assertEquals(List.of(1L, 1L), backoff.errorCounts,
-        "one connection is one open, whichever signal arrived first");
+        "either open signal must reset the pacing, and the redundant one must not disturb it");
     assertUnlocked(manager);
   }
 

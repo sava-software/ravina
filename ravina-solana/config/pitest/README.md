@@ -280,17 +280,15 @@ installing scheduler call; and an installed retry token exists only while `BACKI
 opposite branch directions, which reject or admit work without those authoritative checks, are
 killed by the reentrant and stale-predecessor tests.
 
-One row in this family is accepted for a *harness* reason rather than an equivalence one, and is
-labelled as such here because the distinction matters: `lambda$connect$0` `EQUAL_IF` removes the
-`webSocket != current` guard on the connect-attempt installation. Reaching it needs a successor
-that has entered `CONNECTING` and not yet installed its future while a predecessor resumes.
-Serializing the shared JDK builder (`builderLock`, see
-`theSharedWebSocketBuilderIsOnlyTouchedUnderTheBuilderLock`) closed the interleaving the covering
-test used to arrange: a successor can no longer be *inside* `connect()` while a predecessor is,
-so the remaining window is the few instructions between releasing `builderLock` and taking
-`lock`. That window is real and the guard is still required — this is not an equivalent mutant —
-but no deterministic harness can hit it, and this repository prefers a written acceptance to a
-spin-wait.
+Every row in this family is an argued equivalent. The `webSocket != current` guard on the
+connect-attempt installation is **not** one of them: it is a real ownership guard, and it is
+killed. Serializing the shared JDK builder closed the interleaving its covering test used to
+arrange, so the claim moved to the package-private
+`WebSocketManagerImpl.installConnectAttempt` seam, which lets
+`aPredecessorConnectCannotInstallItsFutureIntoAConnectingSuccessor` stage the meeting from inside
+the off-lock gap where neither thread holds a lock. Accepting a real guard under an equivalence
+label would have made deleting it ratchet-invisible, which is exactly what the acceptance policy
+at the top of this file forbids.
 
 **Websocket terminal-state invariants** `# ws-terminal-invariant` (`catchAll`) — after the first
 manager `close`, every captured resource field is cleared, so forcing a later close through the

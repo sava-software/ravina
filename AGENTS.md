@@ -493,6 +493,23 @@ habit has found eight real bugs so far — six of them silent — and
   config both ways and require the parses to agree (or both to reject). Add new
   configs there; a renamed property key or a `FieldMatcher` ordinal shift shows
   up as a concrete counter-example rather than a silent divergence.
+- **Known upstream race in `WebSocketManagerImpl` (accepted; needs a sava-rpc fix).** sava-rpc
+  retires a transport *before* delivering its `onClose`/`onError` — that ordering is the
+  documented contract, not a bug — and retirement settles the connect future the manager holds.
+  So one transport failure can reach the manager twice: once through the attempt future, which
+  is fenced by attempt identity, and once through the lifecycle callback, which carries only the
+  reused wrapper and so has no identity to fence with. If a retry starts in between, the second
+  claim lands on the successor: one failure counted twice, the successor's attempt cancelled,
+  backoff escalated, and a healthy successor replaced. It converges — the next open resets the
+  pacing — and the window is narrow, needing a zero backoff delay, which is a supported
+  configuration. Do **not** "fix" it by suppressing the cancellation claim: an implementation
+  that reports a real failure only by cancelling would then stall in `CONNECTING` forever. The
+  manager cannot fence it locally, because it installs one handler set on the reused wrapper at
+  construction. The naive upstream fix does not work either: it is `inFlightBuild.cancel(true)`
+  that settles the consumer's future, through the `ownedBuild.whenComplete` bridge in
+  `SolanaJsonRpcWebsocket`, and that cancel must stay ahead of user policy to release builder
+  ownership — so deferring `inFlightConnect.cancel(true)` past the notice changes nothing. A
+  real fix has to give the lifecycle callbacks attempt identity.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

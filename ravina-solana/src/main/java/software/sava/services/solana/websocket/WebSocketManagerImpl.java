@@ -18,7 +18,10 @@ import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsocket>,
+/// Deliberately non-final, and package-private so nothing outside can subclass it: same-package
+/// tests override [#installConnectAttempt] to wedge a competing wrapper replacement into the
+/// off-lock gap between `connect()` returning and its attempt being claimed.
+class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsocket>,
     SolanaRpcWebsocket.OnClose, BiConsumer<SolanaRpcWebsocket, Throwable> {
 
   private static final System.Logger logger = System.getLogger(WebSocketManagerImpl.class.getName());
@@ -309,13 +312,7 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
       return;
     }
 
-    final boolean installed = locked(() -> {
-      if (webSocket != current || state != State.CONNECTING || connectFuture != null) {
-        return false;
-      }
-      connectFuture = attempt;
-      return true;
-    });
+    final boolean installed = installConnectAttempt(current, attempt);
     if (!installed) {
       attempt.cancel(false);
       return;
@@ -326,6 +323,22 @@ final class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpc
       } else {
         markOpen(current, attempt);
       }
+    });
+  }
+
+  /// Claims the connection slot for `attempt`, or reports that the slot moved on while
+  /// `connect()` was off-lock. Package-private and overridable as a deliberate interleaving seam:
+  /// the gap between `connect()` returning and this claim is where a wrapper replacement can
+  /// overtake a predecessor, and threads meeting there hold no lock, so a test cannot arrange the
+  /// meeting from the outside. An override must let this return value flow through, or the
+  /// guard's own mutants hide behind the override.
+  boolean installConnectAttempt(final SolanaRpcWebsocket current, final CompletableFuture<?> attempt) {
+    return locked(() -> {
+      if (webSocket != current || state != State.CONNECTING || connectFuture != null) {
+        return false;
+      }
+      connectFuture = attempt;
+      return true;
     });
   }
 

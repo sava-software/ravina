@@ -14,6 +14,13 @@ import java.util.function.Consumer;
 /// lifecycle handlers are observational callbacks; this manager owns reconnect policy, so those
 /// handlers must not call `connect()`. The manager preserves the builder's subscription-resend
 /// timing but disables its fixed reconnect throttle so [Backoff] is the one reconnect policy.
+///
+/// Disabling that throttle needs `subscriptionResendDelay(long)`, which is an additive capability
+/// a Builder may decline by inheriting its throwing default: an unset resend delay is derived
+/// from the reconnect delay, so zeroing the latter alone would silently re-pace subscription
+/// escalation. A builder that declines it must therefore already report `reConnectDelay() == 0`,
+/// in which case nothing needs preserving; otherwise the factory throws `IllegalArgumentException`
+/// naming that remedy. The stock builder implements the capability and is unaffected.
 public interface WebSocketManager extends AutoCloseable {
 
   static WebSocketManager createManager(final Backoff backoff,
