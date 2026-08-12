@@ -493,23 +493,41 @@ habit has found eight real bugs so far — six of them silent — and
   config both ways and require the parses to agree (or both to reject). Add new
   configs there; a renamed property key or a `FieldMatcher` ordinal shift shows
   up as a concrete counter-example rather than a silent divergence.
-- **Known upstream race in `WebSocketManagerImpl` (accepted; needs a sava-rpc fix).** sava-rpc
-  retires a transport *before* delivering its `onClose`/`onError` — that ordering is the
-  documented contract, not a bug — and retirement settles the connect future the manager holds.
-  So one transport failure can reach the manager twice: once through the attempt future, which
-  is fenced by attempt identity, and once through the lifecycle callback, which carries only the
-  reused wrapper and so has no identity to fence with. If a retry starts in between, the second
-  claim lands on the successor: one failure counted twice, the successor's attempt cancelled,
-  backoff escalated, and a healthy successor replaced. It converges — the next open resets the
-  pacing — and the window is narrow, needing a zero backoff delay, which is a supported
-  configuration. Do **not** "fix" it by suppressing the cancellation claim: an implementation
-  that reports a real failure only by cancelling would then stall in `CONNECTING` forever. The
-  manager cannot fence it locally, because it installs one handler set on the reused wrapper at
-  construction. The naive upstream fix does not work either: it is `inFlightBuild.cancel(true)`
-  that settles the consumer's future, through the `ownedBuild.whenComplete` bridge in
-  `SolanaJsonRpcWebsocket`, and that cancel must stay ahead of user policy to release builder
-  ownership — so deferring `inFlightConnect.cancel(true)` past the notice changes nothing. A
-  real fix has to give the lifecycle callbacks attempt identity.
+- **Known failure-correlation gap in `WebSocketManagerImpl` (accepted; low severity).** One
+  transport failure can reach the manager by two routes. sava-rpc retires a transport *before*
+  delivering its `onClose`/`onError` — that ordering is deliberate, not a bug — and retirement
+  settles the connect future the manager holds. The future route is fenced by attempt identity;
+  the lifecycle route is not, because the callback carries only the wrapper, which the manager
+  reuses across reconnects. If a retry installs a successor in between, the second claim lands on
+  that successor. Be precise about the consequences, because they are smaller than they first
+  look: the manager cancels **its own copy** of the successor's attempt, not the handshake, so
+  the next retry normally rejoins the in-flight attempt (it is discarded only if it settled
+  first); the failure is double-counted only while the successor is still `CONNECTING`, since a
+  successor that reached `OPEN` already reset `errorCount`; and it converges, because the next
+  open resets pacing. sava promises no exactly-once delivery across the two routes, so this is a
+  correlation gap rather than a contract violation.
+  Reaching it at all needs the first failure to land after raw adoption but before the manager's
+  `onOpen` — sava's own deterministic example of that
+  (`adoptionDeliversItsPreparedPingFailureBeforeDemand`) needs a **negative** ping delay plus a
+  synchronously failing first-pass Ping — *and* a retry that is already due in the gap between
+  the two deliveries. It is detectable rather than silent: the two routes log distinct messages
+  (`"Websocket connection attempt failed…"` vs `"Websocket failure…"` / `"Websocket closed…"`),
+  so that pairing for one transport failure is the fingerprint to look for.
+  Do **not** "fix" it by suppressing the cancellation claim: an implementation that reports a real
+  failure only by cancelling would then stall in `CONNECTING` forever. The manager cannot fence it
+  locally, because it installs one handler set on the reused wrapper at construction. Reordering
+  upstream does not work either: it is `inFlightBuild.cancel(true)` that settles the consumer's
+  future, through the `ownedBuild.whenComplete` bridge in `SolanaJsonRpcWebsocket`, and that
+  cancel must stay ahead of user policy to release builder ownership — so deferring
+  `inFlightConnect.cancel(true)` past the notice changes nothing. If production evidence ever
+  demands a fix, it has to be additive upstream: attempt-correlated lifecycle callbacks, or a
+  narrower typed "retired; the callback owns recovery" failure.
+- **Give the websocket manager a positive reconnect delay.** A constant zero backoff
+  (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
+  unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
+  and keeps it open. A zero *initial* delay that escalates (`linear(MILLISECONDS, 0, …)`) enters
+  that state once and then grows out of it. The distinction is the escalation, not the first
+  value.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

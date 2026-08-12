@@ -15,6 +15,11 @@ import java.util.function.Consumer;
 /// handlers must not call `connect()`. The manager preserves the builder's subscription-resend
 /// timing but disables its fixed reconnect throttle so [Backoff] is the one reconnect policy.
 ///
+/// Prefer a [Backoff] with a positive delay, or at least one that escalates. A constant zero
+/// delay leaves a reconnect permanently due, which is the one configuration in which a retirement
+/// notice can be correlated with the wrong connection attempt; a zero initial delay that
+/// escalates passes through that state once instead of staying in it.
+///
 /// Disabling that throttle needs `subscriptionResendDelay(long)`, which is an additive capability
 /// a Builder may decline by inheriting its throwing default: an unset resend delay is derived
 /// from the reconnect delay, so zeroing the latter alone would silently re-pace subscription

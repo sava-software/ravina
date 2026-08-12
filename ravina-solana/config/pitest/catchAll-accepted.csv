@@ -32,7 +32,7 @@ software.sava.services.solana.transactions.TxCommitmentMonitorService,processTra
 software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,NakedReceiverMutator,SURVIVED # ws-timeout-fallback # line 263
 software.sava.services.solana.transactions.TxCommitmentMonitorService,tryAwaitCommitmentViaWebSocket,NakedReceiverMutator,SURVIVED # ws-timeout-fallback # line 264
 software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 68
-software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 57
+software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 62
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 551
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 560
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 487
