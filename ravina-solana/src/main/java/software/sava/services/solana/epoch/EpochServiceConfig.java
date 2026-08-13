@@ -33,11 +33,20 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
   private static final int DEFAULT_MILLIS_PER_SLOT = MIN_TARGET_MILLIS_PER_SLOT + 10;
 
   public EpochServiceConfig {
+    requirePositive("defaultMillisPerSlot", defaultMillisPerSlot);
+    requirePositive("minMillisPerSlot", minMillisPerSlot);
+    requirePositive("maxMillisPerSlot", maxMillisPerSlot);
     if (minMillisPerSlot > maxMillisPerSlot) {
       throw new IllegalArgumentException(String.format(
           "Minimum millis per slot (%d) cannot exceed maximum millis per slot (%d).",
           minMillisPerSlot, maxMillisPerSlot
       ));
+    }
+  }
+
+  private static void requirePositive(final String field, final int millisPerSlot) {
+    if (millisPerSlot <= 0) {
+      throw new IllegalArgumentException(field + " must be positive: " + millisPerSlot);
     }
   }
 

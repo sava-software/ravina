@@ -45,6 +45,16 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   private volatile boolean initialized;
   private volatile Epoch epoch;
 
+  /// Tri-state result for one RPC fetch: a sample to publish, an ordinary
+  /// stale-replica response to ignore, or a closed client that stops the loop.
+  /// Keeping those outcomes distinct avoids treating replica lag as either an
+  /// RPC failure or an idempotent pseudo-publication of the previous sample.
+  private record EpochFetch(Epoch sample, boolean closed) {
+  }
+
+  private static final EpochFetch STALE_EPOCH_FETCH = new EpochFetch(null, false);
+  private static final EpochFetch CLOSED_EPOCH_FETCH = new EpochFetch(null, true);
+
   EpochInfoServiceImpl(final NanoClock clock,
                        final RpcCaller rpcCaller,
                        final int defaultMillisPerSlot,
@@ -72,10 +82,10 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     this.fetchEpochNow = lock.newCondition();
   }
 
-  private Epoch getAndSetEpochInfo(final Epoch earliestEpochInfo,
-                                   final Epoch previousEpochInfo,
-                                   final CompletableFuture<List<PerfSample>> samplesFuture,
-                                   SlotPerformanceStats slotStats) throws InterruptedException {
+  private EpochFetch getAndSetEpochInfo(final Epoch earliestEpochInfo,
+                                        final Epoch previousEpochInfo,
+                                        final CompletableFuture<List<PerfSample>> samplesFuture,
+                                        SlotPerformanceStats slotStats) throws InterruptedException {
     for (int errorCount = 0; ; ) {
       try {
         final long request = clock.currentTimeMillis();
@@ -86,6 +96,10 @@ final class EpochInfoServiceImpl implements EpochInfoService {
             "rpcClient::getEpochInfo"
         );
         final long addedMillis = (clock.currentTimeMillis() - request) >> 1;
+        if (previousEpochInfo != null
+            && Long.compareUnsigned(epochInfo.absoluteSlot(), previousEpochInfo.info().absoluteSlot()) < 0) {
+          return STALE_EPOCH_FETCH;
+        }
         if (slotStats == null && samplesFuture != null) {
           slotStats = SlotPerformanceStats.calculateStats(samplesFuture.join(), minMillisPerSlot, maxMillisPerSlot);
         }
@@ -98,14 +112,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
             request + addedMillis
         );
         this.epoch = epoch;
-        return epoch;
+        return new EpochFetch(epoch, false);
       } catch (final RuntimeException ex) {
         if (Thread.interrupted()) {
           throw new InterruptedException();
         } else if (ex.getCause() instanceof IOException ioException) {
           if ("closed".equals(ioException.getMessage())) {
             logger.log(INFO, "Exiting epoch service because http client is closed.");
-            return null;
+            return CLOSED_EPOCH_FETCH;
           }
         }
         final long sleep = backoff.delay(++errorCount, SECONDS);
@@ -271,10 +285,14 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       }
     }
     if (fetchEpochNow || fetchSamples || now > cycle.endsAt) {
-      final var latestSample = getAndSetEpochInfo(
+      final var latestFetch = getAndSetEpochInfo(
           cycle.earliestSample, cycle.previousSample, null, cycle.slotStats);
-      if (latestSample == null) {
+      if (latestFetch.closed) {
         return false;
+      }
+      final var latestSample = latestFetch.sample;
+      if (latestSample == null) {
+        return true;
       }
       logger.log(INFO, epochLogMessage(cycle.previousSample, latestSample, clock.currentTimeMillis()));
       cycle.previousSample = latestSample;
@@ -297,8 +315,8 @@ final class EpochInfoServiceImpl implements EpochInfoService {
   Cycle start() throws InterruptedException {
     final var samplesFuture = getSamples();
     final long fetchSamplesAfter = clock.currentTimeMillis() + fetchSamplesDelayMillis;
-    final var earliestEpochInfo = getAndSetEpochInfo(null, null, samplesFuture, null);
-    if (earliestEpochInfo == null) {
+    final var earliestFetch = getAndSetEpochInfo(null, null, samplesFuture, null);
+    if (earliestFetch.closed) {
       return null;
     }
     this.initialized = true;

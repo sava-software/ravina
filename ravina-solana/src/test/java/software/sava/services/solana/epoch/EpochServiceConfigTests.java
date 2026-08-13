@@ -99,8 +99,10 @@ final class EpochServiceConfigTests {
         defaults.fetchSlotSamplesDelay(),
         defaults.fetchEpochInfoAfterEndDelay()
     ));
-    assertTrue(ex.getMessage().contains("501"), ex.getMessage());
-    assertTrue(ex.getMessage().contains("500"), ex.getMessage());
+    assertEquals(
+        "Minimum millis per slot (501) cannot exceed maximum millis per slot (500).",
+        ex.getMessage()
+    );
 
     assertDoesNotThrow(() -> new EpochServiceConfig(
         defaults.defaultMillisPerSlot(),
@@ -110,6 +112,64 @@ final class EpochServiceConfigTests {
         defaults.fetchSlotSamplesDelay(),
         defaults.fetchEpochInfoAfterEndDelay()
     ));
+  }
+
+  @Test
+  void slotDurationsMustBePositiveWhenConstructedDirectly() {
+    final var defaults = EpochServiceConfig.createDefault();
+
+    assertAll(
+        () -> {
+          final var exception = assertThrows(IllegalArgumentException.class, () -> new EpochServiceConfig(
+              0,
+              defaults.minMillisPerSlot(),
+              defaults.maxMillisPerSlot(),
+              defaults.slotSampleWindow(),
+              defaults.fetchSlotSamplesDelay(),
+              defaults.fetchEpochInfoAfterEndDelay()
+          ));
+          assertTrue(exception.getMessage().contains("defaultMillisPerSlot"), exception.getMessage());
+        },
+        () -> {
+          final var exception = assertThrows(IllegalArgumentException.class, () -> new EpochServiceConfig(
+              defaults.defaultMillisPerSlot(),
+              0,
+              defaults.maxMillisPerSlot(),
+              defaults.slotSampleWindow(),
+              defaults.fetchSlotSamplesDelay(),
+              defaults.fetchEpochInfoAfterEndDelay()
+          ));
+          assertTrue(exception.getMessage().contains("minMillisPerSlot"), exception.getMessage());
+        },
+        () -> {
+          final var exception = assertThrows(IllegalArgumentException.class, () -> new EpochServiceConfig(
+              defaults.defaultMillisPerSlot(),
+              defaults.minMillisPerSlot(),
+              0,
+              defaults.slotSampleWindow(),
+              defaults.fetchSlotSamplesDelay(),
+              defaults.fetchEpochInfoAfterEndDelay()
+          ));
+          assertTrue(exception.getMessage().contains("maxMillisPerSlot"), exception.getMessage());
+        }
+    );
+  }
+
+  @Test
+  void parsedSlotDurationsMustBePositive() {
+    final var jsonException = assertThrows(
+        IllegalArgumentException.class,
+        () -> EpochServiceConfig.parseConfig(JsonIterator.parse("{\"defaultMillisPerSlot\":0}"))
+    );
+    assertTrue(jsonException.getMessage().contains("defaultMillisPerSlot"), jsonException.getMessage());
+
+    final var properties = new Properties();
+    properties.setProperty("minMillisPerSlot", "-1");
+    final var propertiesException = assertThrows(
+        IllegalArgumentException.class,
+        () -> EpochServiceConfig.parseConfig(properties)
+    );
+    assertTrue(propertiesException.getMessage().contains("minMillisPerSlot"), propertiesException.getMessage());
   }
 
   @Test

@@ -349,11 +349,10 @@ never be re-selected, so the selection output is unchanged either way.
 false: with fewer than 2 remaining accounts no table can score above 1, so the
 next round finds no top table and breaks with identical state.
 
-**Duplicated computation** `# duplicated-computation` (`epoch`) — `Epoch.create` line 83 else-branch
-recomputes the identical skip rate when `previousSample == earliestSample`
-(the `if` is a caching shortcut), and `SlotPerformanceStats.calculateStats`
-line 42 routing a single sample through the general path yields the identical
-record (middle = 0, min = max = median, stddev 0).
+**Duplicated computation** `# duplicated-computation` (`epoch`) —
+`SlotPerformanceStats.calculateStats` routing a single sample through the
+general path yields the identical record (middle = 0, min = max = median,
+stddev 0).
 
 **Whole-collection shortcut over an internal copy** `# whole-collection-shortcut` (`catchAll`) — guards of
 the form `to - from == size` that choose between the collection itself and a

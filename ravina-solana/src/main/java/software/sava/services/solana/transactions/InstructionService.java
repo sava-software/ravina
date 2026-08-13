@@ -371,11 +371,12 @@ public interface InstructionService {
     );
   }
 
-  /// Processes and publishes a transaction. `beforeSend` runs after a fresh
-  /// confirmed blockhash is installed and before the service signature is
-  /// added. A replacement transaction returned by the hook must preserve that
-  /// blockhash; hook, signing and publication failures propagate to the caller.
-  /// This send path owns the recent blockhash and is not a durable-nonce path.
+  /// Processes and publishes a transaction. `beforeSend` receives the
+  /// transaction after a fresh confirmed blockhash is installed and may mutate
+  /// or replace it. The returned transaction is then signed and published, so
+  /// it must preserve that blockhash; the accompanying last-valid block height
+  /// describes that hash. Hook, signing and publication failures propagate to
+  /// the caller. This send path is not a durable-nonce path.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,

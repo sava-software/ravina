@@ -185,9 +185,10 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aBlockHashFailureStopsInstructionBatchesWithoutHotRetrying() throws InterruptedException {
     final var processor = new FakeTxProcessor();
+    final var blockHashAttempts = new AtomicInteger();
     final var rpcCaller = blockHashRpcCaller(
-        new AtomicInteger(),
-        attempt -> attempt == 0
+        blockHashAttempts,
+        attempt -> attempt < 2
             ? CompletableFuture.failedFuture(
                 new IllegalStateException("latest block hash unavailable"))
             : throwUnexpectedBlockHashAttempt(attempt));
@@ -206,6 +207,7 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(1, results.size(), "the block hash failure is the terminal batch result");
     assertSame(TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH, results.getFirst().error());
     assertTrue(processor.latestBlockHashes.isEmpty());
+    assertEquals(2, blockHashAttempts.get(), "the mandatory lookup gets one bounded retry");
     assertEquals(1, processor.simulatedBatches.size(), "an RPC outage must not cause a hot retry loop");
     assertEquals(2, service.batchSize, "a block hash failure must not shrink the batch size");
   }
@@ -233,11 +235,11 @@ final class BaseBatchInstructionServiceTests {
 
     final var results = service.batchProcess(
         1.0, instructions(1), MAX_FEE, CONFIRMED, PROCESSED,
-        false, false, MAX_RETRIES, LOG_CONTEXT);
+        false, true, MAX_RETRIES, LOG_CONTEXT);
 
     assertEquals(1, results.size());
     assertEquals(List.of(Boolean.FALSE), monitor.verifyExpiredFlags);
-    assertEquals(List.of(Boolean.FALSE), monitor.retrySendFlags);
+    assertEquals(List.of(Boolean.TRUE), monitor.retrySendFlags);
   }
 
   @Test
@@ -318,9 +320,10 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aBlockHashFailureStopsAccountBatchesWithoutRemovingAccounts() throws InterruptedException {
     final var processor = new FakeTxProcessor();
+    final var blockHashAttempts = new AtomicInteger();
     final var rpcCaller = blockHashRpcCaller(
-        new AtomicInteger(),
-        attempt -> attempt == 0
+        blockHashAttempts,
+        attempt -> attempt < 2
             ? CompletableFuture.failedFuture(
                 new IllegalStateException("latest block hash unavailable"))
             : throwUnexpectedBlockHashAttempt(attempt));
@@ -341,6 +344,7 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(1, results.size());
     assertSame(TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH, results.getFirst().error());
     assertTrue(processor.latestBlockHashes.isEmpty());
+    assertEquals(2, blockHashAttempts.get(), "the mandatory lookup gets one bounded retry");
     assertEquals(1, batchFactory.chunks.size(), "an RPC outage must not cause a hot retry loop");
     assertEquals(2, service.batchSize);
     assertEquals(2, accountsMap.size(), "a failed batch must leave every account in place");
@@ -379,11 +383,11 @@ final class BaseBatchInstructionServiceTests {
 
     final var results = service.batchProcess(
         1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED,
-        false, false, MAX_RETRIES, LOG_CONTEXT, new RecordingBatchFactory());
+        false, true, MAX_RETRIES, LOG_CONTEXT, new RecordingBatchFactory());
 
     assertEquals(1, results.size());
     assertEquals(List.of(Boolean.FALSE), monitor.verifyExpiredFlags);
-    assertEquals(List.of(Boolean.FALSE), monitor.retrySendFlags);
+    assertEquals(List.of(Boolean.TRUE), monitor.retrySendFlags);
     assertTrue(accountsMap.isEmpty());
   }
 

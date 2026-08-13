@@ -81,13 +81,19 @@ final class EpochTests {
   }
 
   @Test
-  void equalAbsoluteSlotsCarryThePreviousSkipRates() {
+  void equalAbsoluteSlotsCarryIndependentPreviousSkipRates() {
     final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
-    final var middle = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
-    final var duplicate = Epoch.create(earliest, middle, middle.info(), 400, null, 3_000_000);
+    final var middle = Epoch.create(earliest, earliest, epochInfo(1_045, 500, 200), 400, null, 2_000_000);
+    final var latest = Epoch.create(earliest, middle, epochInfo(1_120, 500, 300), 400, null, 3_000_000);
+    final var duplicate = Epoch.create(latest, latest, latest.info(), 400, null, 4_000_000);
 
-    assertEquals(0.1, duplicate.epochSkipRate(), 1e-12);
-    assertEquals(0.1, duplicate.sampleSkipRate(), 1e-12);
+    assertEquals(0.4, latest.epochSkipRate(), 1e-12);
+    assertEquals(0.25, latest.sampleSkipRate(), 1e-12);
+    // With no slot progress, each calculation carries its own independently
+    // based rate even though both baselines happen to be the same object.
+    assertEquals(0.4, duplicate.epochSkipRate(), 1e-12);
+    assertEquals(0.25, duplicate.sampleSkipRate(), 1e-12);
+    assertTrue(Double.isFinite(duplicate.epochSkipRate()));
     assertTrue(Double.isFinite(duplicate.sampleSkipRate()));
   }
 
@@ -139,6 +145,37 @@ final class EpochTests {
     final var log = epoch.logFormat(1_400_000);
     assertTrue(log.startsWith("Epoch 500 :: "));
     assertTrue(log.contains("400 ms/slot"));
+  }
+
+  @Test
+  void createRejectsNonPositiveEffectiveSlotDurations() {
+    final var info = epochInfo(1_000, 500, 100);
+    final var zeroMedian = new SlotPerformanceStats(0, 1, 1, 1, 0.0, 1);
+
+    assertAll(
+        () -> assertThrows(
+            IllegalArgumentException.class,
+            () -> Epoch.create(null, null, info, 0, null, 1_000_000)),
+        () -> assertThrows(
+            IllegalArgumentException.class,
+            () -> Epoch.create(null, null, info, 400, zeroMedian, 1_000_000))
+    );
+  }
+
+  @Test
+  void explicitPerSlotArithmeticRejectsNonPositiveDurations() {
+    final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+
+    for (final long millisPerSlot : new long[]{0, -1}) {
+      assertAll(
+          () -> assertThrows(
+              IllegalArgumentException.class,
+              () -> epoch.estimatedSlot(millisPerSlot, 1_400_000)),
+          () -> assertThrows(
+              IllegalArgumentException.class,
+              () -> epoch.estimatedBlockHeight(millisPerSlot, 0.1, 1_400_000))
+      );
+    }
   }
 
   @Test
@@ -221,6 +258,25 @@ final class EpochTests {
     assertEquals(100.0, epoch.percentComplete(432_000));
     // 31,536,000,000 millis per year / (400 ms per slot * 432,000 slots per epoch).
     assertEquals(183, epoch.epochsPerYear(400));
+  }
+
+  @Test
+  void epochsPerYearWidensBeforeMultiplyingSlotDurationByEpochLength() {
+    final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+
+    // 432,000 slots * 10 seconds is 50 days, so 365 / 50 rounds to 7.
+    // The product exceeds Integer.MAX_VALUE and must not be evaluated as int.
+    assertEquals(7, epoch.epochsPerYear(10_000));
+  }
+
+  @Test
+  void epochsPerYearRejectsNonPositiveSlotDurations() {
+    final var epoch = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+
+    assertAll(
+        () -> assertThrows(IllegalArgumentException.class, () -> epoch.epochsPerYear(0)),
+        () -> assertThrows(IllegalArgumentException.class, () -> epoch.epochsPerYear(-1))
+    );
   }
 
   @Test

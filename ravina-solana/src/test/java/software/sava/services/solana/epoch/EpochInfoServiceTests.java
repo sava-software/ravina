@@ -298,14 +298,16 @@ final class EpochInfoServiceTests {
 
   private final TestClock clock = new TestClock();
 
-  private RpcCaller rpcCallerFor(final FakeRpcClient fake) {
+  private RpcCaller rpcCallerFor(final FakeRpcClient... fakes) {
     final var resetDuration = Duration.ofSeconds(1);
     final var config = new CapacityConfig(
         0, 100_000, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
-    final var monitor = config.<SolanaRpcClient, byte[]>createMonitor("test", NoopTracker::new, clock);
-    final BalancedItem<SolanaRpcClient> item = BalancedItem.createItem(
-        fake.client, monitor, Backoff.single(MILLISECONDS, 0));
-    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(item);
+    final var items = new ArrayList<BalancedItem<SolanaRpcClient>>(fakes.length);
+    for (final var fake : fakes) {
+      final var monitor = config.<SolanaRpcClient, byte[]>createMonitor("test", NoopTracker::new, clock);
+      items.add(BalancedItem.createItem(fake.client, monitor, Backoff.single(MILLISECONDS, 0)));
+    }
+    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(items);
     return new RpcCaller(executor, balancer, CallWeights.createDefault());
   }
 
@@ -549,6 +551,119 @@ final class EpochInfoServiceTests {
     assertNull(latest.slotStats(), "no sample survived the filter");
     // Falls back to the configured default rather than NPEing, matching Epoch.
     assertEquals(410, latest.medianMillisPerSlot());
+  }
+
+  @Test
+  void aLaggingReplicaDoesNotRegressPublishedStateOrEnterFailureBackoff() throws InterruptedException {
+    final var lagging = new FakeRpcClient(epochInfo(100, 149, 999_999));
+    final var leading = new FakeRpcClient(
+        epochInfo(100, 150, 1_000_000),
+        epochInfo(100, 160, 1_000_010)
+    );
+    final var rpcCaller = rpcCallerFor(lagging, leading);
+    final var service = new EpochInfoServiceImpl(
+        clock,
+        rpcCaller,
+        410,
+        1,
+        1,
+        NUM_SAMPLES,
+        1_000_000_000L,
+        0
+    );
+
+    // ArrayLoadBalancer sends the initial performance-sample call to the first
+    // replica and the initial epoch call to the second one.
+    final var cycle = service.start();
+    assertNotNull(cycle);
+    final var initial = service.epochInfo();
+    assertNotNull(initial);
+    assertEquals(150, initial.info().slotIndex());
+    assertEquals(0, lagging.epochCalls);
+    assertEquals(1, leading.epochCalls);
+
+    // The next round-robin selection sees the first replica one slot behind.
+    // A successful stale response is ordinary replica lag, not an RPC failure:
+    // keep the exact published/cycle state and wait for the next scheduled poll.
+    assertTrue(service.checkCycle(cycle, false));
+    assertSame(initial, service.epochInfo());
+    assertSame(initial, cycle.latestSample());
+    assertEquals(1, lagging.epochCalls);
+    assertEquals(1, leading.epochCalls, "a stale response must not retry in the same cycle");
+    assertEquals(List.of(1L), clock.sleeps, "only the ordinary one-slot pacing sleep is allowed");
+    assertTrue(
+        rpcCaller.rpcClients().items().stream().allMatch(item -> item.errorCount() == 0),
+        "a successful stale response must not penalize either replica"
+    );
+
+    // The following poll rotates back to the leading replica and advances
+    // monotonically from the original accepted baseline.
+    assertTrue(service.checkCycle(cycle, false));
+    final var advanced = service.epochInfo();
+    assertNotNull(advanced);
+    assertNotSame(initial, advanced);
+    assertSame(advanced, cycle.latestSample());
+    assertSame(initial, advanced.previousSample());
+    assertEquals(160, advanced.info().slotIndex());
+    assertTrue(Long.compareUnsigned(advanced.info().absoluteSlot(), initial.info().absoluteSlot()) > 0);
+    assertEquals(1, lagging.epochCalls);
+    assertEquals(2, leading.epochCalls);
+    assertEquals(
+        List.of(1L),
+        clock.sleeps,
+        "the first pacing sleep already put the next poll one slot after the accepted sample"
+    );
+  }
+
+  @Test
+  void anEqualAbsoluteSlotIsAValidZeroProgressSample() throws InterruptedException {
+    final var info = epochInfo(100, 50, 1_000_000);
+    final var fake = new FakeRpcClient(info, info);
+    final var service = serviceFor(fake, 1_000_000_000L, 0);
+
+    final var cycle = service.start();
+    assertNotNull(cycle);
+    final var initial = service.epochInfo();
+    assertNotNull(initial);
+
+    assertTrue(service.checkCycle(cycle, false));
+    final var duplicate = service.epochInfo();
+    assertNotNull(duplicate);
+    assertNotSame(initial, duplicate, "only an unsigned-regressing slot is stale");
+    assertSame(duplicate, cycle.latestSample());
+    assertSame(initial, duplicate.previousSample());
+    assertEquals(initial.info().absoluteSlot(), duplicate.info().absoluteSlot());
+    assertTrue(duplicate.sampledAt() > initial.sampledAt());
+    assertEquals(initial.epochSkipRate(), duplicate.epochSkipRate());
+    assertEquals(initial.sampleSkipRate(), duplicate.sampleSkipRate());
+    assertEquals(2, fake.epochCalls, "an equal slot must neither retry nor be dropped");
+    assertEquals(List.of(1L), clock.sleeps);
+  }
+
+  @Test
+  void absoluteSlotProgressUsesUnsignedOrderAcrossTheSignedLongBoundary() throws InterruptedException {
+    final var beforeBoundary = new EpochInfo(
+        Long.MAX_VALUE, 1_000_000, 100, 50, 100, 7_000_000L);
+    final var afterBoundary = new EpochInfo(
+        Long.MIN_VALUE, 1_000_001, 100, 51, 100, 7_000_000L);
+    final var fake = new FakeRpcClient(beforeBoundary, afterBoundary);
+    final var service = serviceFor(fake, 1_000_000_000L, 0);
+
+    final var cycle = service.start();
+    assertNotNull(cycle);
+    final var initial = service.epochInfo();
+    assertNotNull(initial);
+
+    assertTrue(service.checkCycle(cycle, false));
+    final var advanced = service.epochInfo();
+    assertNotNull(advanced);
+    assertNotSame(initial, advanced, "the next unsigned slot must not be mistaken for replica lag");
+    assertSame(advanced, cycle.latestSample());
+    assertSame(initial, advanced.previousSample());
+    assertEquals(Long.MIN_VALUE, advanced.info().absoluteSlot());
+    assertEquals(0.0, advanced.epochSkipRate(), 1e-12);
+    assertEquals(0.0, advanced.sampleSkipRate(), 1e-12);
+    assertEquals(2, fake.epochCalls);
   }
 
   @Test

@@ -25,6 +25,12 @@ public record Epoch(long startedAt,
 
   private static final double MILLIS_PER_YEAR = Duration.ofDays(365).toMillis();
 
+  private static void requirePositiveMillisPerSlot(final long millisPerSlot) {
+    if (millisPerSlot <= 0) {
+      throw new IllegalArgumentException("millisPerSlot must be positive: " + millisPerSlot);
+    }
+  }
+
   private static int validateEpochSampleProgress(final EpochInfo latest, final Epoch previous) {
     final int epochCompare = Long.compareUnsigned(latest.epoch(), previous.epoch());
     if (epochCompare < 0) {
@@ -68,6 +74,7 @@ public record Epoch(long startedAt,
     final long currentSlotIndex = latestEpochInfo.slotIndex();
     final long slotsRemaining = latestEpochInfo.slotsInEpoch() - currentSlotIndex;
     final int millsPerSlot = slotStats == null ? defaultMillisPerSlot : slotStats.median();
+    requirePositiveMillisPerSlot(millsPerSlot);
     final long millisRemaining = slotsRemaining * millsPerSlot;
     final long endsAt = sampledAt + millisRemaining;
 
@@ -89,13 +96,9 @@ public record Epoch(long startedAt,
 
       epochSkipRate = calculateSkipRate(
           latestEpochInfo, earliestSample.info, earliestSample.epochSkipRate);
-      if (previousSample == earliestSample) {
-        sampleSkipRate = epochSkipRate;
-      } else {
-        final int sampleEpochCompare = validateEpochSampleProgress(latestEpochInfo, previousSample);
-        sampleSkipRate = calculateSkipRate(
-            latestEpochInfo, previousSample.info, previousSample.sampleSkipRate);
-      }
+      validateEpochSampleProgress(latestEpochInfo, previousSample);
+      sampleSkipRate = calculateSkipRate(
+          latestEpochInfo, previousSample.info, previousSample.sampleSkipRate);
     }
 
     return new Epoch(
@@ -112,7 +115,8 @@ public record Epoch(long startedAt,
   }
 
   public int epochsPerYear(final int estimatedMillisPerSlot) {
-    return (int) Math.round(MILLIS_PER_YEAR / (double) (estimatedMillisPerSlot * slotsPerEpoch()));
+    requirePositiveMillisPerSlot(estimatedMillisPerSlot);
+    return (int) Math.round(MILLIS_PER_YEAR / ((double) estimatedMillisPerSlot * slotsPerEpoch()));
   }
 
   public long millisRemaining(final long now) {
@@ -140,6 +144,7 @@ public record Epoch(long startedAt,
   }
 
   public long estimatedSlot(final long millisPerSlot, final long now) {
+    requirePositiveMillisPerSlot(millisPerSlot);
     return Math.min(
         info.slotIndex() + ((now - sampledAt) / millisPerSlot),
         info.slotsInEpoch()

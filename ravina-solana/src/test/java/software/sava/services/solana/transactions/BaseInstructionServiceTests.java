@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.IntFunction;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
@@ -79,8 +80,9 @@ final class BaseInstructionServiceTests {
   }
 
   static final Signer SIGNER = Signer.createFromPrivateKey(PRIVATE_KEY);
+  static final PublicKey FEE_PAYER = SIGNER.publicKey();
   static final LatestBlockHash FRESH_BLOCK_HASH =
-      new LatestBlockHash(null, SIGNER.publicKey().toBase58(), 8_642L);
+      new LatestBlockHash(null, key(0xCAFE).toBase58(), 8_642L);
 
   static PublicKey key(final int i) {
     final byte[] bytes = new byte[PublicKey.PUBLIC_KEY_LENGTH];
@@ -105,7 +107,7 @@ final class BaseInstructionServiceTests {
   /// `SendTxContext.sig()` can derive a base58 id from it.
   static Transaction signedTx(final List<Instruction> ixs) {
     final var transaction = Transaction.createTx(
-        SIGNER.publicKey(),
+        FEE_PAYER,
         ixs.isEmpty() ? List.of(instruction(1)) : ixs
     );
     transaction.sign(SIGNER);
@@ -236,7 +238,7 @@ final class BaseInstructionServiceTests {
 
     @Override
     public PublicKey feePayer() {
-      return SIGNER.publicKey();
+      return FEE_PAYER;
     }
 
     @Override
@@ -548,23 +550,39 @@ final class BaseInstructionServiceTests {
   static RpcCaller blockHashRpcCaller(
       final AtomicInteger calls,
       final IntFunction<CompletableFuture<LatestBlockHash>> responses) {
-    final var second = Duration.ofSeconds(1);
-    // Capacity generous enough that no test ever waits on the token bucket.
-    final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
-    final var monitor = config.createMonitor("base", NoopTracker::new);
-    final var client = (SolanaRpcClient) Proxy.newProxyInstance(
+    final var client = blockHashClient(
+        "FakeRpcClient",
+        () -> responses.apply(calls.getAndIncrement())
+    );
+    return blockHashRpcCaller(Backoff.single(TimeUnit.MILLISECONDS, 0), client);
+  }
+
+  static SolanaRpcClient blockHashClient(
+      final String name,
+      final Supplier<CompletableFuture<LatestBlockHash>> response) {
+    return (SolanaRpcClient) Proxy.newProxyInstance(
         SolanaRpcClient.class.getClassLoader(),
         new Class<?>[]{SolanaRpcClient.class},
         (proxy, method, args) -> switch (method.getName()) {
-          case "getLatestBlockHash" -> responses.apply(calls.getAndIncrement());
-          case "toString" -> "FakeRpcClient";
+          case "getLatestBlockHash" -> response.get();
+          case "toString" -> name;
           case "hashCode" -> System.identityHashCode(proxy);
           case "equals" -> proxy == args[0];
           default -> throw new UnsupportedOperationException(method.getName());
         }
     );
-    final var item = BalancedItem.createItem(client, monitor, Backoff.single(TimeUnit.MILLISECONDS, 1));
-    return new RpcCaller(new InlineExecutor(), LoadBalancer.createBalancer(item), CallWeights.createDefault());
+  }
+
+  static RpcCaller blockHashRpcCaller(final Backoff backoff, final SolanaRpcClient... clients) {
+    final var second = Duration.ofSeconds(1);
+    // Capacity generous enough that no test ever waits on the token bucket.
+    final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
+    final var items = new ArrayList<BalancedItem<SolanaRpcClient>>(clients.length);
+    for (final var client : clients) {
+      final var monitor = config.<SolanaRpcClient, byte[]>createMonitor(client.toString(), NoopTracker::new);
+      items.add(BalancedItem.createItem(client, monitor, backoff));
+    }
+    return new RpcCaller(new InlineExecutor(), LoadBalancer.createBalancer(items), CallWeights.createDefault());
   }
 
   static BaseInstructionService service(final FakeTxProcessor processor, final FakeMonitor monitor) {
@@ -603,6 +621,64 @@ final class BaseInstructionServiceTests {
   void theDefaultBeforeSendHookIsTheIdentity() {
     final var transaction = signedTx(instructions(1));
     assertSame(transaction, BaseInstructionService.NO_OP.apply(transaction));
+  }
+
+  @Test
+  void latestBlockHashLookupPolicyIsBoundedAndDoesNotWaitForCapacity() {
+    final var context = BaseInstructionService.LATEST_BLOCK_HASH_CALL_CONTEXT;
+
+    assertEquals(1, context.callWeight());
+    assertEquals(0, context.minCapacity());
+    assertEquals(1, context.maxTryClaim());
+    assertTrue(context.forceCall());
+    assertEquals(1, context.maxRetries());
+    assertTrue(context.measureCallTime());
+  }
+
+  @Test
+  void aFailedBlockHashEndpointFailsOverWithoutWaitingOnItsBackoff() {
+    final var endpointCalls = new ArrayList<String>();
+    final var failed = blockHashClient("failed", () -> {
+      endpointCalls.add("failed");
+      return CompletableFuture.failedFuture(new IllegalStateException("endpoint unavailable"));
+    });
+    final var healthy = blockHashClient("healthy", () -> {
+      endpointCalls.add("healthy");
+      return CompletableFuture.completedFuture(FRESH_BLOCK_HASH);
+    });
+    final var processor = new FakeTxProcessor();
+    final var service = service(
+        blockHashRpcCaller(Backoff.single(TimeUnit.MILLISECONDS, 60_000), failed, healthy),
+        processor,
+        new FakeMonitor()
+    );
+    final var futures = successfulSimulation(instructions(2));
+
+    // An attempted Thread.sleep would immediately consume this interrupt and
+    // make the lookup fail. Healthy-peer failover must preserve it because the
+    // balanced call skips the failed endpoint's backoff when switching peers.
+    final SendTxContext sendContext;
+    final boolean interruptPreserved;
+    Thread.currentThread().interrupt();
+    try {
+      sendContext = service.sendTransaction(
+          BaseInstructionService.NO_OP,
+          futures,
+          futures.simulationFuture().join(),
+          MAX_FEE,
+          123_456
+      );
+      interruptPreserved = Thread.currentThread().isInterrupted();
+    } finally {
+      Thread.interrupted();
+    }
+
+    assertNotNull(sendContext);
+    assertTrue(interruptPreserved, "peer failover must not sleep the failed endpoint's backoff");
+    assertEquals(List.of("failed", "healthy"), endpointCalls);
+    assertEquals(List.of(FRESH_BLOCK_HASH), processor.latestBlockHashes);
+    assertNotEquals(FEE_PAYER.toBase58(), FRESH_BLOCK_HASH.blockHash(),
+        "the fixture must distinguish the recent blockhash from the fee payer");
   }
 
   @Test
@@ -652,7 +728,7 @@ final class BaseInstructionServiceTests {
     assertEquals(List.of(MAX_FEE), processor.createdMaxFees);
     assertEquals(List.of(processor.createdTransactions.getFirst()),
         processor.latestBlockHashTransactions,
-        "the signed message must not be changed after the hook can add signatures");
+        "the fresh hash must be installed on the transaction passed to the hook");
     assertEquals(List.of(FRESH_BLOCK_HASH), processor.latestBlockHashes);
     assertEquals(1, latestBlockHashCalls.get());
     assertEquals(List.of(FRESH_BLOCK_HASH.lastValidBlockHeight()), processor.sentBlockHeights);

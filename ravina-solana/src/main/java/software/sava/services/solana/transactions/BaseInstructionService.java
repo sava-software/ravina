@@ -24,6 +24,12 @@ public class BaseInstructionService implements InstructionService {
 
   protected static final System.Logger logger = System.getLogger(BaseInstructionService.class.getName());
   static final Function<Transaction, Transaction> NO_OP = transaction -> transaction;
+  /// A fresh blockhash is mandatory, so allow one bounded retry to unlock the
+  /// balanced call's immediate healthy-peer failover. Probe capacity once and
+  /// then force the lightweight request to bound pre-signing latency rather
+  /// than waiting for capacity.
+  static final CallContext LATEST_BLOCK_HASH_CALL_CONTEXT =
+      CallContext.createContext(1, 0, 1, true, 1, true);
 
   protected final RpcCaller rpcCaller;
   protected final TransactionProcessor transactionProcessor;
@@ -70,13 +76,13 @@ public class BaseInstructionService implements InstructionService {
                                                 final int cuBudget) {
     final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
     // Do not let priority-fee resolution consume the final hash's validity
-    // window. Install the fresh hash before the hook: hooks may add signatures,
-    // which changing the signed message afterward would break.
+    // window. Install the fresh hash before the hook so the hook receives the
+    // message version that will subsequently be signed and published.
     final long blockHeight;
     try {
       final var blockHashFuture = rpcCaller.courteousCall(
           rpcClient -> rpcClient.getLatestBlockHash(CONFIRMED),
-          CallContext.createContext(1, 0, 1, true, 0, true),
+          LATEST_BLOCK_HASH_CALL_CONTEXT,
           "rpcClient::getLatestBlockHash"
       );
       final var blockHash = blockHashFuture.join();

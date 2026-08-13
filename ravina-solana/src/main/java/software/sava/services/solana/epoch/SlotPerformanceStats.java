@@ -27,7 +27,9 @@ public record SlotPerformanceStats(int median,
   /**
    * @deprecated A cluster has no single compile-time target during the staged
    * rollout. Use {@link #MIN_TARGET_MILLIS_PER_SLOT} as a boundary or measured
-   * slot performance for wall-clock estimates.
+   * slot performance for wall-clock estimates. This constant's value changed
+   * from 400 to 200; Java consumers compiled against the earlier value have
+   * 400 inlined in their bytecode and must be recompiled to observe 200.
    */
   @Deprecated(forRemoval = false)
   public static final int TARGET_MILLIS_PER_SLOT = MIN_TARGET_MILLIS_PER_SLOT;
@@ -50,6 +52,12 @@ public record SlotPerformanceStats(int median,
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples,
                                                     final int minMillis,
                                                     final int maxMillis) {
+    if (minMillis <= 0) {
+      throw new IllegalArgumentException("minMillis must be positive: " + minMillis);
+    }
+    if (maxMillis <= 0) {
+      throw new IllegalArgumentException("maxMillis must be positive: " + maxMillis);
+    }
     if (minMillis > maxMillis) {
       throw new IllegalArgumentException(String.format(
           "Minimum millis per slot (%d) cannot exceed maximum millis per slot (%d).",

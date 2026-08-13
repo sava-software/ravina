@@ -143,13 +143,33 @@ final class SlotPerformanceStatsTests {
         IllegalArgumentException.class,
         () -> SlotPerformanceStats.calculateStats(List.of(), 500, 499)
     );
-    assertTrue(ex.getMessage().contains("500"), ex.getMessage());
-    assertTrue(ex.getMessage().contains("499"), ex.getMessage());
+    assertEquals(
+        "Minimum millis per slot (500) cannot exceed maximum millis per slot (499).",
+        ex.getMessage()
+    );
 
     final var stats = assertDoesNotThrow(() -> SlotPerformanceStats.calculateStats(
         List.of(sample(10_000, 300, 60)), 200, 200));
     assertNotNull(stats);
     assertEquals(200, stats.median());
+  }
+
+  @Test
+  void slotDurationBoundsMustBePositive() {
+    assertAll(
+        () -> {
+          final var exception = assertThrows(
+              IllegalArgumentException.class,
+              () -> SlotPerformanceStats.calculateStats(List.of(), 0, 500));
+          assertTrue(exception.getMessage().contains("minMillis"), exception.getMessage());
+        },
+        () -> {
+          final var exception = assertThrows(
+              IllegalArgumentException.class,
+              () -> SlotPerformanceStats.calculateStats(List.of(), 1, 0));
+          assertTrue(exception.getMessage().contains("maxMillis"), exception.getMessage());
+        }
+    );
   }
 
   @Test
