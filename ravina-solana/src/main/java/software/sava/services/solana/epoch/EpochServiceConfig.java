@@ -19,7 +19,10 @@ import static software.sava.services.solana.epoch.SlotPerformanceStats.MIN_TARGE
 /// default duration is only a no-sample fallback near the fastest rollout
 /// target; on slower rollout stages it intentionally prompts earlier checks.
 /// The minimum and maximum bound observations before they feed epoch estimates
-/// and monitor pacing.
+/// and monitor pacing. The sample window and refresh delay are wall-clock
+/// policies over the RPC's one-minute performance buckets, not conversions from
+/// a target slot duration. Shorter configured values react faster to staged
+/// slot-time changes at the cost of more RPC load and a noisier median.
 public record EpochServiceConfig(int defaultMillisPerSlot,
                                  int minMillisPerSlot,
                                  int maxMillisPerSlot,

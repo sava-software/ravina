@@ -10,6 +10,13 @@ import java.util.Properties;
 
 import software.sava.services.core.config.ServiceConfigUtil;
 
+/// Transaction-monitor pacing policy. The three durations are wall-clock
+/// transport/RPC-rate limits and therefore intentionally remain fixed when slot
+/// times change. `minBlocksRemainingToResend` is chain-progress based and its
+/// wall-clock span naturally shrinks with faster slots. The websocket timeout
+/// elapses before polling and client-side resending begin; those resends are the
+/// only retries after publication because transactions are sent with RPC
+/// `maxRetries=0`.
 public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
                               Duration webSocketConfirmationTimeout,
                               Duration retrySendDelay,
