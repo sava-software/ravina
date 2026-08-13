@@ -521,7 +521,11 @@ habit has found eight real bugs so far — six of them silent — and
   cancel must stay ahead of user policy to release builder ownership — so deferring
   `inFlightConnect.cancel(true)` past the notice changes nothing. If production evidence ever
   demands a fix, it has to be additive upstream: attempt-correlated lifecycle callbacks, or a
-  narrower typed "retired; the callback owns recovery" failure.
+  narrower typed "retired; the callback owns recovery" failure. The trigger condition, the agreed
+  upstream design (a per-attempt `connectAttempt()` handle with `connected()`/`retired()` futures
+  and an ordinal — not an event stream, and not the typed exception, which cannot cover post-open
+  retirement), and the rejected alternatives are recorded in
+  https://github.com/sava-software/sava/issues/52.
 - **Give the websocket manager a positive reconnect delay.** A constant zero backoff
   (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
   unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
