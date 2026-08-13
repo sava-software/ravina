@@ -38,18 +38,25 @@ public record Epoch(long startedAt,
     }
   }
 
-  private static double calculateSkipRate(final int epochCompare, final EpochInfo latest, final EpochInfo previous) {
-    final long heightDelta = SafeMath.toUnsignedBigInteger(latest.blockHeight())
-        .subtract(SafeMath.toUnsignedBigInteger(previous.blockHeight()))
-        .longValue();
-
-    final long currentSlotIndex = latest.slotIndex();
-    if (epochCompare > 0) {
-      final long previousSlots = previous.slotsInEpoch() - previous.slotIndex();
-      return 1.0 - (heightDelta / (double) (currentSlotIndex + previousSlots));
-    } else {
-      return 1.0 - (heightDelta / (double) (currentSlotIndex - previous.slotIndex()));
+  private static double calculateSkipRate(final EpochInfo latest,
+                                          final EpochInfo previous,
+                                          final double noProgressSkipRate) {
+    final var slotDelta = SafeMath.toUnsignedBigInteger(latest.absoluteSlot())
+        .subtract(SafeMath.toUnsignedBigInteger(previous.absoluteSlot()));
+    final int slotProgress = slotDelta.signum();
+    if (slotProgress < 0) {
+      throw new IllegalStateException(String.format(
+          "Sample EpochInfo [absoluteSlot=%s] is before baseline sample [absoluteSlot=%s]",
+          Long.toUnsignedString(latest.absoluteSlot()),
+          Long.toUnsignedString(previous.absoluteSlot())
+      ));
+    } else if (slotProgress == 0) {
+      return noProgressSkipRate;
     }
+
+    final var heightDelta = SafeMath.toUnsignedBigInteger(latest.blockHeight())
+        .subtract(SafeMath.toUnsignedBigInteger(previous.blockHeight()));
+    return 1.0 - (heightDelta.doubleValue() / slotDelta.doubleValue());
   }
 
   public static Epoch create(final Epoch earliestSample,
@@ -80,12 +87,14 @@ public record Epoch(long startedAt,
         startedAt = earliestSample.startedAt;
       }
 
-      epochSkipRate = calculateSkipRate(earliestEpochCompare, latestEpochInfo, earliestSample.info);
+      epochSkipRate = calculateSkipRate(
+          latestEpochInfo, earliestSample.info, earliestSample.epochSkipRate);
       if (previousSample == earliestSample) {
         sampleSkipRate = epochSkipRate;
       } else {
         final int sampleEpochCompare = validateEpochSampleProgress(latestEpochInfo, previousSample);
-        sampleSkipRate = calculateSkipRate(sampleEpochCompare, latestEpochInfo, previousSample.info);
+        sampleSkipRate = calculateSkipRate(
+            latestEpochInfo, previousSample.info, previousSample.sampleSkipRate);
       }
     }
 

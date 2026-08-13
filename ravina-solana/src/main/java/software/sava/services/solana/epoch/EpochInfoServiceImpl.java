@@ -280,7 +280,7 @@ final class EpochInfoServiceImpl implements EpochInfoService {
       cycle.previousSample = latestSample;
       cycle.latestSample = latestSample;
       cycle.endsAt = latestSample.endsAt();
-      if (latestSample.epoch() > cycle.earliestSample.epoch()) {
+      if (Long.compareUnsigned(latestSample.epoch(), cycle.earliestSample.epoch()) > 0) {
         cycle.earliestSample = latestSample;
       }
       final var latestSlotStats = latestSample.slotStats();

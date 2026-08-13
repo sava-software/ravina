@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 final class EpochTests {
 
   private static EpochInfo epochInfo(final long blockHeight, final long epoch, final int slotIndex) {
-    return new EpochInfo(0, blockHeight, epoch, slotIndex, 432_000, 0);
+    return new EpochInfo((epoch * 432_000L) + slotIndex, blockHeight, epoch, slotIndex, 432_000, 0);
   }
 
   @Test
@@ -57,9 +57,58 @@ final class EpochTests {
   }
 
   @Test
+  void skipRateAcrossMultipleEpochsUsesAbsoluteSlotProgress() {
+    final var earliestInfo = new EpochInfo(1_000_000, 10_000, 500, 900, 1_000, 0);
+    final var earliest = Epoch.create(null, null, earliestInfo, 400, null, 1_000_000);
+    final var latestInfo = new EpochInfo(1_005_000, 14_500, 503, 100, 2_000, 0);
+    final var latest = Epoch.create(earliest, earliest, latestInfo, 400, null, 3_000_000);
+
+    // RPC reports 4,500 produced blocks across exactly 5,000 absolute slots.
+    // Endpoint epoch sizes and indexes cannot reconstruct the intervening epochs.
+    assertEquals(0.1, latest.epochSkipRate(), 1e-12);
+    assertEquals(latest.epochSkipRate(), latest.sampleSkipRate());
+  }
+
+  @Test
+  void epochProgressUsesUnsignedOrderAcrossTheSignedLongBoundary() {
+    final var earliestInfo = new EpochInfo(1_000_000, 10_000, Long.MAX_VALUE, 900, 1_000, 0);
+    final var earliest = Epoch.create(null, null, earliestInfo, 400, null, 1_000_000);
+    final var latestInfo = new EpochInfo(1_000_200, 10_180, Long.MIN_VALUE, 100, 1_000, 0);
+    final var latest = Epoch.create(earliest, earliest, latestInfo, 400, null, 3_000_000);
+
+    assertEquals(0.1, latest.epochSkipRate(), 1e-12);
+    assertEquals(3_000_000 - (100L * 400), latest.startedAt());
+  }
+
+  @Test
+  void equalAbsoluteSlotsCarryThePreviousSkipRates() {
+    final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+    final var middle = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
+    final var duplicate = Epoch.create(earliest, middle, middle.info(), 400, null, 3_000_000);
+
+    assertEquals(0.1, duplicate.epochSkipRate(), 1e-12);
+    assertEquals(0.1, duplicate.sampleSkipRate(), 1e-12);
+    assertTrue(Double.isFinite(duplicate.sampleSkipRate()));
+  }
+
+  @Test
+  void regressingAbsoluteSlotSamplesAreRejected() {
+    final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
+    final var middle = Epoch.create(earliest, earliest, epochInfo(1_090, 500, 200), 400, null, 2_000_000);
+    final var stale = epochInfo(1_090, 500, 199);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> Epoch.create(earliest, middle, stale, 400, null, 3_000_000));
+  }
+
+  @Test
   void regressingEpochSamplesAreRejected() {
     final var earliest = Epoch.create(null, null, epochInfo(1_000, 500, 100), 400, null, 1_000_000);
-    final var stale = epochInfo(900, 499, 100);
+    // Keep the absolute slot moving forward so only the independently
+    // regressing unsigned epoch number can reject this inconsistent sample.
+    final var stale = new EpochInfo(
+        earliest.info().absoluteSlot() + 1, 1_001, 499, 101, 432_000, 0);
     assertThrows(IllegalStateException.class, () -> Epoch.create(earliest, earliest, stale, 400, null, 2_000_000));
   }
 

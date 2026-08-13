@@ -984,6 +984,26 @@ final class EpochInfoServiceTests {
     assertEquals(0.0, middle.epochSkipRate());
   }
 
+  @Test
+  void theEarliestSampleAdvancesAcrossTheSignedEpochBoundary() {
+    final var fake = new FakeRpcClient(
+        epochInfo(Long.MAX_VALUE, 150, 1_000_000),
+        epochInfo(Long.MIN_VALUE, 175, 1_000_125),
+        epochInfo(Long.MIN_VALUE, 185, 1_000_140),
+        CLOSED_CLIENT
+    );
+    final var service = serviceFor(fake);
+
+    service.run();
+
+    final var latest = service.epochInfo();
+    assertNotNull(latest);
+    assertEquals(Long.MIN_VALUE, latest.epoch());
+    assertEquals(-0.5, latest.epochSkipRate(),
+        "the baseline must advance at the unsigned epoch boundary");
+    assertEquals(-0.5, latest.sampleSkipRate());
+  }
+
   /// Each sample is stamped at the request instant plus **half** the observed
   /// round trip — the usual estimate that the response reflects the server's
   /// state at the midpoint of the exchange.
