@@ -70,8 +70,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       batchSize -= reduceSize;
       return null;
     } else {
-      final var error = transactionResult.error();
-      return error == TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH ? null : transactionResult;
+      return transactionResult;
     }
   }
 
@@ -189,6 +188,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         maxRetriesAfterExpired,
         transactionProcessor.legacyTransactionFactory(),
         logContext
@@ -212,6 +213,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
         maxRetriesAfterExpired,
         transactionProcessor.legacyTransactionFactory(),
         logContext,

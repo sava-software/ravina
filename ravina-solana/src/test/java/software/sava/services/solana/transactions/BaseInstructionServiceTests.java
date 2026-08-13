@@ -41,6 +41,9 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.IntFunction;
 
@@ -76,6 +79,8 @@ final class BaseInstructionServiceTests {
   }
 
   static final Signer SIGNER = Signer.createFromPrivateKey(PRIVATE_KEY);
+  static final LatestBlockHash FRESH_BLOCK_HASH =
+      new LatestBlockHash(null, SIGNER.publicKey().toBase58(), 8_642L);
 
   static PublicKey key(final int i) {
     final byte[] bytes = new byte[PublicKey.PUBLIC_KEY_LENGTH];
@@ -165,20 +170,16 @@ final class BaseInstructionServiceTests {
     final List<Commitment> simulatedCommitments = new ArrayList<>();
     final List<Integer> createdCuBudgets = new ArrayList<>();
     final List<BigDecimal> createdMaxFees = new ArrayList<>();
+    final List<Transaction> createdTransactions = new ArrayList<>();
+    final List<Transaction> latestBlockHashTransactions = new ArrayList<>();
+    final List<LatestBlockHash> latestBlockHashes = new ArrayList<>();
     final List<Transaction> sentTransactions = new ArrayList<>();
     final List<Long> sentBlockHeights = new ArrayList<>();
+    RuntimeException sendFailure;
 
     /// Guards against mutants that turn a bounded loop into an unbounded one:
     /// the runaway throws rather than hanging the suite.
     int callBudget = 32;
-    long blockHeight = 4_242;
-    /// The first this many block hash lookups report no block hash.
-    int missingBlockHashCalls;
-    int blockHashCalls;
-    /// Set to let the RPC block-hash fallback succeed; unset, the overload
-    /// keeps throwing so tests that must not reach it still fail loudly.
-    long fallbackBlockHeight;
-    final List<LatestBlockHash> fallbackBlockHashes = new ArrayList<>();
     Simulator simulator = (call, ixs) -> successfulSimulation(ixs);
 
     @Override
@@ -203,16 +204,21 @@ final class BaseInstructionServiceTests {
                                          final int cuBudget) {
       createdCuBudgets.add(cuBudget);
       createdMaxFees.add(maxLamportPriorityFee);
-      return signedTx(simulationFutures.instructions());
+      final var transaction = signedTx(simulationFutures.instructions());
+      createdTransactions.add(transaction);
+      return transaction;
     }
 
     @Override
     public long setBlockHash(final Transaction transaction, final TxSimulation simulationResult) {
-      return ++blockHashCalls <= missingBlockHashCalls ? 0 : blockHeight;
+      throw new UnsupportedOperationException();
     }
 
     @Override
     public SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight) {
+      if (sendFailure != null) {
+        throw sendFailure;
+      }
       sentTransactions.add(transaction);
       sentBlockHeights.add(blockHeight);
       return new SendTxContext(null, null, transaction, "base64", blockHeight, 0);
@@ -303,11 +309,10 @@ final class BaseInstructionServiceTests {
 
     @Override
     public long setBlockHash(final Transaction transaction, final LatestBlockHash blockHash) {
-      if (fallbackBlockHeight == 0) {
-        throw new UnsupportedOperationException();
-      }
-      fallbackBlockHashes.add(blockHash);
-      return fallbackBlockHeight;
+      transaction.setRecentBlockHash(blockHash.blockHash());
+      latestBlockHashTransactions.add(transaction);
+      latestBlockHashes.add(blockHash);
+      return blockHash.lastValidBlockHeight();
     }
 
     @Override
@@ -528,9 +533,21 @@ final class BaseInstructionServiceTests {
   }
 
   /// An `RpcCaller` whose single proxy client serves `getLatestBlockHash`
-  /// inline, so the successful side of `sendTransaction`'s block-hash fallback
-  /// runs synchronously and without a network.
+  /// inline, so the just-in-time refresh runs synchronously and without a
+  /// network.
   static RpcCaller blockHashServingRpcCaller(final LatestBlockHash latestBlockHash) {
+    return blockHashServingRpcCaller(latestBlockHash, new AtomicInteger());
+  }
+
+  static RpcCaller blockHashServingRpcCaller(final LatestBlockHash latestBlockHash,
+                                             final AtomicInteger calls) {
+    return blockHashRpcCaller(
+        calls, ignored -> CompletableFuture.completedFuture(latestBlockHash));
+  }
+
+  static RpcCaller blockHashRpcCaller(
+      final AtomicInteger calls,
+      final IntFunction<CompletableFuture<LatestBlockHash>> responses) {
     final var second = Duration.ofSeconds(1);
     // Capacity generous enough that no test ever waits on the token bucket.
     final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
@@ -539,7 +556,7 @@ final class BaseInstructionServiceTests {
         SolanaRpcClient.class.getClassLoader(),
         new Class<?>[]{SolanaRpcClient.class},
         (proxy, method, args) -> switch (method.getName()) {
-          case "getLatestBlockHash" -> CompletableFuture.completedFuture(latestBlockHash);
+          case "getLatestBlockHash" -> responses.apply(calls.getAndIncrement());
           case "toString" -> "FakeRpcClient";
           case "hashCode" -> System.identityHashCode(proxy);
           case "equals" -> proxy == args[0];
@@ -551,8 +568,14 @@ final class BaseInstructionServiceTests {
   }
 
   static BaseInstructionService service(final FakeTxProcessor processor, final FakeMonitor monitor) {
+    return service(blockHashServingRpcCaller(FRESH_BLOCK_HASH), processor, monitor);
+  }
+
+  static BaseInstructionService service(final RpcCaller rpcCaller,
+                                        final FakeTxProcessor processor,
+                                        final FakeMonitor monitor) {
     return new BaseInstructionService(
-        nonDispatchingRpcCaller(),
+        rpcCaller,
         processor,
         SPLClient.createClient(),
         new FakeEpochInfoService(),
@@ -583,36 +606,63 @@ final class BaseInstructionServiceTests {
   }
 
   @Test
-  void sendTransactionSignsAndSendsTheSimulatedTransaction() {
+  void sendTransactionRefreshesBeforeTheHookAndSigning() {
     final var processor = new FakeTxProcessor();
-    processor.blockHeight = 9_001;
-    final var service = service(processor, new FakeMonitor());
+    final var latestBlockHashCalls = new AtomicInteger();
+    final var replacementRef = new AtomicReference<Transaction>();
+    final var service = service(
+        blockHashRpcCaller(latestBlockHashCalls, ignored -> {
+          assertEquals(1, processor.createdTransactions.size(),
+              "fee-aware transaction creation must finish before the final hash is requested");
+          return CompletableFuture.completedFuture(FRESH_BLOCK_HASH);
+        }),
+        processor,
+        new FakeMonitor());
 
     final var ixs = instructions(2);
     final var futures = successfulSimulation(ixs);
-    final var replacement = signedTx(instructions(3));
 
     final var sendContext = service.sendTransaction(
-        tx -> replacement,
+        tx -> {
+          assertEquals(List.of(tx), processor.latestBlockHashTransactions,
+              "the hook must observe the transaction after its fresh hash is installed");
+          assertArrayEquals(
+              software.sava.core.encoding.Base58.decode(FRESH_BLOCK_HASH.blockHash()),
+              tx.recentBlockHash());
+          final var replacement = tx.appendIx(instruction(99));
+          replacementRef.set(replacement);
+          return replacement;
+        },
         futures,
         futures.simulationFuture().join(),
         MAX_FEE,
         123_456
     );
 
-    assertNotNull(sendContext, "a positive block height must not trigger the block hash fallback");
-    assertEquals(9_001, sendContext.blockHeight());
+    assertNotNull(sendContext);
+    final var replacement = replacementRef.get();
+    assertNotNull(replacement);
+    assertEquals(FRESH_BLOCK_HASH.lastValidBlockHeight(), sendContext.blockHeight());
     assertSame(replacement, sendContext.transaction(), "the beforeSend hook's transaction must be the one sent");
+    assertArrayEquals(
+        software.sava.core.encoding.Base58.decode(FRESH_BLOCK_HASH.blockHash()),
+        replacement.recentBlockHash(),
+        "a replacement transaction must preserve the fresh hash observed by the hook");
     assertEquals(List.of(123_456), processor.createdCuBudgets);
     assertEquals(List.of(MAX_FEE), processor.createdMaxFees);
-    assertEquals(List.of(9_001L), processor.sentBlockHeights);
+    assertEquals(List.of(processor.createdTransactions.getFirst()),
+        processor.latestBlockHashTransactions,
+        "the signed message must not be changed after the hook can add signatures");
+    assertEquals(List.of(FRESH_BLOCK_HASH), processor.latestBlockHashes);
+    assertEquals(1, latestBlockHashCalls.get());
+    assertEquals(List.of(FRESH_BLOCK_HASH.lastValidBlockHeight()), processor.sentBlockHeights);
   }
 
   @Test
-  void sendTransactionGivesUpWhenNoBlockHashCanBeRetrieved() {
+  void sendTransactionGivesUpWhenTheFreshBlockHashCannotBeRetrieved() {
     final var processor = new FakeTxProcessor();
-    processor.blockHeight = 0;
-    final var service = service(processor, new FakeMonitor());
+    final var service = service(nonDispatchingRpcCaller(), processor, new FakeMonitor());
+    final var hookCalled = new AtomicBoolean();
 
     final var ixs = instructions(2);
     final var futures = successfulSimulation(ixs);
@@ -622,7 +672,10 @@ final class BaseInstructionServiceTests {
     final SendTxContext sendContext;
     try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
       sendContext = service.sendTransaction(
-          BaseInstructionService.NO_OP,
+          transaction -> {
+            hookCalled.set(true);
+            return transaction;
+          },
           futures,
           futures.simulationFuture().join(),
           MAX_FEE,
@@ -630,18 +683,40 @@ final class BaseInstructionServiceTests {
       );
     }
 
-    assertNull(sendContext, "a non-positive block height must take the failing fallback and abandon the send");
+    assertNull(sendContext, "the send must be abandoned without a just-in-time block hash");
+    assertFalse(hookCalled.get(), "a hook must not run when no transaction can be sent");
     assertTrue(processor.sentTransactions.isEmpty(), "nothing may be sent without a block hash");
   }
 
   @Test
-  void sendTransactionFetchesAReplacementBlockHashWhenTheSimulationLacksOne() {
+  void signingFailuresAreNotReportedAsBlockHashFailures() {
     final var processor = new FakeTxProcessor();
-    processor.blockHeight = 0;
-    processor.fallbackBlockHeight = 7_777;
-    final var latestBlockHash = new LatestBlockHash(null, "REPLACEMENT_HASH", 8_642L);
+    final var signingFailure = new IllegalStateException("signing failed");
+    processor.sendFailure = signingFailure;
+    final var service = service(processor, new FakeMonitor());
+    final var futures = successfulSimulation(instructions(2));
+
+    final var thrown = assertThrows(
+        IllegalStateException.class,
+        () -> service.sendTransaction(
+            BaseInstructionService.NO_OP,
+            futures,
+            futures.simulationFuture().join(),
+            MAX_FEE,
+            123_456));
+
+    assertSame(signingFailure, thrown);
+    assertEquals(List.of(FRESH_BLOCK_HASH), processor.latestBlockHashes,
+        "the fresh hash lookup completed before signing failed");
+  }
+
+  @Test
+  void sendTransactionFetchesExactlyOneFreshHashWhenTheSimulationLacksOne() {
+    final var processor = new FakeTxProcessor();
+    final var latestBlockHash = new LatestBlockHash(null, key(99).toBase58(), 8_642L);
+    final var latestBlockHashCalls = new AtomicInteger();
     final var service = new BaseInstructionService(
-        blockHashServingRpcCaller(latestBlockHash),
+        blockHashServingRpcCaller(latestBlockHash, latestBlockHashCalls),
         processor,
         SPLClient.createClient(),
         new FakeEpochInfoService(),
@@ -651,23 +726,20 @@ final class BaseInstructionServiceTests {
     final var ixs = instructions(2);
     final var futures = successfulSimulation(ixs);
 
-    // The missing replacement hash is logged at WARNING before the RPC lookup.
-    final SendTxContext sendContext;
-    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
-      sendContext = service.sendTransaction(
-          BaseInstructionService.NO_OP,
-          futures,
-          futures.simulationFuture().join(),
-          MAX_FEE,
-          123_456
-      );
-    }
+    final var sendContext = service.sendTransaction(
+        BaseInstructionService.NO_OP,
+        futures,
+        futures.simulationFuture().join(),
+        MAX_FEE,
+        123_456
+    );
 
     assertNotNull(sendContext, "a served block hash must let the send proceed");
-    assertEquals(7_777, sendContext.blockHeight());
-    assertEquals(List.of(latestBlockHash), processor.fallbackBlockHashes,
+    assertEquals(8_642, sendContext.blockHeight());
+    assertEquals(List.of(latestBlockHash), processor.latestBlockHashes,
         "the fetched hash must be the one applied to the transaction");
-    assertEquals(List.of(7_777L), processor.sentBlockHeights);
+    assertEquals(1, latestBlockHashCalls.get(), "missing simulation data must not cause a second lookup");
+    assertEquals(List.of(8_642L), processor.sentBlockHeights);
   }
 
   @Test
@@ -717,11 +789,10 @@ final class BaseInstructionServiceTests {
   }
 
   @Test
-  void aMissingBlockHashIsReportedAsAFailedSend() throws InterruptedException {
+  void aFreshBlockHashFailureIsReportedAsAFailedSend() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.blockHeight = 0;
     final var monitor = new FakeMonitor();
-    final var service = service(processor, monitor);
+    final var service = service(nonDispatchingRpcCaller(), processor, monitor);
 
     final var ixs = instructions(2);
     // The block hash failure is logged at WARNING with the throwable; only this

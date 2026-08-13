@@ -69,23 +69,26 @@ public class BaseInstructionService implements InstructionService {
                                                 final BigDecimal maxLamportPriorityFee,
                                                 final int cuBudget) {
     final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
-    long blockHeight = transactionProcessor.setBlockHash(transaction, simulationResult);
-    if (Long.compareUnsigned(blockHeight, 0) <= 0) {
-      try {
-        final var blockHashFuture = rpcCaller.courteousCall(
-            rpcClient -> rpcClient.getLatestBlockHash(CONFIRMED),
-            CallContext.createContext(1, 0, 1, true, 0, true),
-            "rpcClient::getLatestBlockHash"
-        );
-        logger.log(WARNING, "Simulation did not include a replacement block hash.");
-        final var blockHash = blockHashFuture.join();
-        blockHeight = transactionProcessor.setBlockHash(transaction, blockHash);
-      } catch (final RuntimeException ex) {
-        logger.log(WARNING, "Failed to retrieve block hash for transaction.", ex);
-        return null;
-      }
+    // Do not let priority-fee resolution consume the final hash's validity
+    // window. Install the fresh hash before the hook: hooks may add signatures,
+    // which changing the signed message afterward would break.
+    final long blockHeight;
+    try {
+      final var blockHashFuture = rpcCaller.courteousCall(
+          rpcClient -> rpcClient.getLatestBlockHash(CONFIRMED),
+          CallContext.createContext(1, 0, 1, true, 0, true),
+          "rpcClient::getLatestBlockHash"
+      );
+      final var blockHash = blockHashFuture.join();
+      blockHeight = transactionProcessor.setBlockHash(transaction, blockHash);
+    } catch (final RuntimeException ex) {
+      logger.log(WARNING,
+          "Failed to retrieve or apply a fresh confirmed block hash; transaction was not signed or published.",
+          ex);
+      return null;
     }
-    return transactionProcessor.signAndSendTx(beforeSend.apply(transaction), blockHeight);
+    final var finalTransaction = beforeSend.apply(transaction);
+    return transactionProcessor.signAndSendTx(finalTransaction, blockHeight);
   }
 
   @Override

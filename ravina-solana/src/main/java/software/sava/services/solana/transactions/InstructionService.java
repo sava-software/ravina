@@ -371,6 +371,11 @@ public interface InstructionService {
     );
   }
 
+  /// Processes and publishes a transaction. `beforeSend` runs after a fresh
+  /// confirmed blockhash is installed and before the service signature is
+  /// added. A replacement transaction returned by the hook must preserve that
+  /// blockhash; hook, signing and publication failures propagate to the caller.
+  /// This send path owns the recent blockhash and is not a durable-nonce path.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,
@@ -382,6 +387,7 @@ public interface InstructionService {
                                         final int maxRetriesAfterExpired,
                                         final String logContext) throws InterruptedException;
 
+  /// Equivalent to the overload above with an explicit transaction factory.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,
