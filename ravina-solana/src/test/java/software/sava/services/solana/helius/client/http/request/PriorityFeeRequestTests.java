@@ -4,7 +4,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static software.sava.services.solana.helius.client.http.request.PriorityFeeRequest.serializeParams;
 import static software.sava.services.solana.helius.client.http.request.PriorityFeeRequest.serializeRecommendedParams;
 
@@ -18,8 +20,29 @@ final class PriorityFeeRequestTests {
 
   @Test
   void defaultsAreTheDocumentedHeliusDefaults() {
-    assertEquals(150, PriorityFeeRequest.DEFAULT_LOOK_BACK_SLOTS);
+    assertEquals(1, PriorityFeeRequest.MIN_LOOK_BACK_SLOTS);
+    assertEquals(150, PriorityFeeRequest.MAX_LOOK_BACK_SLOTS);
+    assertEquals(PriorityFeeRequest.MAX_LOOK_BACK_SLOTS, PriorityFeeRequest.DEFAULT_LOOK_BACK_SLOTS);
     assertEquals(Encoding.base64, PriorityFeeRequest.DEFAULT_TX_ENCODING);
+  }
+
+  @Test
+  void accountKeyLookbacksEnforceTheHeliusRange() {
+    assertDoesNotThrow(() -> serializeParams(List.of("onlyKey"), PriorityFeeRequest.MIN_LOOK_BACK_SLOTS));
+    assertDoesNotThrow(() -> serializeParams(List.of("onlyKey"), PriorityFeeRequest.MAX_LOOK_BACK_SLOTS));
+    assertThrows(IllegalArgumentException.class, () -> serializeParams(List.of("onlyKey"), 0));
+    assertThrows(IllegalArgumentException.class, () -> serializeParams(List.of("onlyKey"), 151));
+  }
+
+  @Test
+  void transactionLookbacksEnforceTheHeliusRangeThroughEveryExplicitOverload() {
+    assertDoesNotThrow(() -> serializeParams(TX, "base64", PriorityFeeRequest.MIN_LOOK_BACK_SLOTS));
+    assertDoesNotThrow(() -> serializeParams(TX, Encoding.base64, PriorityFeeRequest.MAX_LOOK_BACK_SLOTS));
+    assertDoesNotThrow(() -> serializeParams(TX, PriorityFeeRequest.MIN_LOOK_BACK_SLOTS));
+
+    assertThrows(IllegalArgumentException.class, () -> serializeParams(TX, "base64", 0));
+    assertThrows(IllegalArgumentException.class, () -> serializeParams(TX, Encoding.base64, 151));
+    assertThrows(IllegalArgumentException.class, () -> serializeParams(TX, 0));
   }
 
   @Test

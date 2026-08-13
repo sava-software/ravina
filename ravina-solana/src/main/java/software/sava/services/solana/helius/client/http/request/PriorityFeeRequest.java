@@ -2,13 +2,23 @@ package software.sava.services.solana.helius.client.http.request;
 
 import java.util.List;
 
+/// Serializes Helius priority-fee request parameters.
+///
+/// A lookback is a count of recent Solana slots, not a wall-clock duration.
+/// Helius accepts between 1 and 150 slots, inclusive.
 public final class PriorityFeeRequest {
 
-  public static final int DEFAULT_LOOK_BACK_SLOTS = 150;
+  /// Smallest recent-slot lookback accepted by Helius.
+  public static final int MIN_LOOK_BACK_SLOTS = 1;
+  /// Largest recent-slot lookback accepted by Helius.
+  public static final int MAX_LOOK_BACK_SLOTS = 150;
+  /// Recent-slot lookback used when callers do not specify one.
+  public static final int DEFAULT_LOOK_BACK_SLOTS = MAX_LOOK_BACK_SLOTS;
   public static final Encoding DEFAULT_TX_ENCODING = Encoding.base64;
 
   public static String serializeParams(final List<String> accountKeys, final int lookBackSlots) {
 
+    validateLookBackSlots(lookBackSlots);
     final int numKeys = accountKeys.size();
     final var accountKeysString = numKeys == 1
         ? accountKeys.getFirst()
@@ -31,6 +41,7 @@ public final class PriorityFeeRequest {
   public static String serializeParams(final String transaction,
                                        final String transactionEncoding,
                                        final int lookBackSlots) {
+    validateLookBackSlots(lookBackSlots);
     return String.format("""
             "transaction":"%s",
             "options":{
@@ -92,6 +103,17 @@ public final class PriorityFeeRequest {
 
   public static String serializeRecommendedParams(final String transaction) {
     return serializeRecommendedParams(transaction, DEFAULT_TX_ENCODING);
+  }
+
+  private static void validateLookBackSlots(final int lookBackSlots) {
+    if (lookBackSlots < MIN_LOOK_BACK_SLOTS || lookBackSlots > MAX_LOOK_BACK_SLOTS) {
+      throw new IllegalArgumentException(String.format(
+          "Helius priority-fee lookback slots (%d) must be between %d and %d, inclusive.",
+          lookBackSlots,
+          MIN_LOOK_BACK_SLOTS,
+          MAX_LOOK_BACK_SLOTS
+      ));
+    }
   }
 
   private PriorityFeeRequest() {
