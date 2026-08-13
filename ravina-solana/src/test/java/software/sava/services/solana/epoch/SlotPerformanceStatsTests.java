@@ -87,18 +87,69 @@ final class SlotPerformanceStatsTests {
   }
 
   @Test
-  void convenienceOverloadsDelegateWithTheTargetBounds() {
-    final var samples = List.of(sample(10_000, 60, 30)); // 500 ms per slot.
-    // The single-argument overload uses TARGET_MILLIS_PER_SLOT as both bounds.
-    final var oneArg = SlotPerformanceStats.calculateStats(samples);
-    assertNotNull(oneArg);
-    assertEquals(400, oneArg.median());
-    assertEquals(1, oneArg.numPerfSamples());
-    // The two-argument overload keeps the target floor but raises the ceiling.
-    final var twoArg = SlotPerformanceStats.calculateStats(samples, 1_000);
-    assertNotNull(twoArg);
-    assertEquals(500, twoArg.median());
-    assertEquals(1, twoArg.numPerfSamples());
+  void defaultBoundsPreserveEveryReducedSlotTimeStage() {
+    // A 60-second sample can represent the 350ms target only to the nearest
+    // whole slot: 171 slots rounds to 351ms per slot.
+    final int[] numSlots = {150, 171, 200, 240, 300};
+    final int[] expectedMillis = {400, 351, 300, 250, 200};
+    for (int i = 0; i < numSlots.length; ++i) {
+      final var stats = SlotPerformanceStats.calculateStats(List.of(sample(10_000, numSlots[i], 60)));
+      assertNotNull(stats);
+      assertEquals(expectedMillis[i], stats.median(), "numSlots=" + numSlots[i]);
+    }
+
+    final var stats = SlotPerformanceStats.calculateStats(List.of(
+        sample(10_000, 150, 60),
+        sample(10_000, 171, 60),
+        sample(10_000, 200, 60),
+        sample(10_000, 240, 60),
+        sample(10_000, 300, 60)
+    ));
+    assertNotNull(stats);
+    assertEquals(300, stats.median());
+    assertEquals(300, stats.mean());
+    assertEquals(200, stats.min());
+    assertEquals(400, stats.max());
+    assertEquals(200 / 6.0, stats.estimatedStdDev());
+    assertEquals(5, stats.numPerfSamples());
+  }
+
+  @Test
+  void convenienceOverloadsUseTheDefaultFloorAndRequestedCeiling() {
+    final var slowSample = List.of(sample(10_000, 100, 60)); // 600ms per slot.
+    final var defaultBounds = SlotPerformanceStats.calculateStats(slowSample);
+    assertNotNull(defaultBounds);
+    assertEquals(500, defaultBounds.median());
+
+    final var raisedCeiling = SlotPerformanceStats.calculateStats(slowSample, 1_000);
+    assertNotNull(raisedCeiling);
+    assertEquals(600, raisedCeiling.median());
+
+    final var belowTarget = SlotPerformanceStats.calculateStats(
+        List.of(sample(10_000, 400, 60)), 1_000); // 150ms per slot.
+    assertNotNull(belowTarget);
+    assertEquals(190, belowTarget.median());
+  }
+
+  @SuppressWarnings("deprecation")
+  @Test
+  void legacyTargetAliasTracksTheFastestRolloutTarget() {
+    assertEquals(200, SlotPerformanceStats.TARGET_MILLIS_PER_SLOT);
+  }
+
+  @Test
+  void slotDurationBoundsMustBeOrdered() {
+    final var ex = assertThrows(
+        IllegalArgumentException.class,
+        () -> SlotPerformanceStats.calculateStats(List.of(), 500, 499)
+    );
+    assertTrue(ex.getMessage().contains("500"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("499"), ex.getMessage());
+
+    final var stats = assertDoesNotThrow(() -> SlotPerformanceStats.calculateStats(
+        List.of(sample(10_000, 300, 60)), 200, 200));
+    assertNotNull(stats);
+    assertEquals(200, stats.median());
   }
 
   @Test

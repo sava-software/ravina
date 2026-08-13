@@ -12,19 +12,50 @@ public record SlotPerformanceStats(int median,
                                    double estimatedStdDev,
                                    int numPerfSamples) {
 
-  public static final int TARGET_MILLIS_PER_SLOT = 400;
+  /// The fastest target in SIMD-0525's staged slot-time rollout. This is the
+  /// lower end of the supported target range, not the cluster's current slot
+  /// duration; the latter is measured from performance samples.
+  public static final int MIN_TARGET_MILLIS_PER_SLOT = 200;
 
+  /// The default sample floor leaves room for ordinary drift below the 200ms
+  /// target.
+  public static final int DEFAULT_MIN_MILLIS_PER_SLOT = MIN_TARGET_MILLIS_PER_SLOT - 10;
+
+  /// The default sample ceiling retains room for unusually slow slots.
+  public static final int DEFAULT_MAX_MILLIS_PER_SLOT = 500;
+
+  /**
+   * @deprecated A cluster has no single compile-time target during the staged
+   * rollout. Use {@link #MIN_TARGET_MILLIS_PER_SLOT} as a boundary or measured
+   * slot performance for wall-clock estimates.
+   */
+  @Deprecated(forRemoval = false)
+  public static final int TARGET_MILLIS_PER_SLOT = MIN_TARGET_MILLIS_PER_SLOT;
+
+  /// Calculates observed slot-time statistics within the default supported
+  /// range of [#DEFAULT_MIN_MILLIS_PER_SLOT] through
+  /// [#DEFAULT_MAX_MILLIS_PER_SLOT].
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples) {
-    return calculateStats(samples, TARGET_MILLIS_PER_SLOT);
+    return calculateStats(samples, DEFAULT_MIN_MILLIS_PER_SLOT, DEFAULT_MAX_MILLIS_PER_SLOT);
   }
 
+  /// Calculates observed slot-time statistics using the default floor and the
+  /// supplied ceiling.
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples, final int maxMillis) {
-    return calculateStats(samples, TARGET_MILLIS_PER_SLOT, maxMillis);
+    return calculateStats(samples, DEFAULT_MIN_MILLIS_PER_SLOT, maxMillis);
   }
 
+  /// Calculates observed slot-time statistics after bounding every usable
+  /// sample to the supplied inclusive range.
   public static SlotPerformanceStats calculateStats(final List<PerfSample> samples,
                                                     final int minMillis,
                                                     final int maxMillis) {
+    if (minMillis > maxMillis) {
+      throw new IllegalArgumentException(String.format(
+          "Minimum millis per slot (%d) cannot exceed maximum millis per slot (%d).",
+          minMillis, maxMillis
+      ));
+    }
     final var msPerSlotArray = samples.stream()
         .filter(s ->
             Long.compareUnsigned(s.numSlots(), s.slot()) < 0 // Ignore opening epoch slots.
@@ -32,7 +63,7 @@ public record SlotPerformanceStats(int median,
                 && s.numSlots() > 0)
         .mapToInt(s -> {
           final int millisPerSlot = (int) Math.round((s.samplePeriodSecs() / (double) s.numSlots()) * 1_000);
-          return Math.max(minMillis, Math.min(millisPerSlot, maxMillis));
+          return Math.clamp(millisPerSlot, minMillis, maxMillis);
         })
         .sorted()
         .toArray();

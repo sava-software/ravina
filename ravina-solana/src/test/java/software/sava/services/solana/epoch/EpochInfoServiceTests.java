@@ -298,6 +298,17 @@ final class EpochInfoServiceTests {
 
   private final TestClock clock = new TestClock();
 
+  private RpcCaller rpcCallerFor(final FakeRpcClient fake) {
+    final var resetDuration = Duration.ofSeconds(1);
+    final var config = new CapacityConfig(
+        0, 100_000, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
+    final var monitor = config.<SolanaRpcClient, byte[]>createMonitor("test", NoopTracker::new, clock);
+    final BalancedItem<SolanaRpcClient> item = BalancedItem.createItem(
+        fake.client, monitor, Backoff.single(MILLISECONDS, 0));
+    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(item);
+    return new RpcCaller(executor, balancer, CallWeights.createDefault());
+  }
+
   private EpochInfoServiceImpl serviceFor(final FakeRpcClient fake) {
     return serviceFor(fake, ALWAYS_DUE);
   }
@@ -309,17 +320,9 @@ final class EpochInfoServiceTests {
   private EpochInfoServiceImpl serviceFor(final FakeRpcClient fake,
                                           final long fetchSamplesDelayMillis,
                                           final long fetchEpochInfoAfterEndDelayMillis) {
-    final var resetDuration = Duration.ofSeconds(1);
-    final var config = new CapacityConfig(
-        0, 100_000, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
-    final var monitor = config.<SolanaRpcClient, byte[]>createMonitor("test", NoopTracker::new, clock);
-    final BalancedItem<SolanaRpcClient> item = BalancedItem.createItem(
-        fake.client, monitor, Backoff.single(MILLISECONDS, 0));
-    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(item);
-    final var rpcCaller = new RpcCaller(executor, balancer, CallWeights.createDefault());
     return new EpochInfoServiceImpl(
         clock,
-        rpcCaller,
+        rpcCallerFor(fake),
         410,
         1,
         1,
@@ -390,10 +393,25 @@ final class EpochInfoServiceTests {
   }
 
   @Test
-  void theDefaultConfigProducesAService() {
-    final var service = EpochInfoService.createService(EpochServiceConfig.createDefault(), null);
-    assertNotNull(service);
-    assertEquals(EpochServiceConfig.createDefault().defaultMillisPerSlot(), service.defaultMillisPerSlot());
+  void theDefaultConfigCarriesTheFastestTargetSampleThroughTheService() {
+    final var fake = new FakeRpcClient(epochInfo(100, 50, 1_000_000));
+    fake.samples = List.of(new PerfSample(10_000, 300, 5_000, 4_000, 60));
+    final var service = EpochInfoService.createService(
+        EpochServiceConfig.createDefault(), rpcCallerFor(fake), clock);
+    final var impl = (EpochInfoServiceImpl) service;
+
+    assertNotNull(assertDoesNotThrow(impl::start));
+
+    final var epoch = service.epochInfo();
+    assertNotNull(epoch);
+    final var stats = epoch.slotStats();
+    assertNotNull(stats);
+    assertEquals(200, stats.median());
+    assertEquals(200, stats.mean());
+    assertEquals(200, epoch.medianMillisPerSlot());
+    assertEquals(210, service.defaultMillisPerSlot());
+    assertEquals(1, fake.epochCalls);
+    assertEquals(List.of(21), fake.sampleLimits);
   }
 
   /// Three scripted epochs and then a closed client. Each loop iteration is due

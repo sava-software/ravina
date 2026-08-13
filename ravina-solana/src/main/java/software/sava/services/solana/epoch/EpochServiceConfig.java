@@ -11,14 +11,32 @@ import java.util.Properties;
 
 import static java.time.Duration.ofMinutes;
 import static java.time.Duration.ofSeconds;
-import static software.sava.services.solana.epoch.SlotPerformanceStats.TARGET_MILLIS_PER_SLOT;
+import static software.sava.services.solana.epoch.SlotPerformanceStats.DEFAULT_MAX_MILLIS_PER_SLOT;
+import static software.sava.services.solana.epoch.SlotPerformanceStats.DEFAULT_MIN_MILLIS_PER_SLOT;
+import static software.sava.services.solana.epoch.SlotPerformanceStats.MIN_TARGET_MILLIS_PER_SLOT;
 
+/// Slot duration is normally derived from recent performance samples. The
+/// default duration is only a no-sample fallback near the fastest rollout
+/// target; on slower rollout stages it intentionally prompts earlier checks.
+/// The minimum and maximum bound observations before they feed epoch estimates
+/// and monitor pacing.
 public record EpochServiceConfig(int defaultMillisPerSlot,
                                  int minMillisPerSlot,
                                  int maxMillisPerSlot,
                                  Duration slotSampleWindow,
                                  Duration fetchSlotSamplesDelay,
                                  Duration fetchEpochInfoAfterEndDelay) {
+
+  private static final int DEFAULT_MILLIS_PER_SLOT = MIN_TARGET_MILLIS_PER_SLOT + 10;
+
+  public EpochServiceConfig {
+    if (minMillisPerSlot > maxMillisPerSlot) {
+      throw new IllegalArgumentException(String.format(
+          "Minimum millis per slot (%d) cannot exceed maximum millis per slot (%d).",
+          minMillisPerSlot, maxMillisPerSlot
+      ));
+    }
+  }
 
   public static EpochServiceConfig parseConfig(final JsonIterator ji) {
     if (ji.readNull()) {
@@ -42,9 +60,9 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
 
   public static EpochServiceConfig createDefault() {
     return new EpochServiceConfig(
-        TARGET_MILLIS_PER_SLOT + 10,
-        TARGET_MILLIS_PER_SLOT - 10,
-        500,
+        DEFAULT_MILLIS_PER_SLOT,
+        DEFAULT_MIN_MILLIS_PER_SLOT,
+        DEFAULT_MAX_MILLIS_PER_SLOT,
         ofMinutes(21),
         ofMinutes(8),
         ofSeconds(1)
@@ -53,9 +71,9 @@ public record EpochServiceConfig(int defaultMillisPerSlot,
 
   private static final class Parser extends PropertiesParser implements FieldBufferPredicate {
 
-    private int defaultMillisPerSlot = TARGET_MILLIS_PER_SLOT + 10;
-    private int minMillisPerSlot = TARGET_MILLIS_PER_SLOT - 10;
-    private int maxMillisPerSlot = 500;
+    private int defaultMillisPerSlot = DEFAULT_MILLIS_PER_SLOT;
+    private int minMillisPerSlot = DEFAULT_MIN_MILLIS_PER_SLOT;
+    private int maxMillisPerSlot = DEFAULT_MAX_MILLIS_PER_SLOT;
     private Duration slotSampleWindow;
     private Duration fetchSlotSamplesDelay;
     private Duration fetchEpochInfoAfterEndDelay;

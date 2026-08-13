@@ -78,12 +78,38 @@ final class EpochServiceConfigTests {
   void testCreateDefault() {
     final var config = EpochServiceConfig.createDefault();
 
-    assertEquals(410, config.defaultMillisPerSlot());
-    assertEquals(390, config.minMillisPerSlot());
+    // With no samples, this stays near the fastest target so slower rollout
+    // stages prompt earlier checks instead of sleeping past chain progress.
+    assertEquals(210, config.defaultMillisPerSlot());
+    assertEquals(190, config.minMillisPerSlot());
     assertEquals(500, config.maxMillisPerSlot());
     assertEquals(Duration.ofMinutes(21), config.slotSampleWindow());
     assertEquals(Duration.ofMinutes(8), config.fetchSlotSamplesDelay());
     assertEquals(Duration.ofSeconds(1), config.fetchEpochInfoAfterEndDelay());
+  }
+
+  @Test
+  void slotDurationBoundsMustBeOrdered() {
+    final var defaults = EpochServiceConfig.createDefault();
+    final var ex = assertThrows(IllegalArgumentException.class, () -> new EpochServiceConfig(
+        defaults.defaultMillisPerSlot(),
+        501,
+        500,
+        defaults.slotSampleWindow(),
+        defaults.fetchSlotSamplesDelay(),
+        defaults.fetchEpochInfoAfterEndDelay()
+    ));
+    assertTrue(ex.getMessage().contains("501"), ex.getMessage());
+    assertTrue(ex.getMessage().contains("500"), ex.getMessage());
+
+    assertDoesNotThrow(() -> new EpochServiceConfig(
+        defaults.defaultMillisPerSlot(),
+        500,
+        500,
+        defaults.slotSampleWindow(),
+        defaults.fetchSlotSamplesDelay(),
+        defaults.fetchEpochInfoAfterEndDelay()
+    ));
   }
 
   @Test
