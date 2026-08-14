@@ -1,5 +1,23 @@
 # Changelog
 
+## [25.6.1](https://github.com/sava-software/ravina/compare/25.6.0...25.6.1) (2026-08-14)
+
+
+### Features
+
+* **websocket:** supervise one reusable connection with an explicit state machine ([9577ab4](https://github.com/sava-software/ravina/commit/9577ab420e92038ac2fbd07d2726a22c3e7c4d12))
+
+
+### Bug Fixes
+
+* **solana:** harden reduced slot time handling ([5578c86](https://github.com/sava-software/ravina/commit/5578c860084d55d1db11c67b812d2711bcd2d9e8))
+* **solana:** measure skip rate across epoch gaps ([dc459ea](https://github.com/sava-software/ravina/commit/dc459ea6813d3ed17ac1d26f20af4c69d2be1ea9))
+* **solana:** refresh blockhash before signing ([9cc96ee](https://github.com/sava-software/ravina/commit/9cc96ee94be74fe61ab2fdd9191b95cf5408c94b))
+* **solana:** support reduced slot times ([d40effb](https://github.com/sava-software/ravina/commit/d40effb03c63accd81efe07b1c12db3f78b0c170))
+* **solana:** validate priority fee lookbacks ([f5b5ca4](https://github.com/sava-software/ravina/commit/f5b5ca483536ce78bf0bdd01afec53af11bd19cf))
+* **websocket:** kill the connect-attempt install guard instead of accepting it ([d3ab95f](https://github.com/sava-software/ravina/commit/d3ab95ff993271b927924c2cf80430dfa41ebc8a))
+* **websocket:** re-connect after enough pings fail on one connection ([9ba18c7](https://github.com/sava-software/ravina/commit/9ba18c7021a367c3fb722b0d391dc38ad9df8f64))
+
 ## [25.6.0](https://github.com/sava-software/ravina/compare/25.5.2...25.6.0) (2026-08-07)
 
 
