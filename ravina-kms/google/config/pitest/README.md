@@ -8,7 +8,7 @@ opens with `!sava-hardening-baseline-schema,1`; each row is
 trailing comments. The full process contract is sava-build's `HARDENING.md`,
 and `./gradlew hardeningHelp` prints the installed task surface;
 `./gradlew qualityGate` runs every suite plus the unit tests, and
-`./gradlew hardeningCertify` is the pre-release check — freshly observed,
+`./gradlew :hardeningCertifyAll` is the pre-release check — freshly observed,
 provenance-bound, strictly audited, and run locally before deciding to release
 (CI deliberately runs only `check`; neither is a per-commit gate).
 

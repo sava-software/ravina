@@ -11,7 +11,7 @@ properties were removed in sava-build 21.5.22 and now fail the build at
 configuration time, and `./gradlew hardeningHelp` prints the installed
 surface. The full process contract is sava-build's `HARDENING.md`;
 `./gradlew qualityGate` runs every suite plus the unit tests, and
-`./gradlew hardeningCertify` is the pre-release check — freshly observed,
+`./gradlew :hardeningCertifyAll` is the pre-release check — freshly observed,
 provenance-bound, strictly audited, and run locally before deciding to release
 (CI deliberately runs only `check`; neither is a per-commit gate).
 

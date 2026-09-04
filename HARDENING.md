@@ -88,13 +88,16 @@ Two mechanical points that cost real time to rediscover:
 
 - **Scale verification to the change.** Iterate with the module's `test`;
   before handing off, run only the `pitest<Suite>`(s) whose mutated code the
-  change can reach. The **pre-release** check is `./gradlew hardeningCertify`
-  — every suite freshly observed, serialized, provenance-bound, with strict
-  timeout and ownership audits — and it is owned by the local release
-  checklist: CI deliberately runs only `check` (serialized PIT suites are too
-  slow for hosted runners), so certify locally before deciding to release,
-  not per commit. Receipts are project-scoped: an unqualified run writes five,
-  one per hardening project, each with its own session UUID.
+  change can reach. The **pre-release** check is
+  `./gradlew :hardeningCertifyAll` — every suite freshly observed, serialized,
+  provenance-bound, with strict timeout and ownership audits — and it is owned
+  by the local release checklist: CI deliberately runs only `check` (serialized
+  PIT suites are too slow for hosted runners), so certify locally before
+  deciding to release, not per commit. It writes a root
+  `.pitest-history/pitest-certification-all.tsv` manifest that inventories this
+  Gradle root's five hardening projects and 17 suites and hashes all five child
+  receipts. The manifest removes manual repository-wide receipt enumeration;
+  it is a receipt inventory, not proof of a simultaneous source snapshot.
 - A new unkilled mutant has exactly three legal outcomes: **kill it** with a
   test (prefer asserting the property it breaks — pacing as a function of
   requested delays, capacity after a dock — over restating the
@@ -171,24 +174,19 @@ Two mechanical points that cost real time to rediscover:
   kills; per-run exploration is the fuzz targets' job.
 - Fuzz: `./gradlew :ravina-core:fuzzBackoff -PmaxFuzzTime=60` for one target
   (`fuzz<Target>`; default 60s), or `./gradlew --continue fuzzAll
-  -PmaxFuzzTime=<seconds>` for every registered target in a project — that
-  aggregate is derived from the registrations, so unlike a hand-written
-  workflow task list it cannot drift, and the budget applies **per target**,
-  with `-PmaxParallelFuzzTargets=<n>` bounding how many run at once.
+  -PmaxFuzzTime=<seconds> -PmaxParallelFuzzTargets=<n>` for every registered
+  target in the Gradle root — that aggregate is derived from the registrations,
+  so unlike a hand-written workflow task list it cannot drift. The budget
+  applies **per target**, while `maxParallelFuzzTargets` is one shared
+  build-wide concurrency cap across all projects.
   Campaigns are run locally and their budget recorded with the release; the
   weekly GitHub soak was retired on 2026-08-04 and scheduled runs are not
   release evidence (`fuzz.yml` keeps `workflow_dispatch` only, and
   `fuzzWorkflowInSync` is now a deprecated no-op). **The budget is wall clock,
-  not CPU**, and that is measured here, not assumed: the plugin serializes PIT
-  suites behind a single-permit execution lock but places no such lock on fuzz
-  targets, and under `org.gradle.configuration-cache=true` (which this repo
-  sets) Gradle runs task nodes without taking a project lock — so `fuzzAll`
-  started all 8 targets at once, five of them inside `:ravina-core`, and
-  finished 8 × 121s of requested fuzzing in 135s of wall clock. Four identical
-  120s campaigns then spanned 60.8M to 85.0M total executions — a 40% spread
-  on the same command, which is what a contended core count looks like.
-  Record the per-target run counts alongside the budget; a budget alone is not
-  a reproducible unit of work. Harnesses are `*Fuzz.java`
+  not CPU**. Module-level “started N” summaries are additive and do not show
+  simultaneous concurrency; judge the campaign against the shared cap and its
+  completed receipts. Record the per-target run counts alongside the budget; a
+  budget alone is not a reproducible unit of work. Harnesses are `*Fuzz.java`
   in the ordinary test sources: a `final` class exposing only
   `public static void fuzzerTestOneInput(byte[] data)`, **no Jazzer imports**.
   Contract: garbage in → `RuntimeException` out (catch and return); invariant
