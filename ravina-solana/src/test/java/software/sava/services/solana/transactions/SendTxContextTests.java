@@ -2,6 +2,7 @@ package software.sava.services.solana.transactions;
 
 import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
+import software.sava.core.accounts.Signer;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 
@@ -20,8 +21,14 @@ final class SendTxContextTests {
 
   @Test
   void theSignatureIsTheTransactionsBase58Id() {
+    final byte[] privateKey = new byte[Signer.KEY_LENGTH];
+    for (int i = 0; i < privateKey.length; ++i) {
+      privateKey[i] = (byte) (i + 1);
+    }
+    final var signer = Signer.createFromPrivateKey(privateKey);
     final var transaction = Transaction.createTx(
-        key(1), List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1, 2, 3})));
+        signer.publicKey(), List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1, 2, 3})));
+    transaction.sign(signer);
     final var context = new SendTxContext(
         null, null, transaction, "base64", 1_000L, 1_700_000_000_000L);
 
