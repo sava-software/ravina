@@ -57,5 +57,5 @@ javaModules {
   }
 }
 
-includeBuild("../sava")
+//includeBuild("../sava")
 //includeBuild("../idl-clients")
