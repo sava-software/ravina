@@ -129,9 +129,10 @@ prints the operator rules reproduced verbatim below. Both are registered per
 hardening project, so qualify them — `hardeningHelp` reports only the invoked
 project's suites, targets and records, not the repository's.
 What follows is only what this repository knows about itself;
-**[`HARDENING.md`](HARDENING.md)** carries the long form — suite targeting, the
-accepted mutant families and their reasons, the fuzz-harness contract, the
-ratchet edges, and the bugs the effort has found.
+**[`HARDENING.md`](HARDENING.md)** carries the long form — suite targeting, how
+the accepted families map onto the shared ones (their reasons stay in each
+module's `config/pitest/README.md`), the fuzz-harness contract, the ratchet
+edges, and the bugs the effort has found.
 
 ### Local ownership and measurements
 
@@ -200,9 +201,10 @@ ratchet edges, and the bugs the effort has found.
   `RemoveConditionalMutator_*` siblings ArcMutate subsumes (`ORDER_IF` −96,
   `EQUAL_IF` −67, `ORDER_ELSE` −31; `EQUAL_ELSE` untouched), and the other two
   are `NullReturnValsMutator` — one in core's `config`, one in solana's
-  `catchAll`. Ten already-argued accepted rows and two audited timeout
-  members now name mutants the licensed engine does not generate; the rows
-  were kept and the two members retired. A population comparison is only
+  `catchAll`. At that measurement ten already-argued accepted rows and two
+  audited timeout members named mutants the licensed engine does not
+  generate; the rows were kept, the two members retired, and each module's
+  README lists the rows still kept. A population comparison is only
   meaningful between runs that agree on the certificate.
 - **Speed has been measured, not guessed.** Suite splitting and `targetTests`
   narrowing pay; PIT's `threads` does not. A suite that got faster without
@@ -523,8 +525,8 @@ installed task's business, not this file's — read what it prints.
 
 When adding a parser, algorithm or strategy: add unit tests, put it in a
 mutation suite, and extend a fuzz harness if it consumes external input. That
-habit has found eight real bugs so far — six of them silent — and
-`HARDENING.md` lists them, because the list is the argument for the effort.
+habit keeps finding real bugs, most of them silent, and `HARDENING.md` lists
+them, because the list is the argument for the effort.
 
 ## Gotchas & invariants worth knowing
 

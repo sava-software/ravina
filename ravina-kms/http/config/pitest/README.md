@@ -17,10 +17,10 @@ A new unkilled mutant has exactly three legal outcomes: **kill it** with a
 test, **refactor** it out of existence, or **accept it** with a written reason
 below — acceptance is for mutants *equivalent with respect to observable
 behavior*, never for "hard to test". Baseline keys are line-less, so edits
-above a mutated method churn nothing; lines ride as `# line` tags that
-`pitest<Suite>BaselineUpdate` rewrites, and a key unkilled at a line no tag
-names draws the line-drift advisory (re-read the argument here, then let the
-next refresh rewrite the tag).
+above a mutated method churn nothing; lines ride as `# line` tags that are
+review metadata only, and a key unkilled at a line no tag names draws the
+line-drift advisory (re-read the argument here, then refresh the tag with
+`pitest<Suite>BaselineRetag`).
 
 See `../../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.

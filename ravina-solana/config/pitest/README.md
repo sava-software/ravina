@@ -24,11 +24,11 @@ A new unkilled mutant has exactly three legal outcomes:
    with respect to observable behavior*, not for "hard to test".
 
 Baseline keys are line-less (`class,method,mutator,STATUS`); lines ride as
-`# line` tags every refresh rewrites, so edits above a mutated method churn
-nothing. A key unkilled at a line no tag names draws the line-drift
+`# line` tags that are review metadata only, so edits above a mutated method
+churn nothing. A key unkilled at a line no tag names draws the line-drift
 advisory — re-read the family argument here (the code the acceptance argues
-about moved, or a new mutant sits under an old acceptance), then let the
-next refresh rewrite the tag.
+about moved, or a new mutant sits under an old acceptance), then refresh the
+tag with `pitest<Suite>BaselineRetag`.
 
 Since the licensed engine generates fewer mutants (below), a few already-argued
 rows now match no mutant in a run and the plugin prints them as prune
@@ -163,19 +163,8 @@ were being killed. Adding the suite surfaced 728 unkilled mutants; 621 are now
 killed. If an exclusion goes stale the class is merely mutated twice — slow,
 not blind, which is the safe direction to fail.
 
-Five main-source bugs were found while writing these tests, all fixed:
-`CachedAddressLookupTable.read` ignoring `offset` when resolving the
-deactivation slot (every cached table reported deactivated),
-`LookupTableCacheMap.getOrFetchTables` tracking misses in a 32-bit bitset that
-wraps past 32 keys (tables silently dropped), `RpcCaller.courteousGet`
-discarding its `CallContext` (rate-limit weight silently became 1), and
-`TransactionProcessorRecord`'s "missing lookup tables" diagnostic filtering the
-complement of what it reported (the message always read `[]`), and
-`EpochInfoServiceImpl.run` dereferencing a null `slotStats` — which
-`calculateStats` returns whenever every sample is filtered out, notably at the
-opening slots of an epoch, so the loop died with an NPE exactly when a new
-epoch began. None was found by a mutant *kill* — each surfaced because a test
-being written could not assert what the code claimed.
+The main-source bugs found while writing these tests are listed, with how each
+surfaced, in `../../HARDENING.md`, "Bugs the effort has found".
 
 ## What PIT's conditional-mutator labels mean here
 
@@ -537,8 +526,9 @@ tests written against the injected clock then took the block from 45 to 40 and
 found a latent NPE (below). What is left is genuinely blocked on threading, not
 on the clock. `Condition.await` is
 deliberately **not** routed through the clock — it is signallable, so a clock
-cannot stand in for it, and the handshake mutants that need a second thread
-parked in `awaitInitialized` remain out of reach.
+cannot stand in for it; the handshake mutants that need a second thread parked
+in `awaitInitialized` took a concurrency harness instead, and were killed on
+2026-07-23 (see "Not deterministically reachable").
 
 Don't hand-edit a baseline: `pitest<Suite>BaselineUpdate` and its siblings
 are the only supported writers, and the mutator name they emit is normalised

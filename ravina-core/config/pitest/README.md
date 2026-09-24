@@ -27,11 +27,11 @@ A new unkilled mutant has exactly three legal outcomes:
    with respect to observable behavior*, not for "hard to test".
 
 Baseline keys are line-less (`class,method,mutator,STATUS`); lines ride as
-`# line` tags every refresh rewrites, so edits above a mutated method churn
-nothing. A key unkilled at a line no tag names draws the line-drift
+`# line` tags that are review metadata only, so edits above a mutated method
+churn nothing. A key unkilled at a line no tag names draws the line-drift
 advisory — re-read the family argument here (the code the acceptance argues
-about moved, or a new mutant sits under an old acceptance), then let the
-next refresh rewrite the tag.
+about moved, or a new mutant sits under an old acceptance), then refresh the
+tag with `pitest<Suite>BaselineRetag`.
 
 ## Committed toolchain provenance
 
@@ -242,10 +242,9 @@ protocol: enable only what fires, record the numbers):
 | `backoff`, `calls`, `capacity`, `errorTracking` | 0 | — | no |
 
 The three `TIMED_OUT` rows are `ExceptionUtil`'s cause-chain walks: replacing
-`throwable.getCause()` with `throwable` turns the loop infinite, so the
-timeout *is* the observable — the same "detected by necessity" shape as the
-fibonacci hang guard. They are detected, not baselined; if load ever flips one
-to `SURVIVED`, union it per the timeout-mode note above.
+`throwable.getCause()` with `throwable` turns the loop infinite, so the timeout
+*is* the observable. They are detected, not baselined; if load ever flips one to
+`SURVIVED`, union it per the timeout-mode note above.
 
 ## Triaged equivalent mutants (accepted with reasons)
 
