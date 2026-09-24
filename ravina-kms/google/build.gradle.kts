@@ -3,8 +3,15 @@ plugins {
   id("software.sava.build.feature.hardening")
 }
 
-dependencies.constraints {
-  implementation("io.grpc:grpc-netty-shaded:1.71.0!!")
+// Bridge until the pinned sava-build's gcp-kms patches map CEL, which
+// google-cloud-kms lists from 2.100.0 on as three non-modular jars that split
+// dev.cel.common (unused: grpc-xds bundles its own copy); keep it identical to
+// that plugin's spec and delete it when adopting that release.
+extraJavaModuleInfo {
+  automaticModule("dev.cel:common", "dev.cel") {
+    mergeJar("dev.cel:runtime")
+    mergeJar("dev.cel:protobuf")
+  }
 }
 
 testModuleInfo {
