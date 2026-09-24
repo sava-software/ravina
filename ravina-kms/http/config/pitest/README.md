@@ -40,9 +40,11 @@ plugin's named tasks write either file; committing just one of the pair is
 torn provenance and fails closed. `pitest<Suite>BaselineRebase` is the only
 path that adopts a PIT, ArcMutate, certificate or toolchain change or repairs
 torn provenance. The repository root's committed `arcmutate-licence.txt`
-licenses the engine for every module, which *shrinks* the population: 44
-mutants here against 49 with the certificate absent, the difference being
-`RemoveConditionalMutator_*` siblings ArcMutate subsumes. Every accepted row
+licenses the engine for every module, which *shrinks* the population: 45
+mutants here (2026-09-24) against 49 measured with the certificate absent
+before `HttpKMSClient.sign`'s window fix added one `MathMutator` site on
+`offset + length`, the difference being `RemoveConditionalMutator_*` siblings
+ArcMutate subsumes. Every accepted row
 below still matches a mutant, so this module has no prune candidates.
 
 ## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
@@ -58,15 +60,15 @@ executor wiring via the package-private `httpClient` field — and 1 accepted
 **Logging removals** `# log-removal` — `HttpKMSErrorTracker.logResponse`
 `VoidMethodCallMutator`: log output is not part of any behavioral contract.
 
-**Restating the builder default** `# restating-default` — `HttpKMSClient.<init>` line 48,
+**Restating the builder default** `# restating-default` — `HttpKMSClient.<init>`,
 `NakedReceiverMutator` on `HttpRequest.newBuilder(...).GET()`. A fresh
 `HttpRequest.Builder`'s method already defaults to GET, so dropping the call
 builds a byte-identical request — the recorded-request test asserts the URI
 and would see any real change. The explicit `.GET()` stays for the reader.
 
-**Allocation-only copy elision** `# alloc-only-copy` — `HttpKMSClient.sign` line 71
+**Allocation-only copy elision** `# alloc-only-copy` — `HttpKMSClient.sign`
 `RemoveConditionalMutator_EQUAL_ELSE` on
-`offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(...)`.
+`offset == 0 && msg.length == length ? msg : Arrays.copyOfRange(msg, offset, offset + length)`.
 Forcing the copy branch always produces a byte-identical array; only the
 allocation differs, and the signed output is the same. An allocation bound via
 `com.sun.management.ThreadMXBean#getCurrentThreadAllocatedBytes` could kill it,
@@ -80,6 +82,11 @@ The baseline carries *two* `EQUAL_ELSE` rows at this coordinate (2026-07-23):
 the guard is a compound condition, so PIT emits one mutant per `==` operand;
 the multiset comparison materialized the sibling the old set-based compare
 collapsed. Forcing either equality false forces the same copy branch, so one
-argument covers both. (The `_EQUAL_IF` siblings are killed — forcing the
-no-copy branch posts the wrong subrange — by `signWithOffsetPostsSubRange`
-and `signWithTruncatedLengthPostsSubRange`.)
+argument covers both. Of the `_EQUAL_IF` siblings, which force the no-copy
+branch, the licensed engine generates neither at this site. Without the
+certificate, forcing `msg.length == length` true posts the whole message for a
+shorter window and is killed by `signWithTruncatedLengthPostsSubRange`; forcing
+`offset == 0` true is equivalent, because the `Objects.checkFromIndexSize` guard
+ahead of it (added 2026-09-24, when `length` was found being read as an end
+index) means a full-length window can only start at 0. That row would be owed
+this argument, not a test.

@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -67,10 +68,11 @@ final class HttpKMSClient extends BaseKMSClient {
 
   @Override
   public CompletableFuture<byte[]> sign(final byte[] msg, final int offset, final int length) {
+    Objects.checkFromIndexSize(offset, length, msg.length);
     return sign(
         offset == 0 && msg.length == length
             ? msg
-            : Arrays.copyOfRange(msg, offset, length)
+            : Arrays.copyOfRange(msg, offset, offset + length)
     );
   }
 

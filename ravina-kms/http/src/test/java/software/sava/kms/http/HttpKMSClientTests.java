@@ -288,17 +288,44 @@ final class HttpKMSClientTests {
     assertArrayEquals(msg, Base64.getDecoder().decode(postedBody(httpClient.lastRequest)));
   }
 
+  /// `(offset, length)` is a window, as `SigningService` defines it and as the
+  /// in-memory and Google KMS signers read it: `length` bytes from `offset`.
   @Test
-  void signWithOffsetPostsSubRange() throws InterruptedException {
+  void signWithOffsetPostsLengthBytesFromTheOffset() throws InterruptedException {
+    final var httpClient = new StubHttpClient("", null);
+    final var client = createClient(httpClient);
+    final byte[] msg = {1, 2, 3, 4, 5};
+    assertArrayEquals(SIGNATURE, client.sign(msg, 1, 3).join());
+    assertArrayEquals(new byte[]{2, 3, 4}, Base64.getDecoder().decode(postedBody(httpClient.lastRequest)));
+  }
+
+  /// A legacy transaction's message follows its one-byte signature count and
+  /// 64-byte signature slot, and runs to the end of the payload.
+  @Test
+  void signingALegacyMessageWindowPostsTheMessageToTheEnd() throws InterruptedException {
+    final var httpClient = new StubHttpClient("", null);
+    final var client = createClient(httpClient);
+    final byte[] serialized = new byte[200];
+    for (int i = 0; i < serialized.length; ++i) {
+      serialized[i] = (byte) i;
+    }
+    final int messageOffset = 1 + 64;
+    client.sign(serialized, messageOffset, serialized.length - messageOffset).join();
+    assertArrayEquals(
+        Arrays.copyOfRange(serialized, messageOffset, serialized.length),
+        Base64.getDecoder().decode(postedBody(httpClient.lastRequest))
+    );
+  }
+
+  @Test
+  void aWindowPastTheEndOfTheMessageIsRejectedBeforeAnythingIsPosted() {
     final var httpClient = new StubHttpClient("", null);
     final var client = createClient(httpClient);
     final byte[] msg = {1, 2, 3, 4};
-    // Full trailing length but non-zero offset must post the copied sub-range.
-    assertArrayEquals(SIGNATURE, client.sign(msg, 1, msg.length).join());
-    assertArrayEquals(
-        Arrays.copyOfRange(msg, 1, msg.length),
-        Base64.getDecoder().decode(postedBody(httpClient.lastRequest))
-    );
+    assertThrows(IndexOutOfBoundsException.class, () -> client.sign(msg, 1, msg.length));
+    assertThrows(IndexOutOfBoundsException.class, () -> client.sign(msg, -1, 2));
+    assertThrows(IndexOutOfBoundsException.class, () -> client.sign(msg, 0, -1));
+    assertNull(httpClient.lastRequest);
   }
 
   @Test
