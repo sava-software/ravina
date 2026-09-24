@@ -44,15 +44,19 @@ exactly one of the pair present is *torn* provenance and fails closed. That
 was this module's state on adoption (a 21.5.19-era version stamp with no
 sidecar), so every suite here was repaired on 2026-08-04 with
 `pitest<Suite>BaselineRebase` — the only path that adopts a
-PIT/ArcMutate/certificate change. The repository root carries a committed
-`arcmutate-licence.txt` (OSSS certificate, expires 15/08/2027), whose mere
-presence puts `com.arcmutate:base` 1.7.1 on PIT's tool classpath for every
-module; the licensed engine subsumes `RemoveConditionalMutator_*` siblings, so
-its populations are smaller than open PIT's — licensed vs certificate-absent
-here: backoff 79/94, capacity 109/121, loadBalance 158/170, calls 94/110,
-config 330/357, errorTracking 53/58, catchAll 190/202. All but one of those
-removals is a `RemoveConditionalMutator_*` sibling; the exception is a single
-`NullReturnValsMutator` in `config`.
+PIT/ArcMutate/certificate change — and rebased again on 2026-09-24 when the
+plugin moved PIT to 1.30.0 and `com.arcmutate:base` to 1.7.2. The repository
+root carries a committed `arcmutate-licence.txt` (OSSS certificate, expires
+15/08/2027), whose mere presence puts `com.arcmutate:base` on PIT's tool
+classpath for every module; the licensed engine subsumes
+`RemoveConditionalMutator_*` siblings, so its populations are smaller than open
+PIT's — licensed vs certificate-absent here, measured 2026-08-04 under PIT
+1.25.9 and base 1.7.1: backoff 79/94, capacity 109/121, loadBalance 158/170,
+calls 94/110, config 330/357, errorTracking 53/58, catchAll 190/202. All but one
+of those removals is a `RemoveConditionalMutator_*` sibling; the exception is a
+single `NullReturnValsMutator` in `config`. The 2026-09-24 rebase observed the
+same licensed populations except `calls`, now 95 (its code changed on
+2026-08-06).
 
 ## Timeout-detected mutants: baseline covers both execution modes
 
@@ -248,11 +252,11 @@ The three `TIMED_OUT` rows are `ExceptionUtil`'s cause-chain walks: replacing
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-### Kept prune candidates (2026-08-04)
+### Kept prune candidates (2026-08-04, 2026-09-24)
 
-The licensed engine generates fewer mutants, so three already-argued rows now
+The licensed engine generates fewer mutants, so four already-argued rows now
 match no mutant in a licensed run and the plugin prints them as prune
-candidates. All three were **kept**: a rebase removes no acceptance, and
+candidates. All four are **kept**: a rebase removes no acceptance, and
 pruning is owed repeated evidence. They are not new debt, and the arguments
 below still stand.
 
@@ -265,6 +269,12 @@ below still stand.
 - `UriCapacityConfig$Parser.parseProperties`
   `RemoveConditionalMutator_EQUAL_IF` (`catchAll`, `# unreachable-guard`) —
   the mutant itself is no longer generated at all.
+- `Backoff.fibonacci` `RemoveConditionalMutator_ORDER_ELSE` (`backoff`,
+  `# overflow-guard-sweep`), since the 2026-09-24 move to PIT 1.30.0 and base
+  1.7.2 — the one `ORDER_ELSE` still generated in the size loop's condition is
+  killed by `fibonacciRunsInSecondsForWholeSecondDelays`, which asserts only
+  delay values the differential sweep showed the argued mutant leaves unchanged,
+  so it is the sibling; the argued survivor is no longer generated.
 
 **Dropped `toAbsolutePath` normalisation** `# absolute-path-equivalent` (`config`) — `NakedReceiverMutator`
 on `NetConfigRecord$Parser` lines 95/129, `Path.of(keyStorePath).toAbsolutePath()`.

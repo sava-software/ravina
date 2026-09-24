@@ -205,7 +205,9 @@ edges, and the bugs the effort has found.
   audited timeout members named mutants the licensed engine does not
   generate; the rows were kept, the two members retired, and each module's
   README lists the rows still kept. A population comparison is only
-  meaningful between runs that agree on the certificate.
+  meaningful between runs that agree on the certificate. The records moved to
+  PIT 1.30.0 and `com.arcmutate:base` 1.7.2 by rebase on 2026-09-24, which did
+  not re-measure the certificate-absent side.
 - **Speed has been measured, not guessed.** Suite splitting and `targetTests`
   narrowing pay; PIT's `threads` does not. A suite that got faster without
   getting narrower is a bug report — `HARDENING.md` records what has been

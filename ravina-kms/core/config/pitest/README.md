@@ -48,14 +48,15 @@ plugin-written, never hand-edited; exactly one of the pair present is *torn*
 provenance and fails closed. That was this suite's state on adoption (a
 21.5.19-era version stamp with no sidecar), so it was repaired on 2026-08-04
 with `pitestSigningBaselineRebase` — the only path that adopts a
-PIT/ArcMutate/certificate change, running fresh and history-free, keeping
-every accepted row and seeding newly observed ones `# untriaged`. The
-repository root carries a committed `arcmutate-licence.txt` (OSSS
-certificate, expires 15/08/2027), whose mere presence puts
-`com.arcmutate:base` 1.7.1 on PIT's tool classpath for every module; the
-licensed engine subsumes `RemoveConditionalMutator_*` siblings, so its
-population is smaller than open PIT's — `signing` is 84 licensed vs 88
-certificate-absent.
+PIT/ArcMutate/certificate change, running fresh and history-free, keeping every
+accepted row and seeding newly observed ones `# untriaged` — and rebased again
+on 2026-09-24 when the plugin moved PIT to 1.30.0 and `com.arcmutate:base` to
+1.7.2. The repository root carries a committed `arcmutate-licence.txt` (OSSS
+certificate, expires 15/08/2027), whose mere presence puts `com.arcmutate:base`
+on PIT's tool classpath for every module; the licensed engine subsumes
+`RemoveConditionalMutator_*` siblings, so its population is smaller than open
+PIT's — `signing` was 84 licensed vs 88 certificate-absent on 2026-08-04 (PIT
+1.25.9, base 1.7.1), and the 2026-09-24 rebase observed the same 84.
 
 ## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
 

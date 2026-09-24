@@ -48,16 +48,14 @@ run made without `com.arcmutate:base`; it was pruned with twelve rows the
 websocket rewrite had left dead, and the class itself went with the lookup-table
 code on 2026-09-24.
 
-**Rows naming removed code, pending prune (2026-09-24).** Ravina stopped building
-v0 transactions and dropped the lookup-table code, so four `catchAll` rows
+**Rows naming removed code, pruned 2026-09-24.** Ravina stopped building v0
+transactions and dropped the lookup-table code, which left four `catchAll` rows
 (`CachedAddressLookupTable.read`, two `LookupTableCacheMap.getOrFetchTables`,
 `TransactionProcessorRecord.lambda$transactionFactory$3`) and one `config` row
-(`TableCacheConfig$Builder.parseProperties`) now match no mutant and print as
-prune candidates. They are not evidence about any current code. They are owed
-the guarded `pitest<Suite>BaselinePrune` protocol, which refuses until the
-records are rebased onto the installed PIT 1.30.0 toolchain; nothing now generates
-a mutant at those keys (no method named `transactionFactory` remains in
-`TransactionProcessorRecord`), so until then they accept nothing.
+(`TableCacheConfig$Builder.parseProperties`) matching no mutant. Once the
+records were rebased onto PIT 1.30.0 the same day, each suite ran the guarded
+selective `pitest<Suite>BaselinePrune` protocol over exactly those keys: two
+matching history-free previews, then the write-boundary run.
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
@@ -72,14 +70,20 @@ write them; never hand-edit either, and exactly one of the pair present is
 *torn* provenance that fails closed — this repo's state on adoption, so every
 suite here was repaired with `pitest<Suite>BaselineRebase` on 2026-08-04, the
 only path that adopts a PIT/ArcMutate/certificate/toolchain change (`fees`,
-which keeps no baseline, had a leftover orphan stamp that rebase removed). The
-root's committed `arcmutate-licence.txt` (OSSS, expires 15/08/2027) puts
-`com.arcmutate:base` 1.7.1 on PIT's tool classpath for every module, which
-*shrinks* the mutant population — licensed vs certificate-absent: `epoch`
+which keeps no baseline, had a leftover orphan stamp that rebase removed), and
+rebased again on 2026-09-24 when the plugin moved PIT to 1.30.0 and
+`com.arcmutate:base` to 1.7.2. The root's committed `arcmutate-licence.txt`
+(OSSS, expires 15/08/2027) puts `com.arcmutate:base` on PIT's tool classpath for
+every module, which *shrinks* the mutant population — licensed vs
+certificate-absent, measured 2026-08-04 under PIT 1.25.9 and base 1.7.1: `epoch`
 114/120, `alt` 57/67 (suite retired 2026-09-24), `formatting` 43/45, `fees`
 20/22, `config` 129/132, `epochService` 95/105, `catchAll` 696/750. All but one
 of those removals is a `RemoveConditionalMutator_*` sibling ArcMutate subsumes;
-the exception is a single `NullReturnValsMutator` in `catchAll`.
+the exception is a single `NullReturnValsMutator` in `catchAll`. The 2026-09-24
+observations under the new toolchain, after the slot-time work of 2026-08-13 and
+the v1 change, were `epoch` 122, `formatting` 43, `fees` 57, `config` 110,
+`epochService` 104 and `catchAll` 725 licensed; the certificate-absent side was
+not re-measured.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
@@ -184,8 +188,7 @@ Rows labelled `# else-direction-noop` are this shape's family: forcing the
 condition **false** converges to the behaviour the tests already pin (the
 skipped branch was an optimisation or an early-out whose fallback computes the
 same result), while the forced-**true** sibling at the same coordinate is
-killed. Site: `EpochInfoServiceImpl.checkCycle` (`epochService`). The two
-`catchAll` rows under this label name removed code and await prune (above).
+killed. Site: `EpochInfoServiceImpl.checkCycle` (`epochService`).
 
 ## Mutator set: the experimental BigDecimal/BigInteger trial
 
@@ -300,8 +303,7 @@ candidate created, the backoff deadline, or any return value.
 forcing the branch assigns null over an already-null field on a fresh
 single-use builder, and `create()` null-coalesces the default either way.
 Sites: `EpochServiceConfig$Parser`, `TxMonitorConfig$Parser`,
-`HeliusConfig$Parser`, `ChainItemFormatter$Parser`; the `TableCacheConfig$Builder`
-row names removed code and awaits prune (above).
+`HeliusConfig$Parser`, `ChainItemFormatter$Parser`.
 
 **Return-value-only mutation of a delegating predicate** `# delegating-return` (`config`) —
 `HeliusConfig$Parser.test` `BooleanTrueReturnValsMutator` on
@@ -326,30 +328,30 @@ on 2026-09-24.
 general path yields the identical record (middle = 0, min = max = median,
 stddev 0).
 
-**Whole-collection shortcut over an internal copy** `# whole-collection-shortcut`
-(`catchAll`) — guards of the form `to - from == size` that choose between the
-collection itself and a `subList`/`copyOfRange` of the whole thing: the
-accounts-map overload of `BaseBatchInstructionService.batchProcess` (the
-`LookupTableCacheMap` row names removed code and awaits prune). Both branches
-yield equal contents, and that list is internal (a `List.copyOf` of the map's
-keys), so no caller-visible reference identity distinguishes them. (The same
-guard in the instruction-list overload *is* killed — there a caller-supplied
-list makes `assertSame` meaningful.)
+**Whole-collection shortcut over an internal copy**
+`# whole-collection-shortcut` (`catchAll`) — guards of the form
+`to - from == size` that choose between the collection itself and a
+`subList`/`copyOfRange` of the whole thing: the accounts-map overload of
+`BaseBatchInstructionService.batchProcess`. Both branches yield equal contents,
+and that list is internal (a `List.copyOf` of the map's keys), so no
+caller-visible reference identity distinguishes them. (The same guard in the
+instruction-list overload *is* killed — there a caller-supplied list makes
+`assertSame` meaningful.)
 
 **Single-element join is the identity** `# single-join-identity` (`catchAll`) —
 `PriorityFeeRequest` lines 13 and 69 `_ELSE`, i.e. forcing the `String.join`
 branch: joining a one-element list returns that element, exactly what the
 `getFirst()` branch returns. The `_IF` direction is killed.
 
-**Capacity hints** `# capacity-hint` (`catchAll`) — `HeliusJsonRpcClient` line 133
-`MathMutator` on the `StringBuilder` pre-size expression: allocation shape only,
-identical output. (The `LookupTableCacheMap` empty-list guard row names removed
-code and awaits prune.)
+**Capacity hints** `# capacity-hint` (`catchAll`) —
+`HeliusJsonRpcClient.getProgramAccounts` `MathMutator` on the `StringBuilder`
+pre-size expression: allocation shape only, identical output.
 
 **Both branches build the same record** `# same-record-branches` (`catchAll`) —
-`BaseInstructionService.processInstructions` line 257: forcing the error branch
-with a null error calls `createResult(..., null, sig, formattedSig)`, which is
-the record the else branch already produces. Only the log line differs.
+`BaseInstructionService.processInstructions`, `if (error != null)`: forcing the
+error branch with a null error calls
+`createResult(..., null, sig, formattedSig)`, which is the record the else
+branch already produces. Only the log line differs.
 
 **Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on a running minimum
 (`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188,
