@@ -9,7 +9,6 @@ module software.sava.ravina_solana {
   requires transitive software.sava.ravina_core;
   requires transitive software.sava.kms_core;
 
-  exports software.sava.services.solana.alt;
   exports software.sava.services.solana.config;
   exports software.sava.services.solana.epoch;
   exports software.sava.services.solana.helius.client.http;

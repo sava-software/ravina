@@ -24,13 +24,6 @@ hardening {
     )
     targetTests = "software.sava.services.solana.epoch.*Test*"
   }
-  mutation.register("alt") {
-    targetClasses = listOf(
-      "software.sava.services.solana.alt.ScoredTable",
-      "software.sava.services.solana.alt.ScoredTableMeta"
-    )
-    targetTests = "software.sava.services.solana.alt.*Test*"
-  }
   mutation.register("formatting") {
     targetClasses = listOf(
       "software.sava.services.solana.config.ChainItemFormatter",
@@ -40,12 +33,19 @@ hardening {
   }
   mutation.register("fees") {
     targetClasses = listOf("software.sava.services.solana.transactions.SimulationFutures")
+    // Narrowed for speed (10.6s -> 6.1s on 2026-07-21). Other test classes also
+    // reach SimulationFutures through the processor and services, but only
+    // SimulationFuturesTests counts as a kill here, so every property of the v1
+    // recipe, the fee cap and the limits must be pinned there directly.
     targetTests = "software.sava.services.solana.transactions.SimulationFuturesTests"
-    // capCuPrice is BigDecimal arithmetic, which MathMutator cannot see: it
-    // rewrites primitive opcodes and BigDecimal math is method calls. Trialled
-    // 2026-07-21: BIG_DECIMAL fires once and is killed; BIG_INTEGER fires zero
-    // times here, so it is not enabled. NAKED_RECEIVER trialled 2026-07-22:
-    // fires 5 times (numbers in config/pitest/README.md).
+    // The priority-fee cap is BigDecimal arithmetic, which MathMutator cannot
+    // see: it rewrites primitive opcodes and BigDecimal math is method calls.
+    // Trialled 2026-07-21 on the legacy capCuPrice: BIG_DECIMAL fired once and
+    // was killed; BIG_INTEGER fired zero times, so it is not enabled. Re-measured
+    // 2026-09-24 after the move to v1 priorityFeeLamports: BIG_DECIMAL fires once
+    // (the cap's min) and is killed; the class holds no BigInteger. NAKED_RECEIVER
+    // trialled 2026-07-22 and re-measured 2026-09-24: fires 7 times, all killed
+    // (numbers in config/pitest/README.md).
     mutators = "STRONGER,EXPERIMENTAL_BIG_DECIMAL,EXPERIMENTAL_NAKED_RECEIVER"
   }
   mutation.register("config") {
@@ -60,12 +60,10 @@ hardening {
       "software.sava.services.solana.epoch.EpochServiceConfig\$*",
       "software.sava.services.solana.transactions.TxMonitorConfig",
       "software.sava.services.solana.transactions.TxMonitorConfig\$*",
-      "software.sava.services.solana.alt.TableCacheConfig",
-      "software.sava.services.solana.alt.TableCacheConfig\$*",
       "software.sava.services.solana.remote.call.CallWeights",
       "software.sava.services.solana.remote.call.CallWeights\$*"
     )
-    targetTests = "software.sava.services.solana.config.*Test*,software.sava.services.solana.epoch.*Test*,software.sava.services.solana.transactions.*Test*,software.sava.services.solana.alt.*Test*,software.sava.services.solana.remote.call.*Test*"
+    targetTests = "software.sava.services.solana.config.*Test*,software.sava.services.solana.epoch.*Test*,software.sava.services.solana.transactions.*Test*,software.sava.services.solana.remote.call.*Test*"
   }
 
   /// Catch-all: everything not claimed by a focused suite above, so a new
@@ -100,9 +98,6 @@ hardening {
       // owned by 'epoch'
       "software.sava.services.solana.epoch.Epoch",
       "software.sava.services.solana.epoch.SlotPerformanceStats",
-      // owned by 'alt'
-      "software.sava.services.solana.alt.ScoredTable",
-      "software.sava.services.solana.alt.ScoredTableMeta",
       // owned by 'formatting'
       "software.sava.services.solana.config.ChainItemFormatter",
       "software.sava.services.solana.config.ChainItemFormatter\$*",
@@ -115,8 +110,6 @@ hardening {
       "software.sava.services.solana.epoch.EpochServiceConfig\$*",
       "software.sava.services.solana.transactions.TxMonitorConfig",
       "software.sava.services.solana.transactions.TxMonitorConfig\$*",
-      "software.sava.services.solana.alt.TableCacheConfig",
-      "software.sava.services.solana.alt.TableCacheConfig\$*",
       "software.sava.services.solana.remote.call.CallWeights",
       "software.sava.services.solana.remote.call.CallWeights\$*"
     )
@@ -133,6 +126,16 @@ hardening {
     targetClass = "software.sava.services.solana.config.SolanaConfigsFuzz"
     maxLen = 768
     seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/configs")
+  }
+  fuzz.register("signingSpan") {
+    // differential: where the fee payer signs a caller-supplied legacy, v0 or
+    // v1 payload must match sava's own signing of it wherever sava's
+    // single-signer signing applies; anything refused is refused with
+    // IllegalArgumentException
+    targetClass = "software.sava.services.solana.transactions.FeePayerSigningSpanFuzz"
+    // a v1 transaction may be 4,096 bytes; legacy and v0 are bounded by 1,232
+    maxLen = 4_200
+    seedCorpus = layout.projectDirectory.dir("src/test/resources/fuzz/signingSpan")
   }
   fuzz.register("configParity") {
     // differential: the same logical config rendered as JSON and as

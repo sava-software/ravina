@@ -16,7 +16,6 @@ import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.services.solana.transactions.TransactionResult.EXPIRED;
 
@@ -74,7 +73,12 @@ public class BaseInstructionService implements InstructionService {
                                                 final TxSimulation simulationResult,
                                                 final BigDecimal maxLamportPriorityFee,
                                                 final int cuBudget) {
-    final var transaction = transactionProcessor.createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
+    final var transaction = transactionProcessor.createTransaction(
+        simulationFutures,
+        maxLamportPriorityFee,
+        cuBudget,
+        SimulationFutures.accountDataSizeLimit(simulationResult)
+    );
     // Do not let priority-fee resolution consume the final hash's validity
     // window. Install the fresh hash before the hook so the hook receives the
     // message version that will subsequently be signed and published.
@@ -133,35 +137,10 @@ public class BaseInstructionService implements InstructionService {
                                                      final boolean retrySend,
                                                      final int maxRetriesAfterExpired,
                                                      final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        beforeSend,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        verifyExpired,
-        retrySend,
-        maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
-        logContext
-    );
-  }
-
-  @Override
-  public final TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                     final List<Instruction> instructions,
-                                                     final Function<Transaction, Transaction> beforeSend,
-                                                     final BigDecimal maxLamportPriorityFee,
-                                                     final Commitment awaitCommitment,
-                                                     final Commitment awaitCommitmentOnError,
-                                                     final boolean verifyExpired,
-                                                     final boolean retrySend,
-                                                     final int maxRetriesAfterExpired,
-                                                     final Function<List<Instruction>, Transaction> transactionFactory,
-                                                     final String logContext) throws InterruptedException {
+    // Refuse a misconfigured cap before any request is spent, not only once a simulation succeeds.
+    SimulationFutures.requireNonNegativeFeeCap(maxLamportPriorityFee);
     for (int retries = 0; ; ) {
-      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions, transactionFactory);
+      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
       final int base64Length = simulationFutures.base64Length();
       if (simulationFutures.exceedsSizeLimit()) {
         return TransactionResult.createSizeExceededResult(
@@ -182,7 +161,7 @@ public class BaseInstructionService implements InstructionService {
         return TransactionResult.createResult(
             instructions,
             true,
-            MAX_COMPUTE_BUDGET, 0,
+            SimulationFutures.MAX_COMPUTE_UNIT_LIMIT, 0,
             simulationFutures.transaction(), base64Length,
             simulationResult, simulationError
         );

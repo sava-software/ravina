@@ -1,6 +1,7 @@
 package software.sava.services.solana.config;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.solana.transactions.FeePayerSigningSpanFuzz;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -12,10 +13,12 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/// Deterministically replays the committed fuzz seed corpus through
-/// [SolanaConfigsFuzz], bridging it into the unit suite so `check` — and
-/// PIT's mutants — face the same invariants the fuzzer asserts. Each seed's
-/// first byte selects the parser; the remainder is the JSON document.
+/// Deterministically replays the committed fuzz seed corpora through
+/// [SolanaConfigsFuzz], [SolanaConfigParityFuzz] and
+/// [FeePayerSigningSpanFuzz], bridging them into the unit suite so `check` —
+/// and PIT's mutants — face the same invariants the fuzzer asserts. A config
+/// seed's first byte selects the parser; the remainder is the JSON document. A
+/// signing-span seed is a whole serialized transaction.
 ///
 /// New seeds replay here automatically, which is what makes the `regression-*`
 /// convention durable: a promoted fuzz finding keeps failing in the ordinary
@@ -47,5 +50,13 @@ final class FuzzCorpusReplayTests {
   @Test
   void configParitySeedCorpusReplays() throws IOException, URISyntaxException {
     replay("configParity", SolanaConfigParityFuzz::fuzzerTestOneInput);
+  }
+
+  /// Differential: signing through the located span must equal sava's own
+  /// signing wherever that applies, and a refusal must be an
+  /// `IllegalArgumentException`.
+  @Test
+  void signingSpanSeedCorpusReplays() throws IOException, URISyntaxException {
+    replay("signingSpan", FeePayerSigningSpanFuzz::fuzzerTestOneInput);
   }
 }

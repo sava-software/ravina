@@ -3,13 +3,16 @@ package software.sava.services.solana.transactions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
+import software.sava.core.accounts.Signer;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.core.accounts.lookup.AddressLookupTable;
 import software.sava.core.accounts.meta.AccountMeta;
-import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.core.encoding.Base58;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.core.tx.TransactionSkeleton;
+import software.sava.core.tx.TxBuilder;
+import software.sava.kms.core.signing.MemorySigner;
 import software.sava.kms.core.signing.SigningService;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
@@ -23,7 +26,6 @@ import software.sava.services.core.request_capacity.CapacityMonitor;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
-import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 
@@ -40,7 +42,6 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Function;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
@@ -48,16 +49,17 @@ import static software.sava.core.accounts.PublicKey.PUBLIC_KEY_LENGTH;
 import static software.sava.core.accounts.lookup.AddressLookupTable.LOOKUP_TABLE_META_SIZE;
 
 /// Unit tests for the [TransactionProcessor] implementation. Everything here is
-/// pure computation over in-memory [Transaction] objects: lookup table
-/// selection, signature placement, block hash installation, the chain-item
-/// formatters, and the branch of `simulateAndEstimate` that gives up before it
-/// would ever issue a request.
+/// pure computation over in-memory [Transaction] objects: signature placement
+/// across the legacy, v0 and SIMD-0385 v1 layouts, block hash installation, the
+/// chain-item formatters, the v1 transactions `simulateAndEstimate` builds, and
+/// the branches that give up before they would ever issue a request.
 ///
 /// The two seams that would otherwise reach the network are stubbed:
 /// [SigningService] is a small hand-written fake that records what it was asked
 /// to sign and hands back a canned signature, and [SolanaRpcClient] is a
-/// [Proxy] answering exactly one method — the same technique the lookup table
-/// cache tests use. No socket is ever opened.
+/// [Proxy] answering exactly the methods under test. Signing is also checked
+/// end to end with a real Ed25519 key through [MemorySigner], against sava's
+/// own signing of an identical transaction. No socket is ever opened.
 ///
 /// Capacity monitors are built on a frozen [NanoClock] with a non-zero origin
 /// so nothing replenishes on its own: a capacity reading after a call is
@@ -80,23 +82,15 @@ final class TransactionProcessorRecordTests {
 
   private static final PublicKey FEE_PAYER = key(1);
   private static final PublicKey PROGRAM = key(2);
-  /// A fee payer only the legacy factory uses, so a transaction built by the
-  /// legacy fallback is distinguishable from one built by the table paths.
-  private static final PublicKey LEGACY_FEE_PAYER = key(99);
 
-  private static final Function<List<Instruction>, Transaction> LEGACY_FACTORY =
-      instructions -> Transaction.createTx(LEGACY_FEE_PAYER, instructions);
-
-  private static LookupTableAccountMeta tableMeta(final int address, final PublicKey... accounts) {
+  /// A v0 fixture needs a table, so the "externally produced" transactions the
+  /// processor must still sign can be built here.
+  private static AddressLookupTable table(final int address, final PublicKey... accounts) {
     final byte[] data = new byte[LOOKUP_TABLE_META_SIZE + (accounts.length * PUBLIC_KEY_LENGTH)];
     for (int i = 0, o = LOOKUP_TABLE_META_SIZE; i < accounts.length; ++i, o += PUBLIC_KEY_LENGTH) {
       accounts[i].write(data, o);
     }
-    return LookupTableAccountMeta.createMeta(AddressLookupTable.read(key(address), data));
-  }
-
-  private static AddressLookupTable table(final int address, final PublicKey... accounts) {
-    return tableMeta(address, accounts).lookupTable();
+    return AddressLookupTable.read(key(address), data);
   }
 
   private static Instruction ix(final PublicKey... accounts) {
@@ -108,74 +102,6 @@ final class TransactionProcessorRecordTests {
   }
 
   // --------------------------------------------------------------- fakes ---
-
-  /// Answers `getOrFetchTable`/`getOrFetchTables` from pre-canned data and
-  /// throws on everything else; nothing else on the cache is reachable from the
-  /// processor.
-  private static final class FakeTableCache implements LookupTableCache {
-
-    private final AddressLookupTable single;
-    private final LookupTableAccountMeta[] metas;
-
-    private FakeTableCache(final AddressLookupTable single, final LookupTableAccountMeta[] metas) {
-      this.single = single;
-      this.metas = metas;
-    }
-
-    @Override
-    public AddressLookupTable getOrFetchTable(final PublicKey lookupTableKey) {
-      return single;
-    }
-
-    @Override
-    public LookupTableAccountMeta[] getOrFetchTables(final List<PublicKey> lookupTableKeys) {
-      return metas;
-    }
-
-    @Override
-    public LoadBalancer<SolanaRpcClient> rpcClients() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AddressLookupTable getTable(final PublicKey lookupTableKey) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AddressLookupTable mergeTable(final long slot,
-                                         final AddressLookupTable lookupTable,
-                                         final long fetchedAt) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public AddressLookupTable mergeTableIfPresent(final long slot,
-                                                  final AddressLookupTable lookupTable,
-                                                  final long fetchedAt) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public CompletableFuture<AddressLookupTable> getOrFetchTableAsync(final PublicKey lookupTableKey) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public CompletableFuture<LookupTableAccountMeta[]> getOrFetchTablesAsync(final List<PublicKey> lookupTableKeys) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void refreshStaleAccounts(final Duration staleIfOlderThan, final int batchSize) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public int refreshOldestAccounts(final int limit) {
-      throw new UnsupportedOperationException();
-    }
-  }
 
   /// Records the exact `(offset, length)` window it was asked to sign and
   /// returns a signature whose every byte is `0x5A`.
@@ -354,12 +280,11 @@ final class TransactionProcessorRecordTests {
 
   // ---------------------------------------------------------- the record ---
 
-  private static TransactionProcessorRecord processor(final LookupTableCache tableCache) {
-    return processor(tableCache, new FakeSigningService(), null, null, null);
+  private static TransactionProcessorRecord processor() {
+    return processor(new FakeSigningService(), null, null, null);
   }
 
-  private static TransactionProcessorRecord processor(final LookupTableCache tableCache,
-                                                      final SigningService signingService,
+  private static TransactionProcessorRecord processor(final SigningService signingService,
                                                       final LoadBalancer<SolanaRpcClient> rpcClients,
                                                       final LoadBalancer<SolanaRpcClient> sendClients,
                                                       final LoadBalancer<? extends FeeProvider> feeProviders) {
@@ -367,8 +292,6 @@ final class TransactionProcessorRecordTests {
         EXECUTOR,
         signingService,
         FEE_PAYER,
-        tableCache,
-        LEGACY_FACTORY,
         SolanaAccounts.MAIN_NET,
         new ChainItemFormatter("sig(%s)", "address(%s)"),
         rpcClients,
@@ -382,169 +305,6 @@ final class TransactionProcessorRecordTests {
     );
   }
 
-  // ------------------------------------------------- transaction factory ---
-
-  @Test
-  void noLookupTableKeysReusesTheLegacyFactory() {
-    final var factory = processor(new FakeTableCache(null, null)).transactionFactory(List.of(), 5);
-    assertSame(LEGACY_FACTORY, factory);
-  }
-
-  @Test
-  void aSingleLookupTableKeyBuildsAVersionedTransactionAgainstThatTable() {
-    final var lookupTable = table(1_000, key(10), key(11));
-    final var factory = processor(new FakeTableCache(lookupTable, null))
-        .transactionFactory(List.of(key(1_000)), 5);
-
-    assertNotNull(factory);
-    assertNotSame(LEGACY_FACTORY, factory);
-
-    final var transaction = factory.apply(List.of(ix(key(10), key(11))));
-    assertNotNull(transaction);
-    // Built for the processor's fee payer, against the one table it was given.
-    assertEquals(FEE_PAYER, transaction.feePayer().publicKey());
-    assertNotNull(transaction.lookupTable());
-    assertEquals(key(1_000), transaction.lookupTable().address());
-  }
-
-  @Test
-  void aMissingSingleLookupTableIsRejectedByKey() {
-    final var processor = processor(new FakeTableCache(null, null));
-    final var thrown = assertThrows(
-        IllegalStateException.class,
-        () -> processor.transactionFactory(List.of(key(1_000)), 5)
-    );
-    assertTrue(thrown.getMessage().contains(key(1_000).toBase58()), thrown.getMessage());
-  }
-
-  @Test
-  void aShortTableFetchIsRejected() {
-    // Three keys requested, two tables returned.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_001, key(12), key(13))
-    };
-    final var processor = processor(new FakeTableCache(null, metas));
-    final var keys = List.of(key(1_000), key(1_001), key(1_002));
-
-    final var thrown = assertThrows(IllegalStateException.class, () -> processor.transactionFactory(keys, 5));
-    final var message = thrown.getMessage();
-    assertTrue(message.startsWith("Failed to find lookup table(s): "), message);
-    // The diagnostic must name the requested key that went unanswered, in
-    // base58 — not the complement (returned-but-unrequested tables), which is
-    // empty for any well-behaved cache and left the message saying "[]".
-    assertTrue(message.endsWith("[" + key(1_002) + "]"), message);
-    assertFalse(message.contains(key(1_000).toBase58()), message);
-    assertFalse(message.contains(key(1_001).toBase58()), message);
-  }
-
-  @Test
-  void theShortFetchReportNamesEveryUnansweredKey() {
-    // key(1_000) was requested and returned; key(1_009) was returned but never
-    // asked for. The report must list the two requested keys that went
-    // unanswered and must not mention either returned table.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_009, key(12), key(13))
-    };
-    final var processor = processor(new FakeTableCache(null, metas));
-    final var keys = List.of(key(1_000), key(1_001), key(1_002));
-
-    final var thrown = assertThrows(IllegalStateException.class, () -> processor.transactionFactory(keys, 5));
-    final var message = thrown.getMessage();
-    assertTrue(message.endsWith("[" + key(1_001) + ", " + key(1_002) + "]"), message);
-    assertFalse(message.contains(key(1_009).toBase58()), message);
-  }
-
-  @Test
-  void aCompleteTableFetchIsAccepted() {
-    // Two keys, two tables: the length guard must not fire on an exact match.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_001, key(12), key(13))
-    };
-    final var factory = processor(new FakeTableCache(null, metas))
-        .transactionFactory(List.of(key(1_000), key(1_001)), 5);
-
-    assertNotNull(factory);
-    assertNotSame(LEGACY_FACTORY, factory);
-  }
-
-  @Test
-  void everyScoredTableIsAttachedWhenMoreThanOneCovers() {
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_001, key(12), key(13))
-    };
-    final var factory = processor(new FakeTableCache(null, metas))
-        .transactionFactory(List.of(key(1_000), key(1_001)), 5);
-
-    // Two instructions: each table covers two of the accounts they reference.
-    final var transaction = factory.apply(List.of(ix(key(10), key(11)), ix(key(12), key(13))));
-
-    assertNotNull(transaction);
-    assertEquals(FEE_PAYER, transaction.feePayer().publicKey());
-    assertNotNull(transaction.tableAccountMetas());
-    assertEquals(2, transaction.tableAccountMetas().length);
-  }
-
-  @Test
-  void aSingleScoredTableIsAttachedDirectly() {
-    // Only the first table covers anything the instruction references.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_001, key(50), key(51))
-    };
-    final var factory = processor(new FakeTableCache(null, metas))
-        .transactionFactory(List.of(key(1_000), key(1_001)), 5);
-
-    final var transaction = factory.apply(List.of(ix(key(10), key(11))));
-
-    assertNotNull(transaction);
-    assertEquals(FEE_PAYER, transaction.feePayer().publicKey());
-    assertNotNull(transaction.lookupTable());
-    assertEquals(key(1_000), transaction.lookupTable().address());
-  }
-
-  @Test
-  void noScoredTableFallsBackToTheLegacyFactory() {
-    // Neither table covers an account the instruction references.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(50), key(51)),
-        tableMeta(1_001, key(52), key(53))
-    };
-    final var factory = processor(new FakeTableCache(null, metas))
-        .transactionFactory(List.of(key(1_000), key(1_001)), 5);
-
-    final var transaction = factory.apply(List.of(ix(key(10), key(11))));
-
-    assertNotNull(transaction);
-    // The legacy fallback, identified by the fee payer only it uses.
-    assertEquals(LEGACY_FEE_PAYER, transaction.feePayer().publicKey());
-    assertNull(transaction.lookupTable());
-  }
-
-  @Test
-  void invokedAndSignerAccountsAreNotScoredAgainstTheTables() {
-    // The second table covers exactly the fee payer and the program id, which
-    // can never be looked up. Scoring them would make it tie with the first
-    // table and attach both; ignoring every instruction account would leave
-    // nothing to cover and fall back to legacy. Only one table is correct.
-    final var metas = new LookupTableAccountMeta[]{
-        tableMeta(1_000, key(10), key(11)),
-        tableMeta(1_001, FEE_PAYER, PROGRAM)
-    };
-    final var factory = processor(new FakeTableCache(null, metas))
-        .transactionFactory(List.of(key(1_000), key(1_001)), 5);
-
-    final var transaction = factory.apply(List.of(ix(key(10), key(11), FEE_PAYER, PROGRAM)));
-
-    assertNotNull(transaction);
-    assertEquals(FEE_PAYER, transaction.feePayer().publicKey());
-    assertNotNull(transaction.lookupTable());
-    assertEquals(key(1_000), transaction.lookupTable().address());
-  }
-
   // ----------------------------------------------------------- formatting ---
 
   private static TxSimulation simulation(final int unitsConsumed) {
@@ -552,8 +312,14 @@ final class TransactionProcessorRecordTests {
   }
 
   private static TxSimulation simulation(final int unitsConsumed, final ReplacementBlockHash replacementBlockHash) {
+    return simulation(unitsConsumed, replacementBlockHash, 0);
+  }
+
+  private static TxSimulation simulation(final int unitsConsumed,
+                                         final ReplacementBlockHash replacementBlockHash,
+                                         final int loadedAccountsDataSize) {
     return new TxSimulation(
-        null, null, OptionalLong.empty(), 0,
+        null, null, OptionalLong.empty(), loadedAccountsDataSize,
         List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
         replacementBlockHash, OptionalInt.of(unitsConsumed), null, null
     );
@@ -573,7 +339,7 @@ final class TransactionProcessorRecordTests {
         List.of()
     );
 
-    final var formatted = processor(null).formatTxMeta("SIGNATURE", txMeta);
+    final var formatted = processor().formatTxMeta("SIGNATURE", txMeta);
 
     assertNotNull(formatted);
     assertTrue(formatted.contains("Transaction Meta:"), formatted);
@@ -586,7 +352,7 @@ final class TransactionProcessorRecordTests {
 
   @Test
   void theTxResultFormatReportsTheContextSlot() {
-    final var withContext = processor(null).formatTxResult(
+    final var withContext = processor().formatTxResult(
         "SIGNATURE", new TxResult(new Context(4_321L, "2.0"), "value-here", new TransactionError.Unknown("RESULT-OOPS")));
 
     assertNotNull(withContext);
@@ -599,13 +365,13 @@ final class TransactionProcessorRecordTests {
 
   @Test
   void anAbsentTxResultContextSlotIsReportedAsMinusOne() {
-    final var formatted = processor(null).formatTxResult("SIGNATURE", new TxResult(null, "value-here", null));
+    final var formatted = processor().formatTxResult("SIGNATURE", new TxResult(null, "value-here", null));
     assertTrue(formatted.contains("context slot: -1"), formatted);
   }
 
   @Test
   void theSigStatusFormatReportsTheContextSlotTxSlotStatusAndConfirmations() {
-    final var formatted = processor(null).formatSigStatus("SIGNATURE", new TxStatus(
+    final var formatted = processor().formatSigStatus("SIGNATURE", new TxStatus(
         new Context(4_321L, "2.0"),
         9_876L,
         OptionalInt.of(31),
@@ -624,7 +390,7 @@ final class TransactionProcessorRecordTests {
 
   @Test
   void anAbsentSigStatusContextSlotIsReportedAsMinusOne() {
-    final var formatted = processor(null).formatSigStatus("SIGNATURE", new TxStatus(
+    final var formatted = processor().formatSigStatus("SIGNATURE", new TxStatus(
         null, 9_876L, OptionalInt.empty(), null, Commitment.CONFIRMED));
     assertTrue(formatted.contains("context slot: -1"), formatted);
     // An absent confirmation count uses the same sentinel.
@@ -633,15 +399,155 @@ final class TransactionProcessorRecordTests {
 
   // -------------------------------------------------------------- signing ---
 
+  /// A SIMD-0385 v1 transaction, the format ravina builds.
   private static Transaction smallTransaction() {
+    return v1Transaction(FEE_PAYER, ix(key(10), key(11)));
+  }
+
+  private static Transaction v1Transaction(final PublicKey feePayer, final Instruction... instructions) {
+    return TxBuilder.createBuilder()
+        .feePayer(feePayer)
+        .addInstructions(List.of(instructions))
+        .priorityFeeLamports(777)
+        .createTransaction();
+  }
+
+  private static Transaction legacyTransaction() {
     return Transaction.createTx(FEE_PAYER, List.of(ix(key(10), key(11))));
   }
 
+  private static Signer signer(final int seed) {
+    final byte[] privateKey = new byte[Signer.KEY_LENGTH];
+    for (int i = 0; i < privateKey.length; ++i) {
+      privateKey[i] = (byte) (seed + (i * 7));
+    }
+    return Signer.createFromPrivateKey(privateKey);
+  }
+
+  private static final Signer PAYER = signer(3);
+  private static final Signer CO_SIGNER = signer(101);
+
+  private static Instruction coSignedIx() {
+    return Instruction.createInstruction(
+        PROGRAM,
+        List.of(AccountMeta.createWritableSigner(CO_SIGNER.publicKey()), AccountMeta.createRead(key(10)), AccountMeta.createWrite(key(12))),
+        new byte[]{4, 5, 6}
+    );
+  }
+
+  private static Instruction payerIx() {
+    return Instruction.createInstruction(
+        PROGRAM,
+        List.of(AccountMeta.createRead(key(10)), AccountMeta.createWrite(key(12))),
+        new byte[]{4, 5, 6}
+    );
+  }
+
+  private interface Fixture {
+
+    Transaction build();
+  }
+
+  /// Every format and signer count the processor may be handed, each built by
+  /// sava the way an external producer would. v0 fixtures load `key(10)` from a
+  /// table, so they really are table-loading v0 transactions.
+  private static List<Fixture> fixtures() {
+    final var table = table(1_000, key(10), key(11));
+    return List.of(
+        () -> Transaction.createTx(PAYER.publicKey(), List.of(payerIx())),
+        () -> Transaction.createTx(PAYER.publicKey(), List.of(coSignedIx())),
+        () -> Transaction.createTx(PAYER.publicKey(), List.of(payerIx()), table),
+        () -> Transaction.createTx(PAYER.publicKey(), List.of(coSignedIx()), table),
+        () -> v1Transaction(PAYER.publicKey(), payerIx()),
+        () -> v1Transaction(PAYER.publicKey(), coSignedIx())
+    );
+  }
+
   @Test
-  void signingCoversTheMessageAfterTheSignatureSlot() {
+  void theFixturesCoverEveryFormatAndSignerCount() {
+    final var shapes = fixtures().stream()
+        .map(Fixture::build)
+        .map(tx -> TransactionSkeleton.deserializeSkeleton(tx.serialized()))
+        .map(skeleton -> skeleton.version() + "/" + skeleton.numSignatures() + "/" + skeleton.numIndexedAccounts())
+        .toList();
+    assertEquals(List.of("-128/1/0", "-128/2/0", "0/1/1", "0/2/1", "1/1/0", "1/2/0"), shapes);
+  }
+
+  @Test
+  void signingMatchesSavasOwnSigningOfTheFeePayerSlotInEveryFormat() {
+    for (final var fixture : fixtures()) {
+      final var viaProcessor = fixture.build();
+      final var viaSava = fixture.build();
+      assertArrayEquals(viaSava.serialized(), viaProcessor.serialized());
+
+      processor(new MemorySigner(PAYER), null, null, null).signTransaction(viaProcessor);
+      viaSava.sign(PAYER);
+
+      assertArrayEquals(viaSava.serialized(), viaProcessor.serialized(), "version " + viaSava.version());
+      assertEquals(viaSava.getBase58Id(), viaProcessor.getBase58Id());
+    }
+  }
+
+  @Test
+  void signingTheFeePayerLeavesACoSignersSlotAndTheMessageIntact() {
+    for (final var fixture : fixtures()) {
+      final var viaProcessor = fixture.build();
+      final var viaSava = fixture.build();
+      if (viaSava.numSigners() < 2) {
+        continue;
+      }
+      viaProcessor.sign(CO_SIGNER);
+      final byte[] coSigned = viaProcessor.serialized().clone();
+
+      processor(new MemorySigner(PAYER), null, null, null).signTransaction(viaProcessor);
+      viaSava.sign(CO_SIGNER);
+      viaSava.sign(PAYER);
+
+      assertArrayEquals(viaSava.serialized(), viaProcessor.serialized(), "version " + viaSava.version());
+      // Byte 0 is the legacy/v0 signature count or the v1 version byte; neither is rewritten.
+      assertEquals(coSigned[0], viaProcessor.serialized()[0]);
+    }
+  }
+
+  @Test
+  void aSignedV1TransactionStillParsesAndIsIdentifiedByItsFeePayerSignature() {
+    final var transaction = v1Transaction(PAYER.publicKey(), coSignedIx());
+    transaction.sign(CO_SIGNER);
+
+    processor(new MemorySigner(PAYER), null, null, null).signTransaction(transaction);
+
+    final byte[] serialized = transaction.serialized();
+    final var skeleton = TransactionSkeleton.deserializeSkeleton(serialized);
+    assertEquals(1, skeleton.version());
+    assertEquals(777, skeleton.priorityFeeLamports());
+    final int feePayerSlot = serialized.length - (2 * Transaction.SIGNATURE_LENGTH);
+    assertEquals(
+        Base58.encode(Arrays.copyOfRange(serialized, feePayerSlot, feePayerSlot + Transaction.SIGNATURE_LENGTH)),
+        transaction.getBase58Id()
+    );
+    assertEquals(transaction.getBase58Id(), skeleton.id());
+  }
+
+  @Test
+  void aV1MessageIsSignedFromItsFirstByteToItsSignatureBlock() {
     final var signingService = new FakeSigningService();
-    final var processor = processor(null, signingService, null, null, null);
-    final byte[] serialized = smallTransaction().serialized();
+    final var processor = processor(signingService, null, null, null);
+    final var transaction = smallTransaction();
+    final byte[] serialized = transaction.serialized();
+
+    final var future = processor.sign(transaction);
+
+    assertArrayEquals(FakeSigningService.signature(), future.join());
+    assertSame(serialized, signingService.signedMessage);
+    assertEquals(0, signingService.offset);
+    assertEquals(serialized.length - Transaction.SIGNATURE_LENGTH, signingService.length);
+  }
+
+  @Test
+  void aLegacyMessageIsSignedAfterItsSignatureSlots() {
+    final var signingService = new FakeSigningService();
+    final var processor = processor(signingService, null, null, null);
+    final byte[] serialized = legacyTransaction().serialized();
 
     final var future = processor.sign(serialized);
 
@@ -652,56 +558,36 @@ final class TransactionProcessorRecordTests {
     // excluded: the signed window is exactly the message.
     assertEquals(1 + Transaction.SIGNATURE_LENGTH, signingService.offset);
     assertEquals(serialized.length - (1 + Transaction.SIGNATURE_LENGTH), signingService.length);
-    assertEquals(serialized.length, signingService.offset + signingService.length);
   }
 
   @Test
-  void signingATransactionSignsItsSerializedForm() {
-    final var signingService = new FakeSigningService();
-    final var processor = processor(null, signingService, null, null, null);
+  void aV1SignatureIsWrittenToTheFeePayerSlotAfterTheMessage() {
     final var transaction = smallTransaction();
+    final byte[] before = transaction.serialized().clone();
+    final byte[] sig = FakeSigningService.signature();
 
-    final var future = processor.sign(transaction);
+    processor().setSignature(transaction, sig);
 
-    assertNotNull(future);
-    assertArrayEquals(FakeSigningService.signature(), future.join());
-    assertSame(transaction.serialized(), signingService.signedMessage);
-    assertEquals(1 + Transaction.SIGNATURE_LENGTH, signingService.offset);
+    final byte[] after = transaction.serialized();
+    final int slot = after.length - Transaction.SIGNATURE_LENGTH;
+    assertArrayEquals(sig, Arrays.copyOfRange(after, slot, after.length));
+    assertArrayEquals(Arrays.copyOf(before, slot), Arrays.copyOf(after, slot), "the message must be untouched");
   }
 
-  private static void assertSigned(final byte[] serialized) {
+  @Test
+  void aLegacySignatureIsWrittenAfterTheCountByte() {
+    final byte[] serialized = legacyTransaction().serialized();
+    final byte[] message = Arrays.copyOfRange(serialized, 1 + Transaction.SIGNATURE_LENGTH, serialized.length);
+
+    processor().setSignature(serialized, FakeSigningService.signature());
+
     assertEquals(1, serialized[0], "one signature must be declared");
-    final byte[] expected = FakeSigningService.signature();
     assertArrayEquals(
-        expected,
+        FakeSigningService.signature(),
         Arrays.copyOfRange(serialized, 1, 1 + Transaction.SIGNATURE_LENGTH),
         "the signature must be written immediately after the count byte"
     );
-  }
-
-  @Test
-  void theSignatureIsWrittenAfterTheCountByte() {
-    final byte[] serialized = smallTransaction().serialized();
-    // A signature of a value no serialized transaction would contain by chance.
-    final byte[] sig = new byte[Transaction.SIGNATURE_LENGTH];
-    Arrays.fill(sig, FakeSigningService.SIG_BYTE);
-
-    processor(null).setSignature(serialized, sig);
-
-    assertSigned(serialized);
-    // The byte just past the signature belongs to the message and is untouched.
-    assertNotEquals(FakeSigningService.SIG_BYTE, serialized[1 + Transaction.SIGNATURE_LENGTH]);
-  }
-
-  @Test
-  void settingATransactionSignatureWritesItsSerializedForm() {
-    final var transaction = smallTransaction();
-    final byte[] sig = new byte[Transaction.SIGNATURE_LENGTH];
-    Arrays.fill(sig, FakeSigningService.SIG_BYTE);
-
-    processor(null).setSignature(transaction, sig);
-
-    assertSigned(transaction.serialized());
+    assertArrayEquals(message, Arrays.copyOfRange(serialized, 1 + Transaction.SIGNATURE_LENGTH, serialized.length));
   }
 
   @Test
@@ -709,10 +595,172 @@ final class TransactionProcessorRecordTests {
     final var signingService = new FakeSigningService();
     final var transaction = smallTransaction();
 
-    processor(null, signingService, null, null, null).signTransaction(transaction);
+    processor(signingService, null, null, null).signTransaction(transaction);
 
     assertEquals(1, signingService.numRequests);
-    assertSigned(transaction.serialized());
+    final byte[] serialized = transaction.serialized();
+    assertArrayEquals(
+        FakeSigningService.signature(),
+        Arrays.copyOfRange(serialized, serialized.length - Transaction.SIGNATURE_LENGTH, serialized.length)
+    );
+  }
+
+  private static byte[] withoutSignatureSlots(final byte[] legacy, final int numSignatures) {
+    final int messageOffset = 1 + (numSignatures * Transaction.SIGNATURE_LENGTH);
+    final byte[] out = new byte[1 + legacy.length - messageOffset];
+    System.arraycopy(legacy, messageOffset, out, 1, legacy.length - messageOffset);
+    return out;
+  }
+
+  private record Malformed(String name, byte[] payload, String reason) {
+  }
+
+  /// A legacy transaction whose fee payer and `extraSigners` more accounts sign.
+  private static Transaction legacyWithSigners(final int extraSigners) {
+    final var metas = new java.util.ArrayList<AccountMeta>(extraSigners);
+    for (int i = 0; i < extraSigners; ++i) {
+      metas.add(AccountMeta.createWritableSigner(key(2_000 + i)));
+    }
+    return Transaction.createTx(FEE_PAYER, List.of(Instruction.createInstruction(PROGRAM, metas, new byte[]{1})));
+  }
+
+  /// A v0 transaction loading `key(10)` from a table, signed by its fee payer and `extraSigners` more accounts.
+  private static Transaction v0WithSigners(final int extraSigners) {
+    final var metas = new java.util.ArrayList<AccountMeta>(extraSigners + 1);
+    for (int i = 0; i < extraSigners; ++i) {
+      metas.add(AccountMeta.createWritableSigner(key(2_000 + i)));
+    }
+    metas.add(AccountMeta.createRead(key(10)));
+    return Transaction.createTx(
+        FEE_PAYER,
+        List.of(Instruction.createInstruction(PROGRAM, metas, new byte[]{1})),
+        table(1_000, key(10), key(11))
+    );
+  }
+
+  /// Each payload breaks exactly one rule of the signature layout, named by the reason it must be refused for.
+  private static List<Malformed> malformedPayloads() {
+    final byte[] v1 = smallTransaction().serialized();
+
+    // One signature slot declared, but the message header requires two.
+    final byte[] headerAbovePrefix = legacyTransaction().serialized();
+    headerAbovePrefix[1 + Transaction.SIGNATURE_LENGTH] = 2;
+
+    // A legacy payload that declares, and requires, no signature at all.
+    final byte[] unsigned = withoutSignatureSlots(legacyTransaction().serialized(), 1);
+    unsigned[0] = 0;
+    unsigned[1] = 0;
+
+    // One signature, but its count encoded as the non-canonical compact-u16 0x81 0x00.
+    final byte[] legacy = legacyTransaction().serialized();
+    final byte[] nonCanonical = new byte[legacy.length + 1];
+    nonCanonical[0] = (byte) 0x81;
+    nonCanonical[1] = 0;
+    System.arraycopy(legacy, 1, nonCanonical, 2, legacy.length - 1);
+
+    // 128 signatures under their canonical two-byte compact-u16 count 0x80 0x01, which sava's skeleton reads
+    // correctly; sava's own builder writes the single byte 0x80 instead. Only a versioned message can require
+    // that many: a legacy header byte of 0x80 would read as the v0 version prefix.
+    final byte[] oneByteCount = v0WithSigners(127).serialized();
+    assertEquals((byte) 0x80, oneByteCount[0]);
+    final byte[] twoByteCount = new byte[oneByteCount.length + 1];
+    twoByteCount[0] = (byte) 0x80;
+    twoByteCount[1] = 1;
+    System.arraycopy(oneByteCount, 1, twoByteCount, 2, oneByteCount.length - 1);
+    assertEquals(128, TransactionSkeleton.deserializeSkeleton(twoByteCount).numSignatures());
+
+    return List.of(
+        new Malformed("v1 padded by one byte", Arrays.copyOf(v1, v1.length + 1), "does not meet its"),
+        new Malformed("v1 padded by a signature", Arrays.copyOf(v1, v1.length + Transaction.SIGNATURE_LENGTH), "does not meet its"),
+        new Malformed("v1 truncated by one byte", Arrays.copyOf(v1, v1.length - 1), "does not meet its"),
+        new Malformed("v1 truncated into its message", Arrays.copyOf(v1, v1.length - 70), ""),
+        new Malformed("legacy header requiring more than its prefix", headerAbovePrefix, "does not match"),
+        new Malformed("legacy requiring no signature", unsigned, "requires no signatures"),
+        new Malformed("legacy with a non-canonical count", nonCanonical, "more than one byte"),
+        new Malformed("legacy with a two-byte count", twoByteCount, "more than one byte")
+    );
+  }
+
+  @Test
+  void aPayloadWhoseSignatureLayoutIsInconsistentIsNeitherSignedNorWritten() {
+    final var signingService = new FakeSigningService();
+    final var processor = processor(signingService, null, null, null);
+    for (final var malformed : malformedPayloads()) {
+      final byte[] payload = malformed.payload();
+      final byte[] before = payload.clone();
+      final var signFailure = assertThrows(IllegalArgumentException.class, () -> processor.sign(payload), malformed.name());
+      assertTrue(signFailure.getMessage().contains(malformed.reason()), malformed.name() + ": " + signFailure.getMessage());
+      final var writeFailure = assertThrows(
+          IllegalArgumentException.class,
+          () -> processor.setSignature(payload, FakeSigningService.signature()),
+          malformed.name()
+      );
+      assertEquals(signFailure.getMessage(), writeFailure.getMessage());
+      assertArrayEquals(before, payload, malformed.name());
+    }
+    assertEquals(0, signingService.numRequests);
+  }
+
+  /// Regression for the `signingSpan` fuzz finding
+  /// `regression-legacy-envelope-with-v1-message`: a payload opening with a
+  /// zero signature count whose message opens with the 0x81 version byte.
+  /// sava's skeleton reads its version as 1, so the span was taken to be a v1
+  /// payload's and the message signed from byte 0; sava's own signer treats it
+  /// as legacy and refuses the count mismatch, and so must the processor.
+  @Test
+  void theLegacyEnvelopeFuzzFindingIsRefused() throws java.io.IOException {
+    final byte[] payload;
+    try (final var seed = TransactionProcessorRecordTests.class.getResourceAsStream(
+        "/fuzz/signingSpan/regression-legacy-envelope-with-v1-message")) {
+      assertNotNull(seed);
+      payload = seed.readAllBytes();
+    }
+    assertEquals(0, payload[0]);
+    assertEquals((byte) 0x81, payload[1]);
+    assertEquals(1, TransactionSkeleton.deserializeSkeleton(payload).version());
+    final byte[] before = payload.clone();
+    final var signingService = new FakeSigningService();
+    final var processor = processor(signingService, null, null, null);
+
+    final var thrown = assertThrows(IllegalArgumentException.class, () -> processor.sign(payload));
+    assertTrue(thrown.getMessage().contains("does not match"), thrown.getMessage());
+    assertThrows(IllegalArgumentException.class, () -> processor.setSignature(payload, FakeSigningService.signature()));
+    assertArrayEquals(before, payload);
+    assertEquals(0, signingService.numRequests);
+  }
+
+  /// A legacy envelope, count prefix first, whose versioned message carries the
+  /// version byte 0x81: sava's skeleton reads its version as 1, and sava's
+  /// signer lays it out as the envelope says, so the processor must too.
+  @Test
+  void aVersionOneMessageInALegacyEnvelopeIsSignedAsSavaSignsIt() {
+    final byte[] viaProcessor = Transaction.createTx(PAYER.publicKey(), List.of(payerIx()), table(1_000, key(10), key(11)))
+        .serialized();
+    final int versionByte = 1 + Transaction.SIGNATURE_LENGTH;
+    assertEquals((byte) 0x80, viaProcessor[versionByte]);
+    viaProcessor[versionByte] = (byte) 0x81;
+    assertEquals(1, TransactionSkeleton.deserializeSkeleton(viaProcessor).version());
+    final byte[] viaSava = viaProcessor.clone();
+
+    final var processor = processor(new MemorySigner(PAYER), null, null, null);
+    processor.setSignature(viaProcessor, processor.sign(viaProcessor).join());
+    Transaction.sign(PAYER, viaSava);
+
+    assertArrayEquals(viaSava, viaProcessor);
+  }
+
+  @Test
+  void theLargestOneByteSignatureCountIsStillLocated() {
+    final var signingService = new FakeSigningService();
+    final var transaction = legacyWithSigners(126);
+    final byte[] serialized = transaction.serialized();
+    assertEquals(127, serialized[0]);
+
+    processor(signingService, null, null, null).sign(serialized).join();
+
+    final int messageOffset = 1 + (127 * Transaction.SIGNATURE_LENGTH);
+    assertEquals(messageOffset, signingService.offset);
+    assertEquals(serialized.length - messageOffset, signingService.length);
   }
 
   // ---------------------------------------------------------- block hash ---
@@ -734,7 +782,7 @@ final class TransactionProcessorRecordTests {
     final var transaction = smallTransaction();
     final byte[] before = transaction.recentBlockHash();
 
-    final long blockHeight = processor(null).setBlockHash(
+    final long blockHeight = processor().setBlockHash(
         transaction, simulation(1, new ReplacementBlockHash(REPLACEMENT_HASH, 4_321L)));
 
     assertEquals(4_321L, blockHeight);
@@ -747,7 +795,7 @@ final class TransactionProcessorRecordTests {
     final var transaction = smallTransaction();
     final byte[] before = transaction.recentBlockHash();
 
-    assertEquals(0L, processor(null).setBlockHash(transaction, simulation(1, null)));
+    assertEquals(0L, processor().setBlockHash(transaction, simulation(1, null)));
     assertArrayEquals(before, transaction.recentBlockHash());
   }
 
@@ -758,7 +806,7 @@ final class TransactionProcessorRecordTests {
 
     // A non-null replacement carrying no hash must not be installed, and must
     // not report its validity height either.
-    assertEquals(0L, processor(null).setBlockHash(
+    assertEquals(0L, processor().setBlockHash(
         transaction, simulation(1, new ReplacementBlockHash(null, 4_321L))));
     assertArrayEquals(before, transaction.recentBlockHash());
   }
@@ -767,7 +815,7 @@ final class TransactionProcessorRecordTests {
   void theLatestBlockHashIsInstalledWithItsValidityHeight() {
     final var transaction = smallTransaction();
 
-    final long blockHeight = processor(null).setBlockHash(
+    final long blockHeight = processor().setBlockHash(
         transaction, new LatestBlockHash(null, LATEST_HASH, 8_642L));
 
     assertEquals(8_642L, blockHeight);
@@ -780,7 +828,7 @@ final class TransactionProcessorRecordTests {
     final var blockHashFuture = CompletableFuture.completedFuture(
         new LatestBlockHash(null, LATEST_HASH, 8_642L));
 
-    final long blockHeight = processor(null).setBlockHash(
+    final long blockHeight = processor().setBlockHash(
         transaction,
         simulation(1, new ReplacementBlockHash(REPLACEMENT_HASH, 4_321L)),
         blockHashFuture
@@ -796,7 +844,7 @@ final class TransactionProcessorRecordTests {
     final var blockHashFuture = CompletableFuture.completedFuture(
         new LatestBlockHash(null, LATEST_HASH, 8_642L));
 
-    final long blockHeight = processor(null).setBlockHash(
+    final long blockHeight = processor().setBlockHash(
         transaction,
         simulation(1, new ReplacementBlockHash(null, 4_321L)),
         blockHashFuture
@@ -812,7 +860,7 @@ final class TransactionProcessorRecordTests {
     final var blockHashFuture = CompletableFuture.completedFuture(
         new LatestBlockHash(null, LATEST_HASH, 8_642L));
 
-    final long blockHeight = processor(null).setBlockHash(transaction, simulation(1, null), blockHashFuture);
+    final long blockHeight = processor().setBlockHash(transaction, simulation(1, null), blockHashFuture);
 
     assertEquals(8_642L, blockHeight);
     assertArrayEquals(LATEST_HASH_BYTES, transaction.recentBlockHash());
@@ -820,65 +868,101 @@ final class TransactionProcessorRecordTests {
 
   // ------------------------------------------------ create, sign, publish ---
 
+  private static final List<Instruction> INSTRUCTIONS = List.of(ix(key(10), key(11)));
+
   private static SimulationFutures simulationFutures(final long cuPrice) {
     return new SimulationFutures(
         Commitment.CONFIRMED,
-        List.of(ix(key(10), key(11))),
-        null,
+        INSTRUCTIONS,
+        SimulationFutures.createSimulationTransaction(FEE_PAYER, INSTRUCTIONS),
         0,
-        instructions -> Transaction.createTx(FEE_PAYER, instructions),
         null,
         CompletableFuture.completedFuture(BigDecimal.valueOf(cuPrice))
     );
   }
 
-  @Test
-  void creatingATransactionAppliesTheExplicitComputeBudget() {
-    final var futures = simulationFutures(10_000);
-    final var transaction = processor(null).createTransaction(futures, BigDecimal.valueOf(10_000), 200_000);
-
-    assertNotNull(transaction);
-    // Compute unit limit and price are prepended ahead of the original ix.
-    assertEquals(3, transaction.instructions().size());
-    assertFalse(transaction.exceedsSizeLimit());
-    final var expected = futures.createTransaction(SolanaAccounts.MAIN_NET, BigDecimal.valueOf(10_000), 200_000);
-    assertArrayEquals(expected.serialized(), transaction.serialized());
+  private static TransactionSkeleton decode(final Transaction transaction) {
+    return TransactionSkeleton.deserializeSkeleton(transaction.serialized());
   }
 
   @Test
-  void creatingATransactionTakesTheComputeBudgetFromTheSimulation() {
+  void creatingATransactionAppliesTheExplicitComputeBudgetAndCappedFee() {
     final var futures = simulationFutures(10_000);
-    final var simulationResult = simulation(200_000);
-    final var transaction = processor(null).createTransaction(futures, BigDecimal.valueOf(10_000), simulationResult);
+    // 10,000 µL × 200,000 CU = 2,000 lamports, capped at 1,500.
+    final var transaction = processor().createTransaction(futures, BigDecimal.valueOf(1_500), 200_000);
 
-    assertNotNull(transaction);
-    assertEquals(3, transaction.instructions().size());
-    // Identical to asking for the simulated budget explicitly.
-    final var expected = processor(null).createTransaction(futures, BigDecimal.valueOf(10_000), 200_000);
+    final var skeleton = decode(transaction);
+    assertEquals(1, skeleton.version());
+    assertEquals(200_000, skeleton.computeUnitLimit());
+    assertEquals(1_500, skeleton.priorityFeeLamports());
+    assertEquals(FEE_PAYER, skeleton.feePayer());
+    assertEquals(INSTRUCTIONS, transaction.instructions());
+  }
+
+  @Test
+  void theBudgetOnlyOverloadKeepsTheMaximumDataSizeLimit() {
+    final var transaction = processor().createTransaction(simulationFutures(10_000), BigDecimal.valueOf(10_000), 200_000);
+    assertEquals(64 * 1_024 * 1_024, decode(transaction).accountDataSizeLimit());
+  }
+
+  @Test
+  void anExplicitDataSizeLimitIsApplied() {
+    final var transaction = processor().createTransaction(simulationFutures(10_000), BigDecimal.valueOf(10_000), 200_000, 45_678);
+    assertEquals(200_000, decode(transaction).computeUnitLimit());
+    assertEquals(45_678, decode(transaction).accountDataSizeLimit());
+  }
+
+  @Test
+  void creatingATransactionTakesTheComputeBudgetAndDataSizeFromTheSimulation() {
+    final var futures = simulationFutures(10_000);
+    final var transaction = processor().createTransaction(
+        futures, BigDecimal.valueOf(10_000), simulation(150_000, null, 56_789));
+
+    assertEquals(150_000, decode(transaction).computeUnitLimit());
+    // 56,789 bytes is 1.73 pages: 2, plus the spare.
+    assertEquals(3 * 32 * 1_024, decode(transaction).accountDataSizeLimit());
+    assertEquals(1_500, decode(transaction).priorityFeeLamports());
+    // Identical to asking for the simulated budget and data size explicitly.
+    final var expected = processor().createTransaction(futures, BigDecimal.valueOf(10_000), 150_000, 3 * 32 * 1_024);
     assertArrayEquals(expected.serialized(), transaction.serialized());
   }
 
   @Test
   void createAndSignBuildsSignsAndStampsTheBlockHash() {
-    final var signingService = new FakeSigningService();
-    final var processor = processor(null, signingService, null, null, null);
+    final var processor = processor(new MemorySigner(PAYER), null, null, null);
+    final var instructions = List.of(payerIx());
+    final var futures = new SimulationFutures(
+        Commitment.CONFIRMED,
+        instructions,
+        SimulationFutures.createSimulationTransaction(PAYER.publicKey(), instructions),
+        0,
+        null,
+        CompletableFuture.completedFuture(BigDecimal.valueOf(10_000))
+    );
     final var blockHashFuture = CompletableFuture.completedFuture(
         new LatestBlockHash(null, LATEST_HASH, 8_642L));
 
     final var transaction = processor.createAndSignTransaction(
-        simulationFutures(10_000),
+        futures,
         BigDecimal.valueOf(10_000),
-        simulation(200_000, new ReplacementBlockHash(REPLACEMENT_HASH, 4_321L)),
+        simulation(200_000, new ReplacementBlockHash(REPLACEMENT_HASH, 4_321L), 67_890),
         200_000,
         blockHashFuture
     );
 
-    assertNotNull(transaction);
-    assertEquals(3, transaction.instructions().size());
+    final var skeleton = decode(transaction);
+    assertEquals(1, skeleton.version());
+    assertEquals(200_000, skeleton.computeUnitLimit());
+    // 67,890 bytes is 2.07 pages: 3, plus the spare.
+    assertEquals(4 * 32 * 1_024, skeleton.accountDataSizeLimit());
+    assertEquals(2_000, skeleton.priorityFeeLamports());
     assertArrayEquals(REPLACEMENT_HASH_BYTES, transaction.recentBlockHash());
-    assertSigned(transaction.serialized());
-    // The block hash must be stamped before signing, so the signature covers it.
-    assertSame(transaction.serialized(), signingService.signedMessage);
+    // The block hash is stamped before signing, so the signature covers it:
+    // sava signing the same unsigned bytes yields the same transaction.
+    final var expected = futures.createTransaction(BigDecimal.valueOf(10_000), 200_000, 4 * 32 * 1_024);
+    expected.setRecentBlockHash(REPLACEMENT_HASH_BYTES);
+    expected.sign(PAYER);
+    assertArrayEquals(expected.serialized(), transaction.serialized());
   }
 
   @Test
@@ -895,7 +979,7 @@ final class TransactionProcessorRecordTests {
 
     @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
         new BalancedItem[]{unhealthy, healthy});
-    final var processor = processor(null, null, null, sendClients, null);
+    final var processor = processor(null, null, sendClients, null);
     final var transaction = smallTransaction();
     final int healthyCapacity = healthyMonitor.capacityState().capacity();
 
@@ -926,14 +1010,18 @@ final class TransactionProcessorRecordTests {
     @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createBalancer(
         new BalancedItem[]{item(rpcClient(handler), monitor)});
     final var signingService = new FakeSigningService();
-    final var processor = processor(null, signingService, null, sendClients, null);
+    final var processor = processor(signingService, null, sendClients, null);
     final var transaction = smallTransaction();
 
     final var context = processor.signAndSendTx(transaction, 8_642L);
 
     assertNotNull(context);
     assertEquals(1, signingService.numRequests);
-    assertSigned(transaction.serialized());
+    final byte[] serialized = transaction.serialized();
+    assertArrayEquals(
+        FakeSigningService.signature(),
+        Arrays.copyOfRange(serialized, serialized.length - Transaction.SIGNATURE_LENGTH, serialized.length)
+    );
     assertEquals("SENT-SIG", context.sendFuture().join());
     assertEquals(8_642L, context.blockHeight());
     // The published payload is the signed transaction, not the unsigned one.
@@ -943,91 +1031,145 @@ final class TransactionProcessorRecordTests {
 
   // --------------------------------------------- simulate and estimate ---
 
-  @Test
-  void anOversizedTransactionIsNotSimulated() {
-    final var handler = new FakeRpcClient(simulation(150_000), null);
-    final var monitor = monitor();
-    @SuppressWarnings("unchecked") final var rpcClients = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(rpcClient(handler), monitor)});
-    final var feeProvider = new FakeFeeProvider(BigDecimal.valueOf(12_345));
-    @SuppressWarnings("unchecked") final var feeProviders = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(feeProvider, monitor())});
-    final var processor = processor(null, null, rpcClients, null, feeProviders);
-
-    final var instructions = List.of(
-        Instruction.createInstruction(PROGRAM, List.of(AccountMeta.createRead(key(10))), new byte[1_500]));
-    final var futures = processor.simulateAndEstimate(
-        Commitment.CONFIRMED, instructions, is -> Transaction.createTx(FEE_PAYER, is));
-
-    assertNotNull(futures);
-    assertTrue(futures.exceedsSizeLimit());
-    assertSame(instructions, futures.instructions());
-    assertEquals(Commitment.CONFIRMED, futures.commitment());
-    assertEquals(futures.transaction().base64EncodeToString().length(), futures.base64Length());
-    // Nothing was dispatched: neither future exists.
-    assertNull(futures.simulationFuture());
-    assertNull(futures.feeEstimateFuture());
-    assertNull(handler.simulateBase64);
-    assertNull(feeProvider.requestedBase64);
+  private record Harness(TransactionProcessorRecord processor, FakeRpcClient rpc, FakeFeeProvider feeProvider) {
   }
 
-  @Test
-  void aTransactionWithinTheSizeLimitIsSimulatedAndPriced() {
-    final var simulationResult = simulation(150_000);
+  private static Harness harness(final TxSimulation simulationResult) {
     final var handler = new FakeRpcClient(simulationResult, null);
     @SuppressWarnings("unchecked") final var rpcClients = LoadBalancer.createBalancer(
         new BalancedItem[]{item(rpcClient(handler), monitor())});
     final var feeProvider = new FakeFeeProvider(BigDecimal.valueOf(12_345));
     @SuppressWarnings("unchecked") final var feeProviders = LoadBalancer.createBalancer(
         new BalancedItem[]{item(feeProvider, monitor())});
-    final var processor = processor(null, null, rpcClients, null, feeProviders);
+    return new Harness(processor(null, rpcClients, null, feeProviders), handler, feeProvider);
+  }
+
+  private static void assertNothingDispatched(final Harness harness, final SimulationFutures futures) {
+    assertTrue(futures.exceedsSizeLimit());
+    assertNull(futures.simulationFuture());
+    assertNull(futures.feeEstimateFuture());
+    assertNull(harness.rpc().simulateBase64);
+    assertNull(harness.feeProvider().requestedBase64);
+  }
+
+  @Test
+  void aTransactionWithinTheV1LimitsIsSimulatedAndPriced() {
+    final var simulationResult = simulation(150_000);
+    final var harness = harness(simulationResult);
 
     final var instructions = List.of(ix(key(10), key(11)));
-    final var futures = processor.simulateAndEstimate(
-        Commitment.FINALIZED, instructions, is -> Transaction.createTx(FEE_PAYER, is));
+    final var futures = harness.processor().simulateAndEstimate(Commitment.FINALIZED, instructions);
 
     assertNotNull(futures);
     assertFalse(futures.exceedsSizeLimit());
     assertSame(instructions, futures.instructions());
     assertEquals(Commitment.FINALIZED, futures.commitment());
-    // The simulated transaction carries a max compute budget and a zero price
-    // ahead of the caller's instruction.
-    assertEquals(1 + 2, futures.transaction().instructions().size());
     final var base64 = futures.transaction().base64EncodeToString();
     assertEquals(base64.length(), futures.base64Length());
 
-    assertNotNull(futures.simulationFuture());
     assertSame(simulationResult, futures.simulationFuture().join());
-    assertEquals(Commitment.FINALIZED, handler.simulateCommitment);
-    assertEquals(base64, handler.simulateBase64);
+    assertEquals(Commitment.FINALIZED, harness.rpc().simulateCommitment);
+    assertEquals(base64, harness.rpc().simulateBase64);
 
-    assertNotNull(futures.feeEstimateFuture());
     assertEquals(0, BigDecimal.valueOf(12_345).compareTo(futures.feeEstimateFuture().join()));
     assertEquals(12_345, futures.cuPrice());
-    assertSame(futures.transaction(), feeProvider.requestedTransaction);
-    assertEquals(base64, feeProvider.requestedBase64);
+    assertSame(futures.transaction(), harness.feeProvider().requestedTransaction);
+    assertEquals(base64, harness.feeProvider().requestedBase64);
   }
 
   @Test
-  void theSimulationTransactionCarriesTheMaximumComputeBudget() {
-    final var handler = new FakeRpcClient(simulation(150_000), null);
-    @SuppressWarnings("unchecked") final var rpcClients = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(rpcClient(handler), monitor())});
-    final var feeProviders = LoadBalancer.createBalancer(
-        List.<BalancedItem<FeeProvider>>of(item(new FakeFeeProvider(BigDecimal.ONE), monitor())));
-    final var processor = processor(null, null, rpcClients, null, feeProviders);
+  void theSimulatedTransactionIsV1AtTheMaximumLimitBiddingNothing() {
+    final var harness = harness(simulation(150_000));
+    final var instructions = List.of(ix(key(10), key(11)), ix(key(12)));
 
-    final var instructions = List.of(ix(key(10), key(11)));
-    final var futures = processor.simulateAndEstimate(
-        Commitment.CONFIRMED, instructions, is -> Transaction.createTx(FEE_PAYER, is));
+    final var futures = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, instructions);
 
-    final var prepended = new ArrayList<>(futures.transaction().instructions().subList(0, 2));
-    assertEquals(2, prepended.size());
-    for (final var prependedIx : prepended) {
-      assertEquals(
-          SolanaAccounts.MAIN_NET.invokedComputeBudgetProgram().publicKey(),
-          prependedIx.programId().publicKey()
-      );
+    final var skeleton = decode(futures.transaction());
+    assertEquals(1, skeleton.version());
+    assertEquals(1_400_000, skeleton.computeUnitLimit());
+    assertEquals(0, skeleton.priorityFeeLamports());
+    assertEquals(64 * 1_024 * 1_024, skeleton.accountDataSizeLimit());
+    assertEquals(FEE_PAYER, skeleton.feePayer());
+    // Exactly the caller's instructions: no ComputeBudget instruction is added.
+    assertEquals(instructions, futures.transaction().instructions());
+    assertEquals(List.of(PROGRAM, PROGRAM), List.of(skeleton.parseProgramAccounts()));
+  }
+
+  @Test
+  void theDefaultCommitmentIsConfirmed() {
+    final var harness = harness(simulation(150_000));
+    final var futures = harness.processor().simulateAndEstimate(List.of(ix(key(10))));
+    assertEquals(Commitment.CONFIRMED, futures.commitment());
+    futures.simulationFuture().join();
+    assertEquals(Commitment.CONFIRMED, harness.rpc().simulateCommitment);
+  }
+
+  @Test
+  void anOversizedTransactionIsNotSimulated() {
+    final var harness = harness(simulation(150_000));
+    final var instructions = List.of(
+        Instruction.createInstruction(PROGRAM, List.of(AccountMeta.createRead(key(10))), new byte[4_096]));
+
+    final var futures = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, instructions);
+
+    assertNotNull(futures.transaction());
+    assertTrue(futures.transaction().exceedsSizeLimit());
+    assertSame(instructions, futures.instructions());
+    assertEquals(futures.transaction().base64EncodeToString().length(), futures.base64Length());
+    assertNothingDispatched(harness, futures);
+  }
+
+  @Test
+  void aBatchOverTheAccountLimitIsNotSimulatedThoughItFitsTheSize() {
+    final var harness = harness(simulation(150_000));
+    final var accounts = new PublicKey[63];
+    for (int i = 0; i < accounts.length; ++i) {
+      accounts[i] = key(100 + i);
     }
+
+    final var futures = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(accounts)));
+
+    assertFalse(futures.transaction().exceedsSizeLimit());
+    assertTrue(futures.transaction().exceedsAccountLimit());
+    assertNothingDispatched(harness, futures);
+  }
+
+  @Test
+  void aBatchNoV1TransactionCanEncodeIsReportedWithoutATransaction() {
+    final var harness = harness(simulation(150_000));
+    final var instructions = java.util.Collections.nCopies(256, ix(key(10)));
+
+    final var futures = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, instructions);
+
+    assertNull(futures.transaction());
+    assertEquals(0, futures.base64Length());
+    assertSame(instructions, futures.instructions());
+    assertNothingDispatched(harness, futures);
+  }
+
+  @Test
+  void aComputeBudgetInstructionIsRefusedBeforeAnythingIsSent() {
+    final var harness = harness(simulation(150_000));
+    final var computeBudgetIx = Instruction.createInstruction(
+        SolanaAccounts.MAIN_NET.computeBudgetProgram(), List.of(), new byte[]{1, 0, 0, 1, 0});
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(key(10)), computeBudgetIx))
+    );
+    assertNull(harness.rpc().simulateBase64);
+    assertNull(harness.feeProvider().requestedBase64);
+  }
+
+  @Test
+  void aProgramPayingItsOwnFeeIsAProgrammingErrorNotASizeLimit() {
+    final var harness = harness(simulation(150_000));
+    final var selfPaying = Instruction.createInstruction(FEE_PAYER, List.of(), new byte[]{1});
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(selfPaying))
+    );
+    assertNull(harness.rpc().simulateBase64);
   }
 }

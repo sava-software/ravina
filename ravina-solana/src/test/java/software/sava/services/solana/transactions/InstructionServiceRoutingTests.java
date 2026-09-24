@@ -27,7 +27,6 @@ final class InstructionServiceRoutingTests {
   private static final double CU_MULTIPLIER = 1.5;
 
   private static final Function<Transaction, Transaction> BEFORE_SEND = tx -> tx;
-  private static final Function<List<Instruction>, Transaction> TX_FACTORY = ixs -> null;
 
   private static PublicKey key(final int i) {
     final byte[] bytes = new byte[PublicKey.PUBLIC_KEY_LENGTH];
@@ -44,8 +43,7 @@ final class InstructionServiceRoutingTests {
   static final class RecordingService implements InstructionService {
 
     static final int NO_BEFORE_SEND = 9;
-    static final int LEGACY_FACTORY = 10;
-    static final int EXPLICIT_FACTORY = 11;
+    static final int WITH_BEFORE_SEND = 10;
 
     final List<Integer> targets = new ArrayList<>();
     double cuBudgetMultiplier;
@@ -57,7 +55,6 @@ final class InstructionServiceRoutingTests {
     boolean verifyExpired;
     boolean retrySend;
     int maxRetriesAfterExpired;
-    Function<List<Instruction>, Transaction> transactionFactory;
     String logContext;
 
     private TransactionResult record(final int target,
@@ -70,7 +67,6 @@ final class InstructionServiceRoutingTests {
                                      final boolean verifyExpired,
                                      final boolean retrySend,
                                      final int maxRetriesAfterExpired,
-                                     final Function<List<Instruction>, Transaction> transactionFactory,
                                      final String logContext) {
       this.targets.add(target);
       this.cuBudgetMultiplier = cuBudgetMultiplier;
@@ -82,7 +78,6 @@ final class InstructionServiceRoutingTests {
       this.verifyExpired = verifyExpired;
       this.retrySend = retrySend;
       this.maxRetriesAfterExpired = maxRetriesAfterExpired;
-      this.transactionFactory = transactionFactory;
       this.logContext = logContext;
       return new TransactionResult(
           instructions, false, 4_242, 11, null, 0, null, null, "sig", "formatted"
@@ -102,7 +97,7 @@ final class InstructionServiceRoutingTests {
       return record(
           NO_BEFORE_SEND, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, null, logContext
+          maxRetriesAfterExpired, logContext
       );
     }
 
@@ -118,28 +113,9 @@ final class InstructionServiceRoutingTests {
                                                  final int maxRetriesAfterExpired,
                                                  final String logContext) {
       return record(
-          LEGACY_FACTORY, cuBudgetMultiplier, instructions, beforeSend, maxLamportPriorityFee,
+          WITH_BEFORE_SEND, cuBudgetMultiplier, instructions, beforeSend, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, null, logContext
-      );
-    }
-
-    @Override
-    public TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                 final List<Instruction> instructions,
-                                                 final Function<Transaction, Transaction> beforeSend,
-                                                 final BigDecimal maxLamportPriorityFee,
-                                                 final Commitment awaitCommitment,
-                                                 final Commitment awaitCommitmentOnError,
-                                                 final boolean verifyExpired,
-                                                 final boolean retrySend,
-                                                 final int maxRetriesAfterExpired,
-                                                 final Function<List<Instruction>, Transaction> transactionFactory,
-                                                 final String logContext) {
-      return record(
-          EXPLICIT_FACTORY, cuBudgetMultiplier, instructions, beforeSend, maxLamportPriorityFee,
-          awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, transactionFactory, logContext
+          maxRetriesAfterExpired, logContext
       );
     }
   }
@@ -150,8 +126,7 @@ final class InstructionServiceRoutingTests {
                                         final double expectedCuMultiplier,
                                         final Function<Transaction, Transaction> expectedBeforeSend,
                                         final Commitment expectedAwaitCommitment,
-                                        final Commitment expectedAwaitCommitmentOnError,
-                                        final Function<List<Instruction>, Transaction> expectedFactory) {
+                                        final Commitment expectedAwaitCommitmentOnError) {
     assertNotNull(result, "the overload must return the delegate's result");
     assertEquals(List.of(expectedTarget), service.targets);
     assertEquals(expectedCuMultiplier, service.cuBudgetMultiplier);
@@ -161,7 +136,6 @@ final class InstructionServiceRoutingTests {
     assertEquals(expectedAwaitCommitment, service.awaitCommitment);
     assertEquals(expectedAwaitCommitmentOnError, service.awaitCommitmentOnError);
     assertEquals(MAX_RETRIES, service.maxRetriesAfterExpired);
-    assertSame(expectedFactory, service.transactionFactory);
     assertEquals(LOG_CONTEXT, service.logContext);
     assertEquals(4_242, result.cuBudget());
     return service;
@@ -181,41 +155,14 @@ final class InstructionServiceRoutingTests {
   }
 
   @Test
-  void explicitFlagsWithFactoryAndNoBeforeSendUsesNoOp() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, false, true, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, CU_MULTIPLIER,
-        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED, TX_FACTORY
-    );
-    assertFalse(service.verifyExpired, "explicit flags must be forwarded verbatim");
-    assertTrue(service.retrySend, "explicit flags must be forwarded verbatim");
-  }
-
-  @Test
-  void commitmentsWithoutFlagsRoutesToTheLegacyFactoryOverload() throws InterruptedException {
+  void commitmentsWithoutFlagsRouteToTheBeforeSendOverload() throws InterruptedException {
     final var service = new RecordingService();
     final var result = service.processInstructions(
         CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, CU_MULTIPLIER,
-        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void commitmentsWithFactoryButNoFlags() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, CU_MULTIPLIER,
-        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -227,21 +174,8 @@ final class InstructionServiceRoutingTests {
         INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, 1.0,
-        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void noCuMultiplierWithFactoryDefaultsToOne() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, 1.0,
-        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        BaseInstructionService.NO_OP, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -253,21 +187,8 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, FEE, INSTRUCTIONS, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, CU_MULTIPLIER,
-        BaseInstructionService.NO_OP, FINALIZED, FINALIZED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void noCommitmentsWithFactoryDefaultToFinalized() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, INSTRUCTIONS, FEE, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, CU_MULTIPLIER,
-        BaseInstructionService.NO_OP, FINALIZED, FINALIZED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        BaseInstructionService.NO_OP, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -277,19 +198,8 @@ final class InstructionServiceRoutingTests {
     final var service = new RecordingService();
     final var result = service.processInstructions(INSTRUCTIONS, FEE, MAX_RETRIES, LOG_CONTEXT);
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, 1.0,
-        BaseInstructionService.NO_OP, FINALIZED, FINALIZED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void instructionsAndFeeWithFactoryDefaultsEverything() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(INSTRUCTIONS, FEE, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT);
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, 1.0,
-        BaseInstructionService.NO_OP, FINALIZED, FINALIZED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        BaseInstructionService.NO_OP, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -301,21 +211,8 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, CU_MULTIPLIER,
-        BEFORE_SEND, CONFIRMED, PROCESSED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void beforeSendWithCommitmentsFactoryAndNoFlags() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, CU_MULTIPLIER,
-        BEFORE_SEND, CONFIRMED, PROCESSED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        BEFORE_SEND, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -327,21 +224,8 @@ final class InstructionServiceRoutingTests {
         INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, 1.0,
-        BEFORE_SEND, CONFIRMED, PROCESSED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void beforeSendWithFactoryButNoCuMultiplierDefaultsToOne() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, 1.0,
-        BEFORE_SEND, CONFIRMED, PROCESSED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        BEFORE_SEND, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -353,21 +237,8 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, FEE, INSTRUCTIONS, BEFORE_SEND, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, CU_MULTIPLIER,
-        BEFORE_SEND, FINALIZED, FINALIZED, null
-    );
-    assertVerifyExpiredDefaults(service);
-  }
-
-  @Test
-  void beforeSendWithFactoryButNoCommitmentsDefaultsToFinalized() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, BEFORE_SEND, INSTRUCTIONS, FEE, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, CU_MULTIPLIER,
-        BEFORE_SEND, FINALIZED, FINALIZED, TX_FACTORY
+        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        BEFORE_SEND, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
   }
@@ -377,22 +248,10 @@ final class InstructionServiceRoutingTests {
     final var service = new RecordingService();
     final var result = service.processInstructions(INSTRUCTIONS, BEFORE_SEND, FEE, MAX_RETRIES, LOG_CONTEXT);
     assertRouted(
-        result, service, RecordingService.LEGACY_FACTORY, 1.0,
-        BEFORE_SEND, FINALIZED, FINALIZED, null
+        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        BEFORE_SEND, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
   }
 
-  @Test
-  void beforeSendWithFactoryDefaultsEverything() throws InterruptedException {
-    final var service = new RecordingService();
-    final var result = service.processInstructions(
-        INSTRUCTIONS, BEFORE_SEND, FEE, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertRouted(
-        result, service, RecordingService.EXPLICIT_FACTORY, 1.0,
-        BEFORE_SEND, FINALIZED, FINALIZED, TX_FACTORY
-    );
-    assertVerifyExpiredDefaults(service);
-  }
 }

@@ -53,9 +53,8 @@ import static software.sava.services.solana.transactions.BaseTxMonitorServiceTes
 /// called only with a recording executor that runs nothing, which is also how
 /// these tests get hold of the internally-constructed expiration monitor.
 ///
-/// Wall-clock reads in the resend gate are made deterministic the same way
-/// [software.sava.services.solana.alt.LookupTableCacheMapTests] handles
-/// `fetchedAt`: a `publishedAt` of 0 is unconditionally long enough ago, and a
+/// Wall-clock reads in the resend gate are made deterministic without a clock:
+/// a `publishedAt` of 0 is unconditionally long enough ago, and a
 /// `publishedAt` far in the future is unconditionally too recent, for any wall
 /// clock this century.
 final class TxCommitmentMonitorServiceTests {

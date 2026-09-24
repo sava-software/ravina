@@ -1,6 +1,5 @@
 package software.sava.services.solana.config;
 
-import software.sava.services.solana.alt.TableCacheConfig;
 import software.sava.services.solana.epoch.EpochServiceConfig;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.transactions.TxMonitorConfig;
@@ -22,7 +21,6 @@ public final class SolanaConfigsFuzz {
       json -> ChainItemFormatter.parseFormatter(JsonIterator.parse(json)),
       json -> EpochServiceConfig.parseConfig(JsonIterator.parse(json)),
       json -> TxMonitorConfig.parseConfig(JsonIterator.parse(json)),
-      json -> TableCacheConfig.parse(JsonIterator.parse(json)),
       json -> CallWeights.parse(JsonIterator.parse(json))
   };
 

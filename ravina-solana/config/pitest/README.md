@@ -16,7 +16,7 @@ A new unkilled mutant has exactly three legal outcomes:
 
 1. **Kill it** — add or strengthen a test. Prefer asserting the property the
    mutant breaks (epoch estimate arithmetic at an explicit `now`, skip-rate
-   math, set-cover selection, capped cu price) over restating the
+   math, the capped v1 priority fee decoded from the wire) over restating the
    implementation.
 2. **Refactor** — restructure so the mutant cannot exist.
 3. **Accept it knowingly** — re-run with `pitest<Suite>BaselineUpdate` and
@@ -42,19 +42,22 @@ new debt, and their arguments below still stand.
 - `epochService` `EpochInfoServiceImpl.getAndSetEpochInfo` `EQUAL_IF`
   (`# stats-recompute-guard`, two rows).
 
-`catchAll` no longer carries such a row. It held one —
-`LookupTableCacheMap.getOrFetchTables` `ORDER_IF` (`# whole-collection-shortcut`)
-— as insurance against a run made without `com.arcmutate:base`, alongside twelve
-rows left dead by the websocket rewrite. Because prune is suite-wide, keeping the
-insurance meant keeping all thirteen, and the pile had grown large enough to
-obscure what the record actually argued. The owner retired the insurance on
-2026-08-12 and all thirteen were pruned together, after the same candidate set was
-observed under both the solo and `qualityGate` loads with `-PnoMutationHistory`.
-**The consequence is real and worth knowing before you hit it:** a `catchAll` run
-whose tool classpath lacks the ArcMutate certificate will generate that
-`ORDER_IF` mutant again and fail the ratchet on an unrecorded row. That is a
-missing certificate, not a regression — restore it, or re-accept the row under
-its old `# whole-collection-shortcut` argument, which still holds.
+`catchAll` held one such row until 2026-08-12,
+`LookupTableCacheMap.getOrFetchTables` `ORDER_IF`, kept as insurance against a
+run made without `com.arcmutate:base`; it was pruned with twelve rows the
+websocket rewrite had left dead, and the class itself went with the lookup-table
+code on 2026-09-24.
+
+**Rows naming removed code, pending prune (2026-09-24).** Ravina stopped building
+v0 transactions and dropped the lookup-table code, so four `catchAll` rows
+(`CachedAddressLookupTable.read`, two `LookupTableCacheMap.getOrFetchTables`,
+`TransactionProcessorRecord.lambda$transactionFactory$3`) and one `config` row
+(`TableCacheConfig$Builder.parseProperties`) now match no mutant and print as
+prune candidates. They are not evidence about any current code. They are owed
+the guarded `pitest<Suite>BaselinePrune` protocol, which refuses until the
+records are rebased onto the installed PIT 1.30.0 toolchain; nothing now generates
+a mutant at those keys (no method named `transactionFactory` remains in
+`TransactionProcessorRecord`), so until then they accept nothing.
 
 See `../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
@@ -73,10 +76,10 @@ which keeps no baseline, had a leftover orphan stamp that rebase removed). The
 root's committed `arcmutate-licence.txt` (OSSS, expires 15/08/2027) puts
 `com.arcmutate:base` 1.7.1 on PIT's tool classpath for every module, which
 *shrinks* the mutant population — licensed vs certificate-absent: `epoch`
-114/120, `alt` 57/67, `formatting` 43/45, `fees` 20/22, `config` 129/132,
-`epochService` 95/105, `catchAll` 696/750. All but one of those removals is a
-`RemoveConditionalMutator_*` sibling ArcMutate subsumes; the exception is a
-single `NullReturnValsMutator` in `catchAll`.
+114/120, `alt` 57/67 (suite retired 2026-09-24), `formatting` 43/45, `fees`
+20/22, `config` 129/132, `epochService` 95/105, `catchAll` 696/750. All but one
+of those removals is a `RemoveConditionalMutator_*` sibling ArcMutate subsumes;
+the exception is a single `NullReturnValsMutator` in `catchAll`.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
@@ -90,28 +93,14 @@ from a full `qualityGate` observation that matched the prior run's population
 exactly.
 
 **catchAll**
-- `LookupTableCacheMap.getOrFetchTables` `MathMutator` — **retired 2026-08-05
-  by removing the mutation site.** The manual cursor
-  `nextSetBit(i + 1)` became `nextSetBit(i - 1)`, which returns the same bit
-  forever whenever the first set bit is above zero: a non-advancing loop, so a
-  liveness loss rather than finite work. But the loop also grew `fetchKeys`
-  while spinning, so whether the watchdog or the heap tripped first decided
-  between `TIMED_OUT` and `MEMORY_ERROR` — and `MEMORY_ERROR` is not a
-  completed experiment, so the coordinate could never be honest evidence. The
-  traversal is now `fetchBitset.stream().forEachOrdered(...)` into the same
-  pre-sized mutable list: same selection, same order, same mutability, no
-  hand-written progress arithmetic left to mutate. A history-free
-  `pitestCatchAll` shows no `MathMutator` at any `getOrFetchTables` line at
-  all, which is the evidence for the retirement — absence, not whichever limit
-  won. The suite population fell 696 -> 694 accordingly.
-- `LookupTableCacheMap.refreshStaleAccounts:219` `ConditionalsBoundaryMutator`
-  — the batching loop's `from < numStale` exit, admitting `from == numStale`
-  (an empty `subList` fetch that advances nothing), so the loop batches
-  forever. Its `ORDER_IF` sibling, which deleted that exit outright, was a
-  member on the same argument until 2026-08-04 and was **retired with the
-  mutant**: the licensed ArcMutate engine subsumes it, so the run generates
-  no such mutant. Without `arcmutate-licence.txt` the open-PIT population
-  puts it back; re-add the member then, with the fresh observation.
+- `LookupTableCacheMap.getOrFetchTables` `MathMutator` (retired 2026-08-05, when
+  its hand-written bitset cursor became a stream) and
+  `LookupTableCacheMap.refreshStaleAccounts` `ConditionalsBoundaryMutator` (the
+  batching loop's exit admitting an empty batch forever) — **retired
+  2026-09-24 by removing the class** with the rest of the lookup-table code,
+  when ravina moved to building SIMD-0385 v1 transactions only. The
+  `refreshStaleAccounts` membership row was removed by hand: its coordinate
+  cannot recur, and no writer retires a member whose class is gone.
 - `TxCommitmentMonitorService.validateResponseAndAwaitCommitmentViaWebSocket:115`
   `EQUAL_IF` — **retired 2026-08-05.** Forcing the `txResult == null` route
   makes a rejected transaction await the websocket anyway. That was only ever
@@ -196,31 +185,30 @@ running the suite:
 - `RemoveConditionalMutator_*_IF` — the condition is forced **true**.
 - `RemoveConditionalMutator_*_ELSE` — the condition is forced **false**.
 
-Verified on `PriorityFeeRequest.serializeParams` line 13 (forced true → 5
-failures, forced false → 0) and `CachedAddressLookupTable.read` line 38 (forced
-true → 6 failures, forced false → 0). Both baselines carry the `_ELSE` row as
-`SURVIVED`, which matches. Reasons below are written against this meaning; no
-row needs swapping.
+Verified on `PriorityFeeRequest.serializeParams` (forced true → 5 failures,
+forced false → 0) and on the since-removed `CachedAddressLookupTable.read`
+(forced true → 6 failures, forced false → 0). Both baselines carry the `_ELSE`
+row as `SURVIVED`, which matches. Reasons below are written against this
+meaning; no row needs swapping.
 
 Rows labelled `# else-direction-noop` are this shape's family: forcing the
 condition **false** converges to the behaviour the tests already pin (the
 skipped branch was an optimisation or an early-out whose fallback computes the
 same result), while the forced-**true** sibling at the same coordinate is
-killed. Sites: `CachedAddressLookupTable.read` line 38 and
-`TransactionProcessorRecord.lambda$transactionFactory$3` line 96 (`catchAll`),
-`EpochInfoServiceImpl.checkCycle` line 287 (`epochService`).
+killed. Site: `EpochInfoServiceImpl.checkCycle` (`epochService`). The two
+`catchAll` rows under this label name removed code and await prune (above).
 
 ## Mutator set: the experimental BigDecimal/BigInteger trial
 
 `MathMutator` rewrites primitive arithmetic opcodes, so `BigDecimal` and
 `BigInteger` math — which is method calls — is invisible to `STRONGER`. This
-module has both: fee arithmetic in `SimulationFutures.capCuPrice`, block-height
-arithmetic in the tx monitors. Trialled 2026-07-21 per suite, enabling only
-what fires:
+module has both: the priority-fee cap in `SimulationFutures.priorityFeeLamports`
+(formerly the legacy `capCuPrice`), block-height arithmetic in the tx monitors.
+Trialled 2026-07-21 per suite, enabling only what fires:
 
 | Suite | `EXPERIMENTAL_BIG_DECIMAL` | `EXPERIMENTAL_BIG_INTEGER` | Enabled |
 |---|---|---|---|
-| `fees` | 1 mutant, killed | 0 | `BIG_DECIMAL` |
+| `fees` | 1 mutant, killed (re-measured 2026-09-24 on the v1 cap's `min`) | 0 | `BIG_DECIMAL` |
 | `catchAll` | 0 | 3 mutants, all killed | `BIG_INTEGER` |
 | `epoch` | — | 2 mutants, all killed (trialled 2026-07-26) | `BIG_INTEGER` |
 | others | 0 — confirmed by the 2026-07-26 full trial run | | — |
@@ -249,9 +237,9 @@ A fluent call returning its receiver type is an expression, invisible to
 |---|---|---|---|
 | `catchAll` | 61 | 56 killed (3 by new tests/seams: the `LoadBalanceUtil` `httpClient` wiring, the `WebSocketManager` factory prototype via a package-private seam), 4 accepted (below), 1 `TIMED_OUT` | yes |
 | `epoch` | 9 | all killed — two `logFormat` truncation kills needed non-minute-aligned inputs; the exact-minute test data had made truncation a no-op | yes |
-| `fees` | 5 | all killed; the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions | yes |
+| `fees` | 5 (2026-07-22); 7 (2026-09-24) | all killed. In 2026-07 the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions. After the move to v1 ConfigValues the 7 are the recipe's five `TxBuilder` calls, the simulation's `setPriorityFeeLamports(0)` and the fee cap's `BigDecimal.min` | yes |
 | `config` | 4 | all killed | yes |
-| `alt`, `epochService`, `formatting` | 0 | — | no |
+| `epochService`, `formatting` (and `alt`, retired 2026-09-24) | 0 | — | no |
 
 ## Triaged equivalent mutants (accepted with reasons)
 
@@ -323,7 +311,8 @@ candidate created, the backoff deadline, or any return value.
 forcing the branch assigns null over an already-null field on a fresh
 single-use builder, and `create()` null-coalesces the default either way.
 Sites: `EpochServiceConfig$Parser`, `TxMonitorConfig$Parser`,
-`TableCacheConfig$Builder`, `HeliusConfig$Parser`, `ChainItemFormatter$Parser`.
+`HeliusConfig$Parser`, `ChainItemFormatter$Parser`; the `TableCacheConfig$Builder`
+row names removed code and awaits prune (above).
 
 **Return-value-only mutation of a delegating predicate** `# delegating-return` (`config`) —
 `HeliusConfig$Parser.test` `BooleanTrueReturnValsMutator` on
@@ -338,29 +327,24 @@ input. The guard is an allocation-avoiding shortcut, not a correctness check.
 Also verified by differential sweep (2026-07-21): both variants agree on every
 input length 0..40 — zero differences.
 
-**Selection-invariant set-cover bookkeeping** `# set-cover-invariant` (`alt`) — `ScoredTable` /
-`ScoredTableMeta` `usedMask` mutants (`<<=` → `>>=`, the `(mask & usedMask)`
-guard, `usedMask |=` → `&=`) and the `selectedTables` emptiness guard. The
-mask only skips re-scoring already-selected tables, whose accounts have
-already been removed from `remainingAccounts`; such a table scores 0 and can
-never be re-selected, so the selection output is unchanged either way.
-
-**Threshold below the minimum useful score** `# min-score-threshold` (`alt`) — `size() < 2` forced
-false: with fewer than 2 remaining accounts no table can score above 1, so the
-next round finds no top table and breaks with identical state.
+The `alt` suite's two families, `# set-cover-invariant` and
+`# min-score-threshold`, argued the greedy lookup-table scoring in
+`ScoredTable`/`ScoredTableMeta`; they were retired with the suite and its records
+on 2026-09-24.
 
 **Duplicated computation** `# duplicated-computation` (`epoch`) —
 `SlotPerformanceStats.calculateStats` routing a single sample through the
 general path yields the identical record (middle = 0, min = max = median,
 stddev 0).
 
-**Whole-collection shortcut over an internal copy** `# whole-collection-shortcut` (`catchAll`) — guards of
-the form `to - from == size` that choose between the collection itself and a
-`subList`/`copyOfRange` of the whole thing: `LookupTableCacheMap` line 196 and
-`BaseBatchInstructionService.batchProcess` line 142. Both branches yield equal
-contents, and in each case the array or list is internal, so no caller-visible
-reference identity distinguishes them. (The sibling at
-`BaseBatchInstructionService` line 93 *is* killed — there a caller-supplied
+**Whole-collection shortcut over an internal copy** `# whole-collection-shortcut`
+(`catchAll`) — guards of the form `to - from == size` that choose between the
+collection itself and a `subList`/`copyOfRange` of the whole thing: the
+accounts-map overload of `BaseBatchInstructionService.batchProcess` (the
+`LookupTableCacheMap` row names removed code and awaits prune). Both branches
+yield equal contents, and that list is internal (a `List.copyOf` of the map's
+keys), so no caller-visible reference identity distinguishes them. (The same
+guard in the instruction-list overload *is* killed — there a caller-supplied
 list makes `assertSame` meaningful.)
 
 **Single-element join is the identity** `# single-join-identity` (`catchAll`) —
@@ -369,9 +353,9 @@ branch: joining a one-element list returns that element, exactly what the
 `getFirst()` branch returns. The `_IF` direction is killed.
 
 **Capacity hints** `# capacity-hint` (`catchAll`) — `HeliusJsonRpcClient` line 133
-`MathMutator` on the `StringBuilder` pre-size expression, and the
-`LookupTableCacheMap` empty-list guard at line 137: allocation shape only,
-identical output.
+`MathMutator` on the `StringBuilder` pre-size expression: allocation shape only,
+identical output. (The `LookupTableCacheMap` empty-list guard row names removed
+code and awaits prune.)
 
 **Both branches build the same record** `# same-record-branches` (`catchAll`) —
 `BaseInstructionService.processInstructions` line 257: forcing the error branch
@@ -423,12 +407,12 @@ sleep- or tolerance-based test, flaps the ratchet, which is strictly worse
 than recorded debt.
 
 Note this is now a *small* residue. The "deliberately unmigrated, I/O-driven"
-note in `AGENTS.md` turned out to describe difficulty rather than
-impossibility: `LookupTableCacheMap` (97 of 103), the tx monitor family (148 of
-168) and `TransactionProcessorRecord` (69 of 69) all yielded to in-memory
-fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a scripted
-websocket, and running the loops synchronously on the test thread. Only the two
-classes below retain real debt.
+note in `AGENTS.md` turned out to describe difficulty rather than impossibility:
+`LookupTableCacheMap` (97 of 103, since removed), the tx monitor family (148 of
+168) and `TransactionProcessorRecord` (69 of 69 at the time) all yielded to
+in-memory fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a
+scripted websocket, and running the loops synchronously on the test thread. Only
+the two classes below retain real debt.
 
 **`EpochInfoServiceImpl` (17)** — still the largest single block. The
 *log-text-only* group that used to dominate it is gone: `logEpoch` both
@@ -514,8 +498,8 @@ for it, so building the balancer offline cannot distinguish the drop. The
 `endpoint` and `httpClient` wiring on the neighbouring lines *are* asserted
 through the client's accessors.
 
-**Loop-unbounding mutants detected only by timeout** (`catchAll`, a handful in
-`LookupTableCacheMap` and `BaseTxMonitorService.run`) — see the note in
+**Loop-unbounding mutants detected only by timeout** (`catchAll`,
+`BaseTxMonitorService.run`) — see the note in
 `../../ravina-core/config/pitest/README.md`: PIT's timeout detection is
 load-dependent here, so these sit in the baseline rather than being trusted as
 reliably detected. Where a fake could convert a timeout into a deterministic

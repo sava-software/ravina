@@ -1,6 +1,5 @@
 package software.sava.services.solana.config;
 
-import software.sava.services.solana.alt.TableCacheConfig;
 import software.sava.services.solana.epoch.EpochServiceConfig;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.transactions.TxMonitorConfig;
@@ -36,7 +35,6 @@ public final class SolanaConfigParityFuzz {
   private static final Parity[] PARITIES = {
       SolanaConfigParityFuzz::epochServiceParity,
       SolanaConfigParityFuzz::txMonitorParity,
-      SolanaConfigParityFuzz::tableCacheParity,
       SolanaConfigParityFuzz::callWeightsParity,
       SolanaConfigParityFuzz::chainItemFormatterParity
   };
@@ -156,31 +154,6 @@ public final class SolanaConfigParityFuzz {
         properties,
         j -> TxMonitorConfig.parseConfig(JsonIterator.parse(j.getBytes(StandardCharsets.UTF_8))),
         p -> TxMonitorConfig.parseConfig("", p)
-    );
-  }
-
-  private static void tableCacheParity(final byte[] data) {
-    final int initialCapacity = 1 + unsigned(data, 1);
-    final var refreshStaleItemsDelay = seconds(unsigned(data, 2));
-    final var consideredStale = seconds(unsigned(data, 3));
-    final boolean bare = (unsigned(data, 4) & 1) == 1;
-
-    final var json = String.format("""
-            {"initialCapacity":%d,"refreshStaleItemsDelay":"%s","consideredStale":"%s"}""",
-        initialCapacity, duration(refreshStaleItemsDelay, bare), duration(consideredStale, bare)
-    );
-
-    final var properties = new Properties();
-    properties.setProperty("initialCapacity", Integer.toString(initialCapacity));
-    properties.setProperty("refreshStaleItemsDelay", duration(refreshStaleItemsDelay, bare));
-    properties.setProperty("consideredStale", duration(consideredStale, bare));
-
-    assertParity(
-        "TableCacheConfig",
-        json,
-        properties,
-        j -> TableCacheConfig.parse(JsonIterator.parse(j.getBytes(StandardCharsets.UTF_8))),
-        p -> TableCacheConfig.parseConfig("", p)
     );
   }
 

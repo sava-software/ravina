@@ -4,8 +4,10 @@ import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.Signer;
 import software.sava.core.accounts.SolanaAccounts;
+import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.core.tx.TransactionSkeleton;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
@@ -22,7 +24,6 @@ import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.CapacityState;
 import software.sava.services.core.request_capacity.trackers.RootErrorTracker;
 import software.sava.services.solana.LogSilencer;
-import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.Epoch;
 import software.sava.services.solana.epoch.EpochInfoService;
@@ -49,7 +50,6 @@ import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
@@ -114,16 +114,36 @@ final class BaseInstructionServiceTests {
     return transaction;
   }
 
-  static Transaction oversizedTx() {
-    return Transaction.createTx(
-        SIGNER.publicKey(),
-        List.of(Instruction.createInstruction(key(2), List.of(), new byte[1_500]))
-    );
+  /// The v1 transaction ravina would simulate for `ixs`: maximum limit, no bid.
+  static Transaction simulatedTx(final List<Instruction> ixs) {
+    return SimulationFutures.createSimulationTransaction(FEE_PAYER, ixs);
   }
 
+  static Transaction oversizedTx() {
+    return simulatedTx(List.of(Instruction.createInstruction(key(2), List.of(), new byte[4_200])));
+  }
+
+  /// Within the v1 size limit, but over its 64 account limit.
+  static Transaction tooManyAccountsTx() {
+    final var accounts = new ArrayList<AccountMeta>(63);
+    for (int i = 0; i < 63; ++i) {
+      accounts.add(AccountMeta.createRead(key(1_000 + i)));
+    }
+    return simulatedTx(List.of(Instruction.createInstruction(key(2), accounts, new byte[]{1})));
+  }
+
+  /// What the successful simulation reports it loaded: distinguishable from 0 and from the 64MiB maximum.
+  static final int LOADED_ACCOUNTS_DATA_SIZE = 77_777;
+
   static TxSimulation simulation(final TransactionError error, final OptionalInt unitsConsumed) {
+    return simulation(error, unitsConsumed, 0);
+  }
+
+  static TxSimulation simulation(final TransactionError error,
+                                 final OptionalInt unitsConsumed,
+                                 final int loadedAccountsDataSize) {
     return new TxSimulation(
-        null, error, OptionalLong.empty(), 0,
+        null, error, OptionalLong.empty(), loadedAccountsDataSize,
         List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
         null, unitsConsumed, null, null
     );
@@ -137,14 +157,13 @@ final class BaseInstructionServiceTests {
         ixs,
         transaction,
         BASE64_LENGTH,
-        BaseInstructionServiceTests::signedTx,
         CompletableFuture.completedFuture(simulation),
         CompletableFuture.completedFuture(BigDecimal.valueOf(CU_PRICE))
     );
   }
 
   static SimulationFutures successfulSimulation(final List<Instruction> ixs) {
-    return simulationFutures(ixs, signedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
+    return simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED), LOADED_ACCOUNTS_DATA_SIZE));
   }
 
   static SimulationFutures oversizedSimulation(final List<Instruction> ixs) {
@@ -152,7 +171,7 @@ final class BaseInstructionServiceTests {
   }
 
   static SimulationFutures failedSimulation(final List<Instruction> ixs) {
-    return simulationFutures(ixs, signedTx(ixs), simulation(SIM_ERROR, OptionalInt.empty()));
+    return simulationFutures(ixs, simulatedTx(ixs), simulation(SIM_ERROR, OptionalInt.empty()));
   }
 
   /// Chooses the simulation outcome for each successive call.
@@ -165,13 +184,12 @@ final class BaseInstructionServiceTests {
   static final class FakeTxProcessor implements TransactionProcessor {
 
     final ChainItemFormatter formatter = ChainItemFormatter.createDefault();
-    final Function<List<Instruction>, Transaction> legacyFactory = BaseInstructionServiceTests::signedTx;
 
     final List<List<Instruction>> simulatedBatches = new ArrayList<>();
-    final List<Function<List<Instruction>, Transaction>> simulatedFactories = new ArrayList<>();
     final List<Commitment> simulatedCommitments = new ArrayList<>();
     final List<Integer> createdCuBudgets = new ArrayList<>();
     final List<BigDecimal> createdMaxFees = new ArrayList<>();
+    final List<Integer> createdAccountDataSizeLimits = new ArrayList<>();
     final List<Transaction> createdTransactions = new ArrayList<>();
     final List<Transaction> latestBlockHashTransactions = new ArrayList<>();
     final List<LatestBlockHash> latestBlockHashes = new ArrayList<>();
@@ -185,9 +203,7 @@ final class BaseInstructionServiceTests {
     Simulator simulator = (call, ixs) -> successfulSimulation(ixs);
 
     @Override
-    public SimulationFutures simulateAndEstimate(final Commitment commitment,
-                                                 final List<Instruction> instructions,
-                                                 final Function<List<Instruction>, Transaction> transactionFactory) {
+    public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
       if (instructions.isEmpty()) {
         throw new IllegalStateException("Simulated an empty batch of instructions.");
       }
@@ -195,7 +211,6 @@ final class BaseInstructionServiceTests {
         throw new IllegalStateException("Exceeded the simulation call budget; the caller is not making progress.");
       }
       simulatedCommitments.add(commitment);
-      simulatedFactories.add(transactionFactory);
       simulatedBatches.add(instructions);
       return simulator.simulate(simulatedBatches.size() - 1, instructions);
     }
@@ -203,10 +218,14 @@ final class BaseInstructionServiceTests {
     @Override
     public Transaction createTransaction(final SimulationFutures simulationFutures,
                                          final BigDecimal maxLamportPriorityFee,
-                                         final int cuBudget) {
+                                         final int cuBudget,
+                                         final int accountDataSizeLimit) {
       createdCuBudgets.add(cuBudget);
       createdMaxFees.add(maxLamportPriorityFee);
-      final var transaction = signedTx(simulationFutures.instructions());
+      createdAccountDataSizeLimits.add(accountDataSizeLimit);
+      // The real v1 recipe, signed so that `SendTxContext.sig()` can derive an id.
+      final var transaction = simulationFutures.createTransaction(maxLamportPriorityFee, cuBudget, accountDataSizeLimit);
+      transaction.sign(SIGNER);
       createdTransactions.add(transaction);
       return transaction;
     }
@@ -232,11 +251,6 @@ final class BaseInstructionServiceTests {
     }
 
     @Override
-    public Function<List<Instruction>, Transaction> legacyTransactionFactory() {
-      return legacyFactory;
-    }
-
-    @Override
     public PublicKey feePayer() {
       return FEE_PAYER;
     }
@@ -248,17 +262,6 @@ final class BaseInstructionServiceTests {
 
     @Override
     public CallWeights callWeights() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
-                                                                       final int maxTables) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public LookupTableCache lookupTableCache() {
       throw new UnsupportedOperationException();
     }
 
@@ -835,7 +838,7 @@ final class BaseInstructionServiceTests {
     assertTrue(result.simulationFailed());
     assertSame(ixs, result.instructions());
     assertEquals(BASE64_LENGTH, result.base64Length());
-    assertEquals(MAX_COMPUTE_BUDGET, result.cuBudget());
+    assertEquals(SimulationFutures.MAX_COMPUTE_UNIT_LIMIT, result.cuBudget());
     assertEquals(0, result.cuPrice());
     assertTrue(result.exceedsSizeLimit());
     assertTrue(processor.sentTransactions.isEmpty(), "an oversized transaction must never be sent");
@@ -857,7 +860,7 @@ final class BaseInstructionServiceTests {
     assertNotNull(result);
     assertSame(SIM_ERROR, result.error());
     assertTrue(result.simulationFailed());
-    assertEquals(MAX_COMPUTE_BUDGET, result.cuBudget());
+    assertEquals(SimulationFutures.MAX_COMPUTE_UNIT_LIMIT, result.cuBudget());
     assertEquals(0, result.cuPrice());
     assertEquals(BASE64_LENGTH, result.base64Length());
     assertTrue(processor.sentTransactions.isEmpty(), "a failed simulation must never be sent");
@@ -1030,42 +1033,174 @@ final class BaseInstructionServiceTests {
     assertNotNull(result);
     assertNull(result.error());
     assertSame(ixs, processor.simulatedBatches.getFirst());
-    assertSame(processor.legacyFactory, processor.simulatedFactories.getFirst());
     assertEquals(List.of(CONFIRMED), processor.simulatedCommitments);
   }
 
-  @Test
-  void theOverloadWithoutATransactionFactoryUsesTheLegacyFactory() throws InterruptedException {
-    final var processor = new FakeTxProcessor();
-    final var monitor = new FakeMonitor();
-    monitor.webSocketResult = new TxResult(null, "confirmed", null);
-    final var service = service(processor, monitor);
-
-    final var ixs = instructions(2);
-    final var result = service.processInstructions(
-        CU_MULTIPLIER, ixs, BaseInstructionService.NO_OP, MAX_FEE,
-        CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
-    );
-
-    assertNotNull(result);
-    assertNull(result.error());
-    assertSame(processor.legacyFactory, processor.simulatedFactories.getFirst());
+  private static TransactionSkeleton decode(final Transaction transaction) {
+    return TransactionSkeleton.deserializeSkeleton(transaction.serialized());
   }
 
   @Test
-  void anExplicitTransactionFactoryIsForwardedToTheSimulation() throws InterruptedException {
+  void thePublishedTransactionIsV1CarryingTheBudgetAndTheFeeItReports() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     monitor.webSocketResult = new TxResult(null, "confirmed", null);
     final var service = service(processor, monitor);
 
-    final Function<List<Instruction>, Transaction> factory = BaseInstructionServiceTests::signedTx;
     final var result = service.processInstructions(
-        CU_MULTIPLIER, instructions(2), BaseInstructionService.NO_OP, MAX_FEE,
-        CONFIRMED, PROCESSED, true, false, 3, factory, LOG_CONTEXT
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
     );
 
-    assertNotNull(result);
-    assertSame(factory, processor.simulatedFactories.getFirst());
+    final var sent = processor.sentTransactions.getFirst();
+    assertSame(sent, result.transaction());
+    final var skeleton = decode(sent);
+    assertEquals(1, skeleton.version());
+    // round(2.0 × 100,000) = 200,000 CU; ceil(25 µL × 200,000 / 1e6) = 5 lamports.
+    assertEquals(200_000, skeleton.computeUnitLimit());
+    assertEquals(5, skeleton.priorityFeeLamports());
+    // The loaded accounts data size limit is what the simulation loaded, 77,777 bytes or 2.37 pages, rounded up to
+    // 3 pages plus a spare one.
+    assertEquals(4 * 32 * 1_024, skeleton.accountDataSizeLimit());
+    assertEquals(List.of(4 * 32 * 1_024), processor.createdAccountDataSizeLimits);
+    assertEquals(200_000, result.cuBudget());
+    assertEquals(CU_PRICE, result.cuPrice());
+    assertEquals(5, result.priorityFeeLamports());
+    assertEquals(5_000, result.baseFeeLamports());
+    assertEquals(5_005, result.totalFeeLamports());
+  }
+
+  @Test
+  void aBindingFeeCapIsWhatIsSentAndReported() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), new BigDecimal("3.9"), CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertEquals(3, decode(processor.sentTransactions.getFirst()).priorityFeeLamports());
+    assertEquals(3, result.priorityFeeLamports());
+    assertEquals(CU_PRICE, result.cuPrice(), "the estimate is reported as estimated");
+  }
+
+  @Test
+  void aBeforeSendRewriteOfTheFeeIsReportedAsSent() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        tx -> {
+          final var rebuilt = SimulationFutures.createV1Transaction(FEE_PAYER, tx.instructions(), 200_000, 98_304, 55);
+          rebuilt.setRecentBlockHash(tx.recentBlockHash());
+          rebuilt.sign(SIGNER);
+          return rebuilt;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertEquals(55, decode(processor.sentTransactions.getFirst()).priorityFeeLamports());
+    assertEquals(55, result.priorityFeeLamports());
+  }
+
+  @Test
+  void unsentResultsBidNoPriorityFee() throws InterruptedException {
+    final var failedProcessor = new FakeTxProcessor();
+    failedProcessor.simulator = (call, ixs) -> failedSimulation(ixs);
+    final var failed = service(failedProcessor, new FakeMonitor()).processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+    assertSame(SIM_ERROR, failed.error());
+    assertEquals(0, failed.priorityFeeLamports());
+
+    final var oversizedProcessor = new FakeTxProcessor();
+    oversizedProcessor.simulator = (call, ixs) -> oversizedSimulation(ixs);
+    final var oversized = service(oversizedProcessor, new FakeMonitor()).processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+    assertSame(TransactionResult.SIZE_LIMIT_EXCEEDED, oversized.error());
+    assertEquals(0, oversized.priorityFeeLamports());
+
+    final TransactionResult noBlockHash;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      noBlockHash = service(nonDispatchingRpcCaller(), new FakeTxProcessor(), new FakeMonitor()).processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+      );
+    }
+    assertSame(TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH, noBlockHash.error());
+    assertEquals(0, noBlockHash.priorityFeeLamports());
+  }
+
+  @Test
+  void aBatchOverTheV1AccountLimitIsReportedAsSizeExceededAndNeverSent() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> simulationFutures(ixs, tooManyAccountsTx(), null);
+    final var monitor = new FakeMonitor();
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertSame(TransactionResult.SIZE_LIMIT_EXCEEDED, result.error());
+    assertTrue(result.exceedsSizeLimit());
+    assertFalse(result.transaction().exceedsSizeLimit(), "the fixture must be within the v1 size limit");
+    assertTrue(processor.createdTransactions.isEmpty());
+    assertTrue(processor.sentTransactions.isEmpty());
+    assertEquals(0, monitor.webSocketCalls);
+  }
+
+  @Test
+  void aBatchNoV1TransactionCanEncodeIsReportedWithoutATransaction() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> new SimulationFutures(CONFIRMED, ixs, null, 0, null, null);
+    final var service = service(processor, new FakeMonitor());
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertSame(TransactionResult.SIZE_LIMIT_EXCEEDED, result.error());
+    assertNull(result.transaction());
+    assertEquals(0, result.base64Length());
+    assertEquals(0, result.totalFeeLamports());
+    assertTrue(processor.sentTransactions.isEmpty());
+  }
+
+  @Test
+  void aNegativeFeeCapIsRefusedBeforeAnythingIsSimulated() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, new FakeMonitor());
+
+    final var thrown = assertThrows(IllegalArgumentException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), BigDecimal.valueOf(-1), CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    ));
+
+    assertTrue(thrown.getMessage().contains("maxLamportPriorityFee"), thrown.getMessage());
+    assertTrue(processor.simulatedBatches.isEmpty(), "no request may be spent on a misconfigured cap");
+    assertTrue(processor.sentTransactions.isEmpty());
+  }
+
+  @Test
+  void aSimulationWithoutADataSizeMeasurementSendsTheMaximumLimit() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertEquals(List.of(SimulationFutures.MAX_ACCOUNT_DATA_SIZE_LIMIT), processor.createdAccountDataSizeLimits);
+    assertEquals(
+        SimulationFutures.MAX_ACCOUNT_DATA_SIZE_LIMIT,
+        decode(processor.sentTransactions.getFirst()).accountDataSizeLimit()
+    );
   }
 }

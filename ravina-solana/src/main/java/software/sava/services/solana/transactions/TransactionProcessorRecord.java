@@ -2,7 +2,6 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.SolanaAccounts;
-import software.sava.core.accounts.meta.LookupTableAccountMeta;
 import software.sava.core.encoding.Base58;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
@@ -13,30 +12,19 @@ import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Call;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
-import software.sava.services.solana.alt.LookupTableCache;
-import software.sava.services.solana.alt.ScoredTableMeta;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.math.BigDecimal;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import static software.sava.idl.clients.spl.compute_budget.ComputeBudgetUtil.MAX_COMPUTE_BUDGET;
-import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitLimit;
-import static software.sava.idl.clients.spl.compute_budget.gen.ComputeBudgetProgram.setComputeUnitPrice;
 
 record TransactionProcessorRecord(ExecutorService executor,
                                   SigningService signingService,
                                   PublicKey feePayer,
-                                  LookupTableCache lookupTableCache,
-                                  Function<List<Instruction>, Transaction> legacyTransactionFactory,
                                   SolanaAccounts solanaAccounts,
                                   ChainItemFormatter formatter,
                                   LoadBalancer<SolanaRpcClient> rpcClients,
@@ -45,63 +33,6 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   CallWeights callWeights,
                                   WebSocketManager webSocketManager,
                                   NanoClock clock) implements TransactionProcessor {
-
-  @Override
-  public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
-                                                                     final int maxTables) {
-    final int numTables = lookupTableKeys.size();
-    if (numTables == 0) {
-      return legacyTransactionFactory;
-    } else if (numTables == 1) {
-      final var lookupTableKey = lookupTableKeys.getFirst();
-      final var lookupTable = lookupTableCache.getOrFetchTable(lookupTableKey);
-      if (lookupTable == null) {
-        throw new IllegalStateException("Failed to find lookup table " + lookupTableKey);
-      }
-      return instructions -> Transaction.createTx(feePayer, instructions, lookupTable);
-    } else {
-      final var lookupTableMetas = lookupTableCache.getOrFetchTables(lookupTableKeys);
-      if (lookupTableMetas.length < lookupTableKeys.size()) {
-        // The requested keys no returned meta covers. Filtering the returned
-        // metas instead yields the complement — tables that were not asked for
-        // — which is empty for any well-behaved cache, so the diagnostic named
-        // nothing at the one moment it is read.
-        final var fetchedAddresses = Arrays.stream(lookupTableMetas)
-            .map(meta -> meta.lookupTable().address())
-            .toList();
-        final var missingTableKeys = lookupTableKeys.stream()
-            .filter(lookupTableKey -> !fetchedAddresses.contains(lookupTableKey))
-            .toList();
-        throw new IllegalStateException("Failed to find lookup table(s): " + missingTableKeys);
-      } else {
-        return instructions -> {
-          final var accounts = HashSet.<PublicKey>newHashSet(64);
-          final var invokedOrSigner = HashSet.<PublicKey>newHashSet(1 + instructions.size());
-          invokedOrSigner.add(feePayer);
-          for (final var ix : instructions) {
-            invokedOrSigner.add(ix.programId().publicKey());
-          }
-          for (final var ix : instructions) {
-            for (final var accountMeta : ix.accounts()) {
-              final var key = accountMeta.publicKey();
-              if (!invokedOrSigner.contains(key)) {
-                accounts.add(key);
-              }
-            }
-          }
-          final var scoredTables = ScoredTableMeta.scoreTables(maxTables, accounts, lookupTableMetas);
-          final int numScoredTables = scoredTables.size();
-          if (numScoredTables == 0) {
-            return legacyTransactionFactory.apply(instructions);
-          } else if (numScoredTables == 1) {
-            return Transaction.createTx(feePayer, instructions, scoredTables.getFirst().lookupTable());
-          } else {
-            return Transaction.createTx(feePayer, instructions, scoredTables.toArray(LookupTableAccountMeta[]::new));
-          }
-        };
-      }
-    }
-  }
 
   @Override
   public String formatTxMeta(final String sig, final TxMeta txMeta) {
@@ -165,11 +96,10 @@ record TransactionProcessorRecord(ExecutorService executor,
     );
   }
 
-  private static final int MESSAGE_OFFSET = 1 + Transaction.SIGNATURE_LENGTH;
-
   @Override
   public CompletableFuture<byte[]> sign(final byte[] serialized) {
-    return signingService.sign(serialized, MESSAGE_OFFSET, serialized.length - MESSAGE_OFFSET);
+    final var span = FeePayerSigningSpan.locate(serialized);
+    return signingService.sign(serialized, span.messageOffset(), span.messageLength());
   }
 
   @Override
@@ -179,8 +109,8 @@ record TransactionProcessorRecord(ExecutorService executor,
 
   @Override
   public void setSignature(final byte[] serialized, final byte[] sig) {
-    serialized[0] = 1;
-    System.arraycopy(sig, 0, serialized, 1, Transaction.SIGNATURE_LENGTH);
+    final int signatureOffset = FeePayerSigningSpan.locate(serialized).signatureOffset();
+    System.arraycopy(sig, 0, serialized, signatureOffset, Transaction.SIGNATURE_LENGTH);
   }
 
   @Override
@@ -191,15 +121,16 @@ record TransactionProcessorRecord(ExecutorService executor,
   @Override
   public Transaction createTransaction(final SimulationFutures simulationFutures,
                                        final BigDecimal maxLamportPriorityFee,
-                                       final int cuBudget) {
-    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, cuBudget);
+                                       final int cuBudget,
+                                       final int accountDataSizeLimit) {
+    return simulationFutures.createTransaction(maxLamportPriorityFee, cuBudget, accountDataSizeLimit);
   }
 
   @Override
   public Transaction createTransaction(final SimulationFutures simulationFutures,
                                        final BigDecimal maxLamportPriorityFee,
                                        final TxSimulation simulationResult) {
-    return simulationFutures.createTransaction(solanaAccounts, maxLamportPriorityFee, simulationResult);
+    return simulationFutures.createTransaction(maxLamportPriorityFee, simulationResult);
   }
 
   @Override
@@ -263,7 +194,12 @@ record TransactionProcessorRecord(ExecutorService executor,
                                               final TxSimulation simulationResult,
                                               final int cuBudget,
                                               final CompletableFuture<LatestBlockHash> blockHashFuture) {
-    final var transaction = createTransaction(simulationFutures, maxLamportPriorityFee, cuBudget);
+    final var transaction = createTransaction(
+        simulationFutures,
+        maxLamportPriorityFee,
+        cuBudget,
+        SimulationFutures.accountDataSizeLimit(simulationResult)
+    );
     setBlockHash(transaction, simulationResult, blockHashFuture);
     signTransaction(transaction);
     return transaction;
@@ -289,26 +225,16 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SimulationFutures simulateAndEstimate(final Commitment commitment,
-                                               final List<Instruction> instructions,
-                                               final Function<List<Instruction>, Transaction> transactionFactory) {
-    final var simulateTx = transactionFactory.apply(instructions).prependInstructions(
-        setComputeUnitLimit(solanaAccounts.invokedComputeBudgetProgram(), MAX_COMPUTE_BUDGET),
-        setComputeUnitPrice(solanaAccounts.invokedComputeBudgetProgram(), 0)
-    );
-
+  public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+    SimulationFutures.requireNoComputeBudgetInstructions(solanaAccounts.computeBudgetProgram(), instructions);
+    if (SimulationFutures.exceedsEncodableLimits(feePayer, instructions)) {
+      return new SimulationFutures(commitment, instructions, null, 0, null, null);
+    }
+    final var simulateTx = SimulationFutures.createSimulationTransaction(feePayer, instructions);
     final var base64EncodedTx = simulateTx.base64EncodeToString();
     final int base64Length = base64EncodedTx.length();
-    if (simulateTx.exceedsSizeLimit()) {
-      return new SimulationFutures(
-          commitment,
-          instructions,
-          simulateTx,
-          base64Length,
-          transactionFactory,
-          null,
-          null
-      );
+    if (SimulationFutures.exceedsV1Limits(simulateTx)) {
+      return new SimulationFutures(commitment, instructions, simulateTx, base64Length, null, null);
     }
 
     final var simulationFuture = Call.createCourteousCall(
@@ -328,7 +254,6 @@ record TransactionProcessorRecord(ExecutorService executor,
         instructions,
         simulateTx,
         base64Length,
-        transactionFactory,
         simulationFuture,
         feeEstimateFuture
     );

@@ -9,7 +9,6 @@ import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
-import software.sava.services.solana.alt.LookupTableCache;
 import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.websocket.WebSocketManager;
 
@@ -18,7 +17,6 @@ import java.util.List;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -50,38 +48,19 @@ final class TransactionProcessorTests {
 
   private static final class RecordingProcessor implements TransactionProcessor {
 
-    private final Function<List<Instruction>, Transaction> legacyTransactionFactory =
-        instructions -> Transaction.createTx(key(1), instructions);
-    private final Function<List<Instruction>, Transaction> tableFactory =
-        instructions -> Transaction.createTx(key(2), instructions);
     private final Transaction signedTransaction = Transaction.createTx(
         key(1), List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1})));
     private final SendTxContext sendTxContext = new SendTxContext(
         null, null, null, null, 5L, 1_700_000_000_000L);
     private final SimulationFutures simulationFutures = new SimulationFutures(
-        null, List.of(), null, 0, null, null, null);
+        null, List.of(), null, 0, null, null);
 
-    private List<PublicKey> requestedTableKeys;
-    private int requestedMaxTables = -1;
     private int requestedCuBudget = -1;
+    private int requestedAccountDataSizeLimit = -1;
     private Commitment requestedPreflightCommitment;
     private long requestedBlockHeight = -1;
     private Commitment requestedSimulationCommitment;
     private List<Instruction> requestedInstructions;
-    private Function<List<Instruction>, Transaction> requestedFactory;
-
-    @Override
-    public Function<List<Instruction>, Transaction> legacyTransactionFactory() {
-      return legacyTransactionFactory;
-    }
-
-    @Override
-    public Function<List<Instruction>, Transaction> transactionFactory(final List<PublicKey> lookupTableKeys,
-                                                                       final int maxTables) {
-      this.requestedTableKeys = lookupTableKeys;
-      this.requestedMaxTables = maxTables;
-      return tableFactory;
-    }
 
     @Override
     public Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
@@ -104,12 +83,9 @@ final class TransactionProcessorTests {
     }
 
     @Override
-    public SimulationFutures simulateAndEstimate(final Commitment commitment,
-                                                 final List<Instruction> instructions,
-                                                 final Function<List<Instruction>, Transaction> transactionFactory) {
+    public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
       this.requestedSimulationCommitment = commitment;
       this.requestedInstructions = instructions;
-      this.requestedFactory = transactionFactory;
       return simulationFutures;
     }
 
@@ -130,11 +106,6 @@ final class TransactionProcessorTests {
 
     @Override
     public ChainItemFormatter formatter() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public LookupTableCache lookupTableCache() {
       throw new UnsupportedOperationException();
     }
 
@@ -181,8 +152,11 @@ final class TransactionProcessorTests {
     @Override
     public Transaction createTransaction(final SimulationFutures simulationFutures,
                                          final BigDecimal maxLamportPriorityFee,
-                                         final int cuBudget) {
-      throw new UnsupportedOperationException();
+                                         final int cuBudget,
+                                         final int accountDataSizeLimit) {
+      this.requestedCuBudget = cuBudget;
+      this.requestedAccountDataSizeLimit = accountDataSizeLimit;
+      return signedTransaction;
     }
 
     @Override
@@ -221,26 +195,20 @@ final class TransactionProcessorTests {
   }
 
   @Test
-  void theFactoryWiresAProcessorWhoseLegacyFactoryPaysFromTheFeePayer() {
+  void theFactoryWiresTheFeePayerAndAccounts() {
     final var feePayer = key(1);
+    final var formatter = new ChainItemFormatter("sig(%s)", "address(%s)");
+    final var callWeights = CallWeights.createDefault();
     final var processor = TransactionProcessor.createProcessor(
-        null, null, null, feePayer, SolanaAccounts.MAIN_NET, null,
-        null, null, null, null, null
+        null, null, feePayer, SolanaAccounts.MAIN_NET, formatter,
+        null, null, null, callWeights, null
     );
 
     assertNotNull(processor);
     assertEquals(feePayer, processor.feePayer());
-    assertEquals(SolanaAccounts.MAIN_NET, processor.solanaAccounts());
-
-    final var factory = processor.legacyTransactionFactory();
-    assertNotNull(factory);
-    final var transaction = factory.apply(
-        List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1, 2, 3})));
-    assertNotNull(transaction);
-    assertEquals(1, transaction.numSigners());
-    assertFalse(transaction.exceedsSizeLimit());
-    // A legacy transaction carries no lookup tables.
-    assertEquals(feePayer, processor.feePayer());
+    assertSame(SolanaAccounts.MAIN_NET, processor.solanaAccounts());
+    assertSame(formatter, processor.formatter());
+    assertSame(callWeights, processor.callWeights());
   }
 
   /// `publishedAt` is stamped through the processor's clock, so which clock
@@ -259,13 +227,13 @@ final class TransactionProcessorTests {
     };
 
     final var explicit = TransactionProcessor.createProcessor(
-        null, null, null, key(1), SolanaAccounts.MAIN_NET, null,
+        null, null, key(1), SolanaAccounts.MAIN_NET, null,
         null, null, null, null, null, clock
     );
     assertSame(clock, assertInstanceOf(TransactionProcessorRecord.class, explicit).clock());
 
     final var defaulted = TransactionProcessor.createProcessor(
-        null, null, null, key(1), SolanaAccounts.MAIN_NET, null,
+        null, null, key(1), SolanaAccounts.MAIN_NET, null,
         null, null, null, null, null
     );
     assertSame(NanoClock.SYSTEM, assertInstanceOf(TransactionProcessorRecord.class, defaulted).clock());
@@ -300,19 +268,6 @@ final class TransactionProcessorTests {
   }
 
   @Test
-  void theTransactionFactoryDefaultAllowsFiveTables() {
-    final var processor = new RecordingProcessor();
-    final var keys = List.of(key(4), key(5));
-
-    final var factory = processor.transactionFactory(keys);
-
-    assertNotNull(factory);
-    assertSame(processor.tableFactory, factory);
-    assertSame(keys, processor.requestedTableKeys);
-    assertEquals(5, processor.requestedMaxTables);
-  }
-
-  @Test
   void theCreateAndSignDefaultTakesTheBudgetFromTheSimulation() {
     final var processor = new RecordingProcessor();
     final var simulationResult = simulation(key(9), OptionalInt.of(150_000), null, List.of(), List.of());
@@ -324,6 +279,17 @@ final class TransactionProcessorTests {
     assertSame(processor.signedTransaction, transaction);
     assertEquals(SimulationFutures.cuBudget(simulationResult), processor.requestedCuBudget);
     assertEquals(150_000, processor.requestedCuBudget);
+  }
+
+  @Test
+  void theBudgetOnlyCreateDefaultKeepsTheMaximumDataSizeLimit() {
+    final var processor = new RecordingProcessor();
+
+    final var transaction = processor.createTransaction(processor.simulationFutures, BigDecimal.TEN, 150_000);
+
+    assertSame(processor.signedTransaction, transaction);
+    assertEquals(150_000, processor.requestedCuBudget);
+    assertEquals(64 * 1_024 * 1_024, processor.requestedAccountDataSizeLimit);
   }
 
   @Test
@@ -339,31 +305,19 @@ final class TransactionProcessorTests {
   }
 
   @Test
-  void theSimulateDefaultsFillInTheCommitmentAndTheLegacyFactory() {
+  void theSimulateDefaultFillsInAConfirmedCommitment() {
     final var instructions = List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1}));
 
     final var explicitCommitment = new RecordingProcessor();
     final var futures = explicitCommitment.simulateAndEstimate(Commitment.FINALIZED, instructions);
-    assertNotNull(futures);
     assertSame(explicitCommitment.simulationFutures, futures);
     assertEquals(Commitment.FINALIZED, explicitCommitment.requestedSimulationCommitment);
     assertSame(instructions, explicitCommitment.requestedInstructions);
-    assertSame(explicitCommitment.legacyTransactionFactory, explicitCommitment.requestedFactory);
 
-    final var explicitFactory = new RecordingProcessor();
-    final var withFactory = explicitFactory.simulateAndEstimate(instructions, explicitFactory.tableFactory);
-    assertNotNull(withFactory);
-    assertSame(explicitFactory.simulationFutures, withFactory);
-    assertEquals(Commitment.CONFIRMED, explicitFactory.requestedSimulationCommitment);
-    assertSame(instructions, explicitFactory.requestedInstructions);
-    assertSame(explicitFactory.tableFactory, explicitFactory.requestedFactory);
-
-    final var fullyDefaulted = new RecordingProcessor();
-    final var defaulted = fullyDefaulted.simulateAndEstimate(instructions);
-    assertNotNull(defaulted);
-    assertSame(fullyDefaulted.simulationFutures, defaulted);
-    assertEquals(Commitment.CONFIRMED, fullyDefaulted.requestedSimulationCommitment);
-    assertSame(instructions, fullyDefaulted.requestedInstructions);
-    assertSame(fullyDefaulted.legacyTransactionFactory, fullyDefaulted.requestedFactory);
+    final var defaulted = new RecordingProcessor();
+    final var defaultedFutures = defaulted.simulateAndEstimate(instructions);
+    assertSame(defaulted.simulationFutures, defaultedFutures);
+    assertEquals(Commitment.CONFIRMED, defaulted.requestedSimulationCommitment);
+    assertSame(instructions, defaulted.requestedInstructions);
   }
 }

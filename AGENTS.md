@@ -40,9 +40,12 @@ parsing, and KMS-backed signing.
     count, then rolling median latency), `ItemContext` (5-sample median ring).
   - `config/` — JSON (json-iterator) + properties config parsing.
 - `ravina-solana/` — epoch tracking and skip-rate estimation (`epoch/`),
-  transaction send/monitor/priority-fee (`transactions/`), address-lookup-table
-  greedy set-cover selection (`alt/ScoredTable*`) and cache (`alt/LookupTableCache*`),
-  RPC load-balancer glue, websocket manager.
+  transaction build/send/monitor/priority-fee (`transactions/`), RPC
+  load-balancer glue, websocket manager. Ravina builds SIMD-0385 v1
+  transactions only (sava `TxBuilder`): no address lookup tables, and the
+  compute unit limit and priority fee are ConfigValues, not ComputeBudget
+  instructions. Transactions handed in by a caller are still signed and
+  published in any format (legacy, v0 or v1).
   - `helius/client/http/` — the Helius priority-fee and `getProgramAccountsV2`
     client. **Vendored**: it used to live in the `solana-web2` dependency, which
     was dropped; the code moved here and into this repo's namespace, so it is
@@ -93,12 +96,12 @@ parsing, and KMS-backed signing.
   epoch, unless the clock is `SYSTEM`.
 - `EpochInfoServiceImpl` takes a `NanoClock` too (`EpochInfoService` has a
   `createService(config, rpcCaller, clock)` overload; the two-arg form defaults
-  to `SYSTEM`). `WebSocketManagerImpl`, `TxCommitmentMonitorService` and
-  `LookupTableCacheMap` take a `NanoClock` too (clockless factory overloads
-  default to `SYSTEM`), and are covered by in-memory fakes (a `Proxy`-backed
-  `SolanaRpcClient`, a scripted websocket, loops run synchronously on the test
-  thread) plus per-class `TestClock`s for exact timing boundaries. Copy those
-  seams rather than reaching for a real clock or a sleep.
+  to `SYSTEM`). `WebSocketManagerImpl` and `TxCommitmentMonitorService` take a
+  `NanoClock` too (clockless factory overloads default to `SYSTEM`), and are
+  covered by in-memory fakes (a `Proxy`-backed `SolanaRpcClient`, a scripted
+  websocket, loops run synchronously on the test thread) plus per-class
+  `TestClock`s for exact timing boundaries. Copy those seams rather than
+  reaching for a real clock or a sleep.
   [`HARDENING.md`](HARDENING.md) records what the migration measurably bought.
 - Reach for **package-private over reflection** when a test needs an internal:
   `EpochInfoServiceImpl.numSamples`/`lock`, `BaseTxMonitorService.workLock`,
@@ -132,9 +135,9 @@ ratchet edges, and the bugs the effort has found.
 
 ### Local ownership and measurements
 
-- **Suites and targets.** 17 mutation suites and 8 fuzz targets across five
+- **Suites and targets.** 16 mutation suites and 9 fuzz targets across five
   hardening projects: `ravina-core` (backoff, capacity, loadBalance, calls,
-  config, errorTracking, catchAll), `ravina-solana` (epoch, alt, formatting,
+  config, errorTracking, catchAll), `ravina-solana` (epoch, formatting,
   fees, config, epochService, catchAll), `ravina-kms/core` (signing),
   `ravina-kms/http` (httpKms), `ravina-kms/google` (googleKms). Each is
   registered in that module's `build.gradle.kts` `hardening {}` block, which
@@ -148,7 +151,7 @@ ratchet edges, and the bugs the effort has found.
 - **Certification is local.** CI deliberately runs only `check`; the release
   checklist runs root `:hardeningCertifyAll`. It writes
   `.pitest-history/pitest-certification-all.tsv`, a Gradle-root inventory of
-  all five hardening projects and 17 suites that hashes each of the five child
+  all five hardening projects and 16 suites that hashes each of the five child
   receipts. This removes manual repository-wide receipt enumeration, but it is
   a receipt inventory, not proof of a simultaneous source snapshot.
 - **Acceptance reasons live in `config/pitest/README.md`** per module, and the
@@ -183,7 +186,7 @@ ratchet edges, and the bugs the effort has found.
   or reflowing source does not require touching them.
 - **Toolchain provenance is committed.** Each suite with a record carries a
   `<suite>-pitest-version` stamp *and* a `<suite>-pitest-toolchain.tsv`
-  sidecar beside its baseline — 16 pairs; committing one half without the
+  sidecar beside its baseline — 15 pairs; committing one half without the
   other is torn provenance and fails closed. `fees` is the deliberate
   exception: it is fully killed, keeps no baseline, and therefore correctly
   carries neither file. The ArcMutate OSSS certificate belongs at the
@@ -585,6 +588,24 @@ habit has found eight real bugs so far — six of them silent — and
   and keeps it open. A zero *initial* delay that escalates (`linear(MILLISECONDS, 0, …)`) enters
   that state once and then grows out of it. The distinction is the escalation, not the first
   value.
+- **Ravina-built transactions are SIMD-0385 v1.**
+  `SimulationFutures.createV1Transaction` is the one recipe (non-strict, so a
+  batch over a v1 limit is reported as `SIZE_LIMIT_EXCEEDED` and shrunk rather
+  than thrown). The simulated transaction runs at the maximum compute unit and
+  64MiB loaded-data limits and reserves the 8-byte priority-fee slot with 0 in
+  it, so its size bounds the fee-bearing transaction sent. That one's compute
+  unit limit is the simulated units scaled by `cuBudgetMultiplier`; its loaded
+  accounts data size limit is the simulated size rounded up to whole 32KiB cost
+  pages plus one spare page, because a v1 transaction over its limit fails and
+  still pays its fees (see `SimulationFutures.accountDataSizeLimit`). A missing
+  `loadedAccountsDataSize` reads as 0, which in v1 is a 0-byte limit, so it
+  keeps the maximum instead. v1 ignores ComputeBudget instructions for
+  configuration, so `simulateAndEstimate` refuses them rather than let a
+  `RequestHeapFrame` silently do nothing. The v1 limits bind independently (65
+  accounts fit in ~2.3KB), so batch shrinking keys on every one of them, not on
+  size alone. `FeePayerSigningSpan` locates the fee payer's signing span for all
+  three formats: a v1 message comes *before* its signatures, with no count
+  prefix.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

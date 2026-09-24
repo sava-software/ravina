@@ -2,7 +2,10 @@ package software.sava.services.solana.transactions;
 
 import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
+import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.core.rpc.Filter;
+import software.sava.core.tx.Instruction;
+import software.sava.core.tx.TxBuilder;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.AccountInfo;
 import software.sava.services.solana.helius.client.http.HeliusClient;
@@ -15,19 +18,23 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/// [HeliusFeeProvider] is a one-line delegation to
-/// [HeliusClient#getRecommendedTransactionPriorityFeeEstimate(String)]. The fake
-/// below records the argument and returns a canned estimate; no request is made.
+/// [HeliusFeeProvider] asks [HeliusClient#getRecommendedPriorityFeeEstimate(List)]
+/// for the transaction's account keys, never its serialized bytes, as helius-sdk
+/// v3 does for v1 transactions. The fake records the keys and
+/// returns a canned estimate; every serialized-transaction method throws, and
+/// no request is made.
 final class HeliusFeeProviderTests {
 
   private static final class FakeHeliusClient implements HeliusClient {
 
-    private String requestedTransaction;
+    private List<String> requestedAccountKeys;
     private final CompletableFuture<BigDecimal> estimate;
 
     private FakeHeliusClient(final CompletableFuture<BigDecimal> estimate) {
@@ -36,8 +43,7 @@ final class HeliusFeeProviderTests {
 
     @Override
     public CompletableFuture<BigDecimal> getRecommendedTransactionPriorityFeeEstimate(final String transaction) {
-      this.requestedTransaction = transaction;
-      return estimate;
+      throw new UnsupportedOperationException();
     }
 
     @Override
@@ -97,7 +103,8 @@ final class HeliusFeeProviderTests {
 
     @Override
     public CompletableFuture<BigDecimal> getRecommendedPriorityFeeEstimate(final List<String> accountKeys) {
-      throw new UnsupportedOperationException();
+      this.requestedAccountKeys = accountKeys;
+      return estimate;
     }
 
     @Override
@@ -122,20 +129,42 @@ final class HeliusFeeProviderTests {
     }
   }
 
+  private static PublicKey key(final int i) {
+    final byte[] bytes = new byte[PublicKey.PUBLIC_KEY_LENGTH];
+    bytes[0] = (byte) i;
+    bytes[1] = 0x3C;
+    return PublicKey.createPubKey(bytes);
+  }
+
   @Test
-  void theFeeEstimateIsTheClientsRecommendationForTheEncodedTransaction() {
+  void theFeeEstimateIsTheClientsRecommendationForTheV1TransactionsAccountKeys() {
     final var expected = CompletableFuture.completedFuture(new BigDecimal("12345.6"));
     final var client = new FakeHeliusClient(expected);
     final var provider = new HeliusFeeProvider(client);
-
     assertSame(client, provider.heliusClient());
 
-    // The transaction argument is unused; only the base64 encoding is sent.
-    final var future = provider.microLamportPriorityFee(null, "base64-encoded-tx");
+    final var feePayer = key(1);
+    final var transaction = TxBuilder.createBuilder()
+        .feePayer(feePayer)
+        .addInstructions(List.of(
+            Instruction.createInstruction(key(2), List.of(AccountMeta.createWrite(key(10)), AccountMeta.createRead(key(11))), new byte[]{1}),
+            Instruction.createInstruction(key(3), List.of(AccountMeta.createRead(key(11)), AccountMeta.createWritableSigner(key(12))), new byte[]{2})
+        ))
+        .createTransaction();
 
-    assertNotNull(future);
+    // The base64 argument is never sent.
+    final var future = provider.microLamportPriorityFee(transaction, "never-sent");
+
     assertSame(expected, future);
     assertEquals(new BigDecimal("12345.6"), future.join());
-    assertEquals("base64-encoded-tx", client.requestedTransaction);
+    final var keys = client.requestedAccountKeys;
+    assertNotNull(keys);
+    // Every static key of the message once, the fee payer first, as base58.
+    assertEquals(feePayer.toBase58(), keys.getFirst());
+    assertEquals(
+        Set.of(key(1), key(2), key(3), key(10), key(11), key(12)).stream().map(PublicKey::toBase58).collect(Collectors.toSet()),
+        Set.copyOf(keys)
+    );
+    assertEquals(6, keys.size());
   }
 }

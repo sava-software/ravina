@@ -3,7 +3,7 @@ package software.sava.services.solana.transactions;
 import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
-import software.sava.core.tx.Transaction;
+import software.sava.core.accounts.meta.AccountMeta;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.response.LatestBlockHash;
 import software.sava.rpc.json.http.response.TxResult;
@@ -98,8 +98,7 @@ final class BaseBatchInstructionServiceTests {
 
     final var ixs = instructions(3);
     final var results = service.batchProcess(
-        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertEquals(3, results.size(), "one result per batch");
@@ -117,8 +116,7 @@ final class BaseBatchInstructionServiceTests {
 
     final var ixs = instructions(3);
     final var results = service.batchProcess(
-        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertEquals(1, results.size());
@@ -135,8 +133,7 @@ final class BaseBatchInstructionServiceTests {
     final var service = service(processor, monitor, 1, 1);
 
     final var results = service.batchProcess(
-        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertEquals(2, results.size(), "the failed batch is reported and the remaining batches are abandoned");
@@ -155,8 +152,7 @@ final class BaseBatchInstructionServiceTests {
     final var service = service(processor, confirmingMonitor(), 4, 1);
 
     final var results = service.batchProcess(
-        1.0, instructions(4), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, instructions(4), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertEquals(List.of(4, 3, 1), batchSizes(processor), "the oversized batch of 4 is retried as 3 then 1");
@@ -174,8 +170,7 @@ final class BaseBatchInstructionServiceTests {
     final var service = service(processor, confirmingMonitor(), 4, 2);
 
     service.batchProcess(
-        1.0, instructions(4), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, instructions(4), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertEquals(List.of(4, 2, 2), batchSizes(processor));
@@ -199,8 +194,7 @@ final class BaseBatchInstructionServiceTests {
     final List<TransactionResult> results;
     try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
       results = service.batchProcess(
-          1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-          BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+          1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
       );
     }
 
@@ -213,7 +207,7 @@ final class BaseBatchInstructionServiceTests {
   }
 
   @Test
-  void theOverloadWithoutATransactionFactoryUsesTheLegacyFactory() throws InterruptedException {
+  void aTrailingPartialBatchIsProcessed() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     final var service = service(processor, confirmingMonitor(), 2, 1);
 
@@ -223,11 +217,10 @@ final class BaseBatchInstructionServiceTests {
 
     assertEquals(2, results.size());
     assertEquals(List.of(2, 1), batchSizes(processor));
-    assertSame(processor.legacyFactory, processor.simulatedFactories.getFirst());
   }
 
   @Test
-  void theLegacyInstructionOverloadPreservesMonitorFlags() throws InterruptedException {
+  void theInstructionOverloadPreservesMonitorFlags() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     monitor.queuedStatus = new TxStatus(null, 12, OptionalInt.empty(), null, CONFIRMED);
@@ -253,7 +246,7 @@ final class BaseBatchInstructionServiceTests {
 
     final var results = service.batchProcess(
         1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
+        LOG_CONTEXT, batchFactory
     );
 
     assertEquals(3, results.size());
@@ -281,7 +274,7 @@ final class BaseBatchInstructionServiceTests {
 
     final var results = service.batchProcess(
         1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
+        LOG_CONTEXT, batchFactory
     );
 
     assertEquals(2, results.size());
@@ -308,7 +301,7 @@ final class BaseBatchInstructionServiceTests {
 
     final var results = service.batchProcess(
         1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
+        LOG_CONTEXT, batchFactory
     );
 
     assertEquals(List.of(4, 3, 1), batchFactory.chunks.stream().map(List::size).toList());
@@ -337,7 +330,7 @@ final class BaseBatchInstructionServiceTests {
     try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
       results = service.batchProcess(
           1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-          BaseInstructionServiceTests::signedTx, LOG_CONTEXT, batchFactory
+          LOG_CONTEXT, batchFactory
       );
     }
 
@@ -355,7 +348,7 @@ final class BaseBatchInstructionServiceTests {
   }
 
   @Test
-  void theAccountOverloadWithoutATransactionFactoryUsesTheLegacyFactory() throws InterruptedException {
+  void aTrailingPartialAccountBatchIsProcessed() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     final var service = service(processor, confirmingMonitor(), 2, 1);
 
@@ -369,12 +362,11 @@ final class BaseBatchInstructionServiceTests {
 
     assertEquals(2, results.size());
     assertEquals(List.of(2, 1), batchFactory.chunks.stream().map(List::size).toList());
-    assertSame(processor.legacyFactory, processor.simulatedFactories.getFirst());
     assertTrue(accountsMap.isEmpty());
   }
 
   @Test
-  void theLegacyAccountOverloadPreservesMonitorFlags() throws InterruptedException {
+  void theAccountOverloadPreservesMonitorFlags() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     monitor.queuedStatus = new TxStatus(null, 12, OptionalInt.empty(), null, CONFIRMED);
@@ -397,11 +389,127 @@ final class BaseBatchInstructionServiceTests {
     final var service = service(processor, confirmingMonitor(), 2, 1);
 
     final var results = service.batchProcess(
-        1.0, List.<Instruction>of(), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
-        (Function<List<Instruction>, Transaction>) BaseInstructionServiceTests::signedTx, LOG_CONTEXT
+        1.0, List.<Instruction>of(), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     );
 
     assertTrue(results.isEmpty());
     assertTrue(processor.simulatedBatches.isEmpty(), "nothing may be simulated for an empty batch run");
+  }
+
+  // ------------------------------------------ v1 limits decided by sava ---
+
+  /// Decides what fits exactly as the real processor does, from sava's v1 builder and limits rather than a scripted
+  /// verdict: an unencodable batch has no transaction, and one over a v1 limit is reported by its transaction.
+  private static SimulationFutures v1Simulation(final List<Instruction> ixs) {
+    if (SimulationFutures.exceedsEncodableLimits(FEE_PAYER, ixs)) {
+      return new SimulationFutures(CONFIRMED, ixs, null, 0, null, null);
+    }
+    return simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
+  }
+
+  /// One instruction per chunk, referencing every key in it: the shape where a smaller chunk is what makes the
+  /// transaction fit.
+  private static final class AggregatingBatchFactory implements Function<List<PublicKey>, List<Instruction>> {
+
+    final List<Integer> chunkSizes = new ArrayList<>();
+
+    @Override
+    public List<Instruction> apply(final List<PublicKey> keys) {
+      chunkSizes.add(keys.size());
+      return List.of(Instruction.createInstruction(
+          key(0x7777),
+          keys.stream().map(AccountMeta::createRead).toList(),
+          new byte[]{9}
+      ));
+    }
+  }
+
+  private static Map<PublicKey, String> distinctAccounts(final int count) {
+    final var map = new LinkedHashMap<PublicKey, String>();
+    for (int i = 0; i < count; ++i) {
+      map.put(key(0x1000 + i), "account-" + i);
+    }
+    return map;
+  }
+
+  @Test
+  void anAccountBatchOverTheV1AccountLimitShrinksUntilItFits() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    final var service = service(processor, confirmingMonitor(), 70, 10);
+    final var accountsMap = distinctAccounts(70);
+    final var batchFactory = new AggregatingBatchFactory();
+
+    final var results = service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, batchFactory
+    );
+
+    // 70 keys + program + fee payer = 72 accounts, within 4,096 bytes but over 64; 60 + 2 = 62 fits.
+    assertEquals(List.of(70, 60, 10), batchFactory.chunkSizes);
+    assertEquals(60, service.batchSize);
+    assertEquals(2, results.size());
+    assertTrue(results.stream().allMatch(r -> r.error() == null));
+    assertTrue(accountsMap.isEmpty());
+  }
+
+  @Test
+  void anAccountBatchNoV1TransactionCanEncodeShrinksInsteadOfThrowing() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    final var service = service(processor, confirmingMonitor(), 300, 250);
+    final var accountsMap = distinctAccounts(300);
+    final var batchFactory = new AggregatingBatchFactory();
+
+    final var results = service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, batchFactory
+    );
+
+    // One instruction referencing 300 accounts overflows its u8 account count; 50 fit.
+    assertEquals(List.of(300, 50, 50, 50, 50, 50, 50), batchFactory.chunkSizes);
+    assertEquals(50, service.batchSize);
+    assertEquals(6, results.size());
+    assertTrue(accountsMap.isEmpty());
+  }
+
+  @Test
+  void anInstructionBatchOverTheV1AccountLimitShrinksUntilItFits() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    final var service = service(processor, confirmingMonitor(), 8, 3);
+    // Eight instructions of ten distinct accounts each, all invoking one program.
+    final var ixs = new ArrayList<Instruction>();
+    for (int i = 0; i < 8; ++i) {
+      final var accounts = new ArrayList<AccountMeta>();
+      for (int a = 0; a < 10; ++a) {
+        accounts.add(AccountMeta.createRead(key(0x2000 + (i * 10) + a)));
+      }
+      ixs.add(Instruction.createInstruction(key(0x7777), accounts, new byte[]{(byte) i}));
+    }
+
+    final var results = service.batchProcess(
+        1.0, List.copyOf(ixs), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    // 8 × 10 + 2 = 82 accounts; 5 × 10 + 2 = 52 fit, then the remaining 3.
+    assertEquals(List.of(8, 5, 3), batchSizes(processor));
+    assertEquals(5, service.batchSize);
+    assertEquals(2, results.size());
+    assertTrue(results.stream().allMatch(r -> r.error() == null));
+  }
+
+  @Test
+  void aComputeBudgetInstructionInALaterBatchIsRefusedBeforeAnyBatchIsSent() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 2, 1);
+    final var ixs = new ArrayList<>(instructions(5));
+    ixs.add(Instruction.createInstruction(
+        processor.solanaAccounts().computeBudgetProgram(), List.of(), new byte[]{1, 0, 0, 1, 0}));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.batchProcess(1.0, List.copyOf(ixs), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT)
+    );
+    assertTrue(processor.simulatedBatches.isEmpty(), "no batch may be simulated, let alone sent");
+    assertTrue(processor.sentTransactions.isEmpty());
   }
 }

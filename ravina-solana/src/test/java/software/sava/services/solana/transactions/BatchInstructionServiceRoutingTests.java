@@ -28,7 +28,6 @@ final class BatchInstructionServiceRoutingTests {
   private static final String LOG_CONTEXT = "batch-routing";
   private static final double CU_MULTIPLIER = 2.5;
 
-  private static final Function<List<Instruction>, Transaction> TX_FACTORY = ixs -> null;
   private static final Function<List<PublicKey>, List<Instruction>> BATCH_FACTORY = keys -> List.of();
 
   private static PublicKey key(final int i) {
@@ -45,10 +44,8 @@ final class BatchInstructionServiceRoutingTests {
 
   static final class RecordingBatchService implements BatchInstructionService {
 
-    static final int LIST_WITH_FACTORY = 1;
-    static final int MAP_WITH_FACTORY = 2;
-    static final int LIST_LEGACY = 3;
-    static final int MAP_LEGACY = 4;
+    static final int LIST = 3;
+    static final int MAP = 4;
 
     final List<Integer> targets = new ArrayList<>();
     double cuBudgetMultiplier;
@@ -60,7 +57,6 @@ final class BatchInstructionServiceRoutingTests {
     boolean verifyExpired;
     boolean retrySend;
     int maxRetriesAfterExpired;
-    Function<List<Instruction>, Transaction> transactionFactory;
     Function<List<PublicKey>, List<Instruction>> batchFactory;
     String logContext;
 
@@ -74,7 +70,6 @@ final class BatchInstructionServiceRoutingTests {
                                            final boolean verifyExpired,
                                            final boolean retrySend,
                                            final int maxRetriesAfterExpired,
-                                           final Function<List<Instruction>, Transaction> transactionFactory,
                                            final Function<List<PublicKey>, List<Instruction>> batchFactory,
                                            final String logContext) {
       this.targets.add(target);
@@ -87,7 +82,6 @@ final class BatchInstructionServiceRoutingTests {
       this.verifyExpired = verifyExpired;
       this.retrySend = retrySend;
       this.maxRetriesAfterExpired = maxRetriesAfterExpired;
-      this.transactionFactory = transactionFactory;
       this.batchFactory = batchFactory;
       this.logContext = logContext;
       return List.of(new TransactionResult(
@@ -104,48 +98,11 @@ final class BatchInstructionServiceRoutingTests {
                                                 final boolean verifyExpired,
                                                 final boolean retrySend,
                                                 final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
                                                 final String logContext) {
       return record(
-          LIST_WITH_FACTORY, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
+          LIST, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, transactionFactory, null, logContext
-      );
-    }
-
-    @Override
-    public List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                                final Map<PublicKey, ?> accountsMap,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final boolean verifyExpired,
-                                                final boolean retrySend,
-                                                final int maxRetriesAfterExpired,
-                                                final Function<List<Instruction>, Transaction> transactionFactory,
-                                                final String logContext,
-                                                final Function<List<PublicKey>, List<Instruction>> batchFactory) {
-      return record(
-          MAP_WITH_FACTORY, cuBudgetMultiplier, null, accountsMap, maxLamportPriorityFee,
-          awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, transactionFactory, batchFactory, logContext
-      );
-    }
-
-    @Override
-    public List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                                final List<Instruction> instructions,
-                                                final BigDecimal maxLamportPriorityFee,
-                                                final Commitment awaitCommitment,
-                                                final Commitment awaitCommitmentOnError,
-                                                final boolean verifyExpired,
-                                                final boolean retrySend,
-                                                final int maxRetriesAfterExpired,
-                                                final String logContext) {
-      return record(
-          LIST_LEGACY, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
-          awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, null, null, logContext
+          maxRetriesAfterExpired, null, logContext
       );
     }
 
@@ -161,9 +118,9 @@ final class BatchInstructionServiceRoutingTests {
                                                 final String logContext,
                                                 final Function<List<PublicKey>, List<Instruction>> batchFactory) {
       return record(
-          MAP_LEGACY, cuBudgetMultiplier, null, accountsMap, maxLamportPriorityFee,
+          MAP, cuBudgetMultiplier, null, accountsMap, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, null, batchFactory, logContext
+          maxRetriesAfterExpired, batchFactory, logContext
       );
     }
 
@@ -190,21 +147,6 @@ final class BatchInstructionServiceRoutingTests {
                                                  final boolean verifyExpired,
                                                  final boolean retrySend,
                                                  final int maxRetriesAfterExpired,
-                                                 final String logContext) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                 final List<Instruction> instructions,
-                                                 final Function<Transaction, Transaction> beforeSend,
-                                                 final BigDecimal maxLamportPriorityFee,
-                                                 final Commitment awaitCommitment,
-                                                 final Commitment awaitCommitmentOnError,
-                                                 final boolean verifyExpired,
-                                                 final boolean retrySend,
-                                                 final int maxRetriesAfterExpired,
-                                                 final Function<List<Instruction>, Transaction> transactionFactory,
                                                  final String logContext) {
       throw new UnsupportedOperationException();
     }
@@ -255,19 +197,8 @@ final class BatchInstructionServiceRoutingTests {
     final var results = service.batchProcess(
         CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
-    assertCommon(results, service, RecordingBatchService.LIST_LEGACY, CU_MULTIPLIER, CONFIRMED, PROCESSED);
+    assertCommon(results, service, RecordingBatchService.LIST, CU_MULTIPLIER, CONFIRMED, PROCESSED);
     assertSame(INSTRUCTIONS, service.instructions);
-  }
-
-  @Test
-  void listWithCommitmentsFactoryAndNoFlags() throws InterruptedException {
-    final var service = new RecordingBatchService();
-    final var results = service.batchProcess(
-        CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertCommon(results, service, RecordingBatchService.LIST_WITH_FACTORY, CU_MULTIPLIER, CONFIRMED, PROCESSED);
-    assertSame(INSTRUCTIONS, service.instructions);
-    assertSame(TX_FACTORY, service.transactionFactory);
   }
 
   @Test
@@ -276,20 +207,8 @@ final class BatchInstructionServiceRoutingTests {
     final var results = service.batchProcess(
         CU_MULTIPLIER, ACCOUNTS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT, BATCH_FACTORY
     );
-    assertCommon(results, service, RecordingBatchService.MAP_LEGACY, CU_MULTIPLIER, CONFIRMED, PROCESSED);
+    assertCommon(results, service, RecordingBatchService.MAP, CU_MULTIPLIER, CONFIRMED, PROCESSED);
     assertSame(ACCOUNTS, service.accountsMap);
-    assertSame(BATCH_FACTORY, service.batchFactory);
-  }
-
-  @Test
-  void mapWithCommitmentsFactoryAndNoFlags() throws InterruptedException {
-    final var service = new RecordingBatchService();
-    final var results = service.batchProcess(
-        CU_MULTIPLIER, ACCOUNTS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT, BATCH_FACTORY
-    );
-    assertCommon(results, service, RecordingBatchService.MAP_WITH_FACTORY, CU_MULTIPLIER, CONFIRMED, PROCESSED);
-    assertSame(ACCOUNTS, service.accountsMap);
-    assertSame(TX_FACTORY, service.transactionFactory);
     assertSame(BATCH_FACTORY, service.batchFactory);
   }
 
@@ -299,18 +218,8 @@ final class BatchInstructionServiceRoutingTests {
     final var results = service.batchProcess(
         INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
-    assertCommon(results, service, RecordingBatchService.LIST_LEGACY, 1.0, CONFIRMED, PROCESSED);
+    assertCommon(results, service, RecordingBatchService.LIST, 1.0, CONFIRMED, PROCESSED);
     assertSame(INSTRUCTIONS, service.instructions);
-  }
-
-  @Test
-  void listWithFactoryButNoCuMultiplierDefaultsToOne() throws InterruptedException {
-    final var service = new RecordingBatchService();
-    final var results = service.batchProcess(
-        INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT
-    );
-    assertCommon(results, service, RecordingBatchService.LIST_WITH_FACTORY, 1.0, CONFIRMED, PROCESSED);
-    assertSame(TX_FACTORY, service.transactionFactory);
   }
 
   @Test
@@ -319,19 +228,8 @@ final class BatchInstructionServiceRoutingTests {
     final var results = service.batchProcess(
         ACCOUNTS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT, BATCH_FACTORY
     );
-    assertCommon(results, service, RecordingBatchService.MAP_LEGACY, 1.0, CONFIRMED, PROCESSED);
+    assertCommon(results, service, RecordingBatchService.MAP, 1.0, CONFIRMED, PROCESSED);
     assertSame(ACCOUNTS, service.accountsMap);
-    assertSame(BATCH_FACTORY, service.batchFactory);
-  }
-
-  @Test
-  void mapWithFactoryButNoCuMultiplierDefaultsToOne() throws InterruptedException {
-    final var service = new RecordingBatchService();
-    final var results = service.batchProcess(
-        ACCOUNTS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, TX_FACTORY, LOG_CONTEXT, BATCH_FACTORY
-    );
-    assertCommon(results, service, RecordingBatchService.MAP_WITH_FACTORY, 1.0, CONFIRMED, PROCESSED);
-    assertSame(TX_FACTORY, service.transactionFactory);
     assertSame(BATCH_FACTORY, service.batchFactory);
   }
 
@@ -339,7 +237,7 @@ final class BatchInstructionServiceRoutingTests {
   void listWithoutCommitmentsDefaultsToFinalized() throws InterruptedException {
     final var service = new RecordingBatchService();
     final var results = service.batchProcess(INSTRUCTIONS, FEE, MAX_RETRIES, LOG_CONTEXT);
-    assertCommon(results, service, RecordingBatchService.LIST_LEGACY, 1.0, FINALIZED, FINALIZED);
+    assertCommon(results, service, RecordingBatchService.LIST, 1.0, FINALIZED, FINALIZED);
     assertSame(INSTRUCTIONS, service.instructions);
   }
 
@@ -347,7 +245,7 @@ final class BatchInstructionServiceRoutingTests {
   void mapWithoutCommitmentsDefaultsToFinalized() throws InterruptedException {
     final var service = new RecordingBatchService();
     final var results = service.batchProcess(ACCOUNTS, FEE, MAX_RETRIES, LOG_CONTEXT, BATCH_FACTORY);
-    assertCommon(results, service, RecordingBatchService.MAP_LEGACY, 1.0, FINALIZED, FINALIZED);
+    assertCommon(results, service, RecordingBatchService.MAP, 1.0, FINALIZED, FINALIZED);
     assertSame(ACCOUNTS, service.accountsMap);
     assertSame(BATCH_FACTORY, service.batchFactory);
   }

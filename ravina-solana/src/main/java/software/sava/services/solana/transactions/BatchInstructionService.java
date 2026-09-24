@@ -2,7 +2,6 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
-import software.sava.core.tx.Transaction;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
@@ -60,29 +59,6 @@ public interface BatchInstructionService extends InstructionService {
                                        final boolean verifyExpired,
                                        final boolean retrySend,
                                        final int maxRetriesAfterExpired,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext) throws InterruptedException;
-
-  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                       final Map<PublicKey, ?> accountsMap,
-                                       final BigDecimal maxLamportPriorityFee,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final boolean verifyExpired,
-                                       final boolean retrySend,
-                                       final int maxRetriesAfterExpired,
-                                       final Function<List<Instruction>, Transaction> transactionFactory,
-                                       final String logContext,
-                                       final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException;
-
-  List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                       final List<Instruction> instructions,
-                                       final BigDecimal maxLamportPriorityFee,
-                                       final Commitment awaitCommitment,
-                                       final Commitment awaitCommitmentOnError,
-                                       final boolean verifyExpired,
-                                       final boolean retrySend,
-                                       final int maxRetriesAfterExpired,
                                        final String logContext) throws InterruptedException;
 
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
@@ -117,28 +93,6 @@ public interface BatchInstructionService extends InstructionService {
   }
 
   default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                               final List<Instruction> instructions,
-                                               final BigDecimal maxLamportPriorityFee,
-                                               final Commitment awaitCommitment,
-                                               final Commitment awaitCommitmentOnError,
-                                               final int maxRetriesAfterExpired,
-                                               final Function<List<Instruction>, Transaction> transactionFactory,
-                                               final String logContext) throws InterruptedException {
-    return batchProcess(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        true,
-        true,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
-
-  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                final Map<PublicKey, ?> accountsMap,
                                                final BigDecimal maxLamportPriorityFee,
                                                final Commitment awaitCommitment,
@@ -155,30 +109,6 @@ public interface BatchInstructionService extends InstructionService {
         true,
         true,
         maxRetriesAfterExpired,
-        logContext,
-        batchFactory
-    );
-  }
-
-  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                               final Map<PublicKey, ?> accountsMap,
-                                               final BigDecimal maxLamportPriorityFee,
-                                               final Commitment awaitCommitment,
-                                               final Commitment awaitCommitmentOnError,
-                                               final int maxRetriesAfterExpired,
-                                               final Function<List<Instruction>, Transaction> transactionFactory,
-                                               final String logContext,
-                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
-    return batchProcess(
-        cuBudgetMultiplier,
-        accountsMap,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        true,
-        true,
-        maxRetriesAfterExpired,
-        transactionFactory,
         logContext,
         batchFactory
     );
@@ -201,25 +131,6 @@ public interface BatchInstructionService extends InstructionService {
     );
   }
 
-  default List<TransactionResult> batchProcess(final List<Instruction> instructions,
-                                               final BigDecimal maxLamportPriorityFee,
-                                               final Commitment awaitCommitment,
-                                               final Commitment awaitCommitmentOnError,
-                                               final int maxRetriesAfterExpired,
-                                               final Function<List<Instruction>, Transaction> transactionFactory,
-                                               final String logContext) throws InterruptedException {
-    return batchProcess(
-        1.0,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        maxRetriesAfterExpired,
-        transactionFactory,
-        logContext
-    );
-  }
-
   default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
                                                final BigDecimal maxLamportPriorityFee,
                                                final Commitment awaitCommitment,
@@ -234,27 +145,6 @@ public interface BatchInstructionService extends InstructionService {
         awaitCommitment,
         awaitCommitmentOnError,
         maxRetriesAfterExpired,
-        logContext,
-        batchFactory
-    );
-  }
-
-  default List<TransactionResult> batchProcess(final Map<PublicKey, ?> accountsMap,
-                                               final BigDecimal maxLamportPriorityFee,
-                                               final Commitment awaitCommitment,
-                                               final Commitment awaitCommitmentOnError,
-                                               final int maxRetriesAfterExpired,
-                                               final Function<List<Instruction>, Transaction> transactionFactory,
-                                               final String logContext,
-                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
-    return batchProcess(
-        1.0,
-        accountsMap,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        maxRetriesAfterExpired,
-        transactionFactory,
         logContext,
         batchFactory
     );

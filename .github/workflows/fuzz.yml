@@ -28,14 +28,14 @@ jobs:
 
       # Integer ceiling in bash rather than expression math, which has no rounding
       # and would hand the runner a fraction whenever max-fuzz-time is not a
-      # multiple of 60. The 8 is the registered target count and is the one
-      # number here that is still hand-maintained: the run itself uses `fuzzAll`,
-      # which is derived from the registrations and cannot drift, but a target
-      # added without bumping this multiplier under-budgets the step timeout,
-      # which fails the run partway through the campaign (a *step* timeout
-      # fails; it is the job-level default below that cancels). `fuzzAll`'s
-      # receipts (one <project>/build/hardening/local-fuzz.tsv per project)
-      # list the targets that actually ran.
+      # multiple of 60. `fuzzAll` runs one target at a time by default, so the
+      # budget is the per-target time times the registered target count, counted
+      # from the `fuzz.register(` calls in the tracked build scripts so that it
+      # cannot fall behind a new target (an under-budgeted *step* timeout fails
+      # the run partway through the campaign; it is the job-level default below
+      # that cancels). `fuzzAll`'s receipts (one
+      # <project>/.pitest-history/local-fuzz.tsv per project) list the targets
+      # that actually ran.
       - id: budget
         name: Compute fuzz time budget
         env:
@@ -44,7 +44,10 @@ jobs:
         # garbage as an unset variable, silently budgeting 0 seconds of fuzzing
         run: |
           [[ "$MAX_FUZZ_TIME" =~ ^[1-9][0-9]*$ ]] || { echo "max-fuzz-time must be positive whole seconds, no leading zeros: '$MAX_FUZZ_TIME'" >&2; exit 1; }
-          echo "timeout-minutes=$(( (8 * MAX_FUZZ_TIME + 59) / 60 + 30 ))" >> "$GITHUB_OUTPUT"
+          TARGETS=$(( $(git ls-files -z '*.gradle.kts' | xargs -0 grep -ho 'fuzz\.register(' | wc -l) ))
+          [[ "$TARGETS" -gt 0 ]] || { echo "no fuzz.register( calls found in the tracked build scripts" >&2; exit 1; }
+          echo "Budgeting $TARGETS fuzz targets at $MAX_FUZZ_TIME seconds each."
+          echo "timeout-minutes=$(( (TARGETS * MAX_FUZZ_TIME + 59) / 60 + 30 ))" >> "$GITHUB_OUTPUT"
 
       - name: Fuzz
         # --continue: a crashing target must not skip the remaining targets — the
@@ -68,18 +71,12 @@ jobs:
         with:
           name: fuzz-findings
           # Jazzer writes crash-*/oom-*/timeout-* reproducers into the module
-          # working directory; the working corpora hold the inputs that led there
+          # working directory; the working corpora hold the inputs that led there.
+          # Globbed over every module, so a module that gains a target is covered;
+          # no tracked file matches these names.
           path: |
-            ravina-core/crash-*
-            ravina-core/oom-*
-            ravina-core/timeout-*
-            ravina-core/build/fuzz/
-            ravina-solana/crash-*
-            ravina-solana/oom-*
-            ravina-solana/timeout-*
-            ravina-solana/build/fuzz/
-            ravina-kms/core/crash-*
-            ravina-kms/core/oom-*
-            ravina-kms/core/timeout-*
-            ravina-kms/core/build/fuzz/
+            **/crash-*
+            **/oom-*
+            **/timeout-*
+            **/build/fuzz/
           if-no-files-found: ignore

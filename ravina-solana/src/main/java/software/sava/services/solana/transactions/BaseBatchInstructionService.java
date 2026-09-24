@@ -2,7 +2,6 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
-import software.sava.core.tx.Transaction;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.services.solana.epoch.EpochInfoService;
@@ -43,7 +42,6 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                          final boolean verifyExpired,
                                          final boolean retrySend,
                                          final int maxRetriesAfterExpired,
-                                         final Function<List<Instruction>, Transaction> transactionFactory,
                                          final String logContext) throws InterruptedException {
     final var transactionResult = processInstructions(
         cuBudgetMultiplier,
@@ -54,16 +52,15 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         verifyExpired,
         retrySend,
         maxRetriesAfterExpired,
-        transactionFactory,
         logContext
     );
     if (transactionResult.exceedsSizeLimit()) {
       logger.log(WARNING, String.format("""
-                  Reducing %s batch size from %d, because transaction exceeds size limit. [length=%d] [base64Length=%d]
+                  Reducing %s batch size from %d, because the transaction exceeds a v1 transaction limit. [instructions=%d] [base64Length=%d]
                   """,
               logContext,
               batchSize,
-              transactionResult.transaction().size(),
+              batch.size(),
               transactionResult.base64Length()
           )
       );
@@ -83,8 +80,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
                                                     final int maxRetriesAfterExpired,
-                                                    final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext) throws InterruptedException {
+    // Refuse up front, so that no batch is published before a later one would be refused.
+    SimulationFutures.requireNoComputeBudgetInstructions(
+        transactionProcessor.solanaAccounts().computeBudgetProgram(),
+        instructions
+    );
     final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
     for (int from = 0, to; from < numAccounts; ) {
@@ -102,7 +103,6 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           verifyExpired,
           retrySend,
           maxRetriesAfterExpired,
-          transactionFactory,
           logContext
       );
 
@@ -130,7 +130,6 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final boolean verifyExpired,
                                                     final boolean retrySend,
                                                     final int maxRetriesAfterExpired,
-                                                    final Function<List<Instruction>, Transaction> transactionFactory,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
     final var results = new ArrayList<TransactionResult>();
@@ -152,7 +151,6 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
           verifyExpired,
           retrySend,
           maxRetriesAfterExpired,
-          transactionFactory,
           logContext
       );
 
@@ -170,55 +168,5 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       }
     }
     return results;
-  }
-
-  @Override
-  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                                    final List<Instruction> instructions,
-                                                    final BigDecimal maxLamportPriorityFee,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final boolean verifyExpired,
-                                                    final boolean retrySend,
-                                                    final int maxRetriesAfterExpired,
-                                                    final String logContext) throws InterruptedException {
-    return batchProcess(
-        cuBudgetMultiplier,
-        instructions,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        verifyExpired,
-        retrySend,
-        maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
-        logContext
-    );
-  }
-
-  @Override
-  public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
-                                                    final Map<PublicKey, ?> accountsMap,
-                                                    final BigDecimal maxLamportPriorityFee,
-                                                    final Commitment awaitCommitment,
-                                                    final Commitment awaitCommitmentOnError,
-                                                    final boolean verifyExpired,
-                                                    final boolean retrySend,
-                                                    final int maxRetriesAfterExpired,
-                                                    final String logContext,
-                                                    final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
-    return batchProcess(
-        cuBudgetMultiplier,
-        accountsMap,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        verifyExpired,
-        retrySend,
-        maxRetriesAfterExpired,
-        transactionProcessor.legacyTransactionFactory(),
-        logContext,
-        batchFactory
-    );
   }
 }

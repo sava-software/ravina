@@ -80,10 +80,16 @@ public interface HeliusClient {
   CompletableFuture<PriorityFeesEstimates> getTransactionPriorityFeeEstimate(final String transaction,
                                                                              final int lookBackSlots);
 
+  /// Sends the serialized transaction. The hosted estimator parses SIMD-0385 v1 transactions, larger than 1,232
+  /// bytes included, and prices them like their account keys (measured 2026-09-24); helius-sdk v3 still prices v1
+  /// by [#getPriorityFeeEstimate(List)].
   default CompletableFuture<PriorityFeesEstimates> getTransactionPriorityFeeEstimate(final Transaction transaction) {
     return getTransactionPriorityFeeEstimate(transaction.base64EncodeToString(), Encoding.base64);
   }
 
+  /// Sends the serialized transaction. The hosted estimator parses SIMD-0385 v1 transactions, larger than 1,232
+  /// bytes included, and prices them like their account keys (measured 2026-09-24); helius-sdk v3 still prices v1
+  /// by [#getPriorityFeeEstimate(List, int)].
   default CompletableFuture<PriorityFeesEstimates> getTransactionPriorityFeeEstimate(final Transaction transaction,
                                                                                      final int lookBackSlots) {
     return getTransactionPriorityFeeEstimate(transaction.base64EncodeToString(), Encoding.base64, lookBackSlots);

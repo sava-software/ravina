@@ -72,6 +72,36 @@ final class TxPublisherTests {
     assertTrue(publisher.published.isEmpty());
   }
 
+  /// A v1 transaction ravina built, bounded by the SIMD-0385 4,096 byte limit
+  /// rather than the 1,232 byte legacy packet.
+  private static Transaction v1Tx(final int dataLength) {
+    return SimulationFutures.createV1Transaction(
+        key(1), List.of(Instruction.createInstruction(key(2), List.of(), new byte[dataLength])), 200_000, 98_304, 777);
+  }
+
+  @Test
+  void aV1TransactionLargerThanALegacyPacketIsPublished() {
+    final var publisher = new RecordingPublisher();
+    final var transaction = v1Tx(2_300);
+    assertTrue(transaction.size() > 1_232 && transaction.size() < 4_096, "fixture: " + transaction.size());
+
+    final var context = publisher.publish(transaction, 4_321L);
+
+    assertNotNull(context);
+    assertSame(transaction, publisher.published.getFirst().transaction());
+    assertEquals(transaction.base64EncodeToString(), publisher.published.getFirst().base64Encoded());
+  }
+
+  @Test
+  void aV1TransactionOverItsSizeLimitIsNeverPublished() {
+    final var publisher = new RecordingPublisher();
+    final var transaction = v1Tx(4_100);
+    assertTrue(transaction.size() > 4_096);
+
+    assertNull(publisher.publish(transaction, 4_321L));
+    assertTrue(publisher.published.isEmpty());
+  }
+
   @Test
   void retryRepublishesTheEncodedTransactionAtItsOriginalBlockHeight() {
     final var publisher = new RecordingPublisher();
