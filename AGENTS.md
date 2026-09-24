@@ -139,13 +139,12 @@ ratchet edges, and the bugs the effort has found.
   `ravina-kms/http` (httpKms), `ravina-kms/google` (googleKms). Each is
   registered in that module's `build.gradle.kts` `hardening {}` block, which
   is also where per-suite mutator sets and exclusion decisions live, each with
-  the measurement that justifies it (today that is one
-  `declineExclusionAudit` record in `ravina-kms/google`; the two measured
-  decisions *not* to enable a mutator are build-script comments on the suites
-  that trialled them). Doc and comment changes mutate nothing and owe no
-  suite — but an edit to a `hardening {}` block is not a build-script change
-  in that sense: targets, exclusions, `targetTests` and mutator sets all move
-  the population, so re-run the suites they touch.
+  the measurement that justifies it (the measured decisions *not* to enable a
+  mutator are build-script comments on the suites that trialled them). Doc and
+  comment changes mutate nothing and owe no suite — but an edit to a
+  `hardening {}` block is not a build-script change in that sense: targets,
+  exclusions, `targetTests` and mutator sets all move the population, so
+  re-run the suites they touch.
 - **Certification is local.** CI deliberately runs only `check`; the release
   checklist runs root `:hardeningCertifyAll`. It writes
   `.pitest-history/pitest-certification-all.tsv`, a Gradle-root inventory of
