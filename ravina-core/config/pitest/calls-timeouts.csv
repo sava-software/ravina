@@ -1,5 +1,5 @@
-# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
-# a reviewer-stop"); structural causes in README.md, "Audited timeout
+# Audited timeout-detected mutants (see AGENTS.md, "A new `TIMED_OUT` mutant is
+# a reviewer stop"); structural causes in README.md, "Audited timeout
 # sets". This set is armed but empty: every former member was retired
 # 2026-08-06 once all six covering test clocks carried a sleep budget, and the
 # suite reports zero timed-out mutants solo and under gate load. A new row here

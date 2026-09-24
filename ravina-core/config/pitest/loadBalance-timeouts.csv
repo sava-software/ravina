@@ -1,5 +1,5 @@
-# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
-# a reviewer-stop"); structural causes in README.md, "Audited timeout
+# Audited timeout-detected mutants (see AGENTS.md, "A new `TIMED_OUT` mutant is
+# a reviewer stop"); structural causes in README.md, "Audited timeout
 # sets". The Parser rows are shared with config —
 # both suites mutate LoadBalancerConfig.
 software.sava.services.core.remote.load_balance.ArrayLoadBalancer,peek,RemoveConditionalMutator_EQUAL_ELSE # cause:liveness # line 80

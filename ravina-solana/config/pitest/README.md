@@ -83,14 +83,14 @@ the exception is a single `NullReturnValsMutator` in `catchAll`.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
-Per the reviewer-stop bullet in `AGENTS.md`, each suite with timeout-detected
-mutants carries a membership file the verify audits; a timed-out mutant
-outside it is a warning to stop on. Members and their structural causes
-below — line numbers name the code each argument is about (the audit key is
-line-less, so a *new* mutant inside an already-listed method+mutator draws no
-warning; re-read the argument when the named line changes). Seeded 2026-07-27
-from a full `qualityGate` observation that matched the prior run's population
-exactly.
+Per the `AGENTS.md` rule that a new `TIMED_OUT` mutant is a reviewer stop, each
+suite with timeout-detected mutants carries a membership file the verify audits;
+a timed-out mutant outside it is a warning to stop on. Members and their
+structural causes below — line numbers name the code each argument is about (the
+audit key is line-less, so a *new* mutant inside an already-listed
+method+mutator draws no warning; re-read the argument when the named line
+changes). Seeded 2026-07-27 from a full `qualityGate` observation that matched
+the prior run's population exactly.
 
 **catchAll**
 - `LookupTableCacheMap.getOrFetchTables` `MathMutator` (retired 2026-08-05, when

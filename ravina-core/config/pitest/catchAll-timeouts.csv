@@ -1,5 +1,5 @@
-# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
-# a reviewer-stop"); structural causes in README.md, "Audited timeout sets"
+# Audited timeout-detected mutants (see AGENTS.md, "A new `TIMED_OUT` mutant is
+# a reviewer stop"); structural causes in README.md, "Audited timeout sets"
 # (the ExceptionUtil cause-chain walks).
 software.sava.services.core.exceptions.ExceptionUtil,containsException,NakedReceiverMutator # cause:liveness # line 28
 software.sava.services.core.exceptions.ExceptionUtil,containsIOException,NakedReceiverMutator # cause:liveness # line 16

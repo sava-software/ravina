@@ -1,5 +1,5 @@
-# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
-# a reviewer-stop"); structural causes in README.md, "Audited timeout sets".
+# Audited timeout-detected mutants (see AGENTS.md, "A new `TIMED_OUT` mutant is
+# a reviewer stop"); structural causes in README.md, "Audited timeout sets".
 software.sava.services.solana.transactions.BaseTxMonitorService,run,RemoveConditionalMutator_EQUAL_IF # cause:liveness # line 67
 software.sava.services.solana.transactions.TxExpirationMonitorService,lambda$processTransactions$1,RemoveConditionalMutator_EQUAL_IF # cause:liveness # line 83
 software.sava.services.solana.transactions.TxExpirationMonitorService,lambda$processTransactions$1,NullReturnValsMutator # cause:liveness # line 85

@@ -1,5 +1,5 @@
-# Audited timeout-detected mutants (see AGENTS.md, "a new timed-out mutant is
-# a reviewer-stop"); structural causes in README.md, "Audited timeout sets".
+# Audited timeout-detected mutants (see AGENTS.md, "A new `TIMED_OUT` mutant is
+# a reviewer stop"); structural causes in README.md, "Audited timeout sets".
 # The awaitInitialized key is one line-less key covering both VoidMethodCall
 # removals (lines 137 and 141).
 software.sava.services.solana.epoch.EpochInfoServiceImpl,awaitInitialized,VoidMethodCallMutator # cause:liveness # lines 137/141

@@ -512,14 +512,16 @@ confirmation.**
   exclude what their sibling suites own, and a class that some sibling
   actually mutates counts as owned. What still fires is a class that no suite
   mutates, and that is a real gap to act on.
-- **Personal integration mains live in the test sources.**
+- **Personal integration mains live outside the source roots.**
   `software.sava.kms.google.Integ` needs live GCP credentials and is matched
-  by the `Integ.*` rule in `.gitignore`. In the test sources it is not
-  production code, so it needs no ownership decline; `googleKms` still
-  excludes it, because test classes share PIT's recompiled root, and that
-  exclusion matches nothing on a checkout without it. In the main sources it
-  needed a `declineExclusionAudit`, which went stale on every other checkout
-  and failed `mutationOwnershipAudit` there (moved 2026-09-24). Its
+  by the `Integ.*` rule in `.gitignore`. It sits under
+  `ravina-kms/google/scratch/`, which no source set reads, because since
+  sava-build 21.5.37 a clean certification refuses any git-ignored file in
+  the main or test sources: such a file feeds the receipts' source hash while
+  Git reads clean. So no suite excludes it and no decline names it. Both
+  earlier homes failed on other checkouts: in the main sources its
+  `declineExclusionAudit` went stale and failed `mutationOwnershipAudit`, and
+  in the test sources certification refused it (both moves 2026-09-24). Its
   correctness rides on running it against real KMS.
 - **Fuzz-related exclusions.** The plugin excludes every registered harness
   class and its nested types by itself. The hand-written `*Fuzz*` globs are
@@ -532,8 +534,8 @@ confirmation.**
   `NO_COVERAGE` for that reason.
 - **Timeout-detected mutants.** The ratchet cannot see a weakened covering
   assertion behind a timeout. The audited sets (`<suite>-timeouts.csv` plus
-  the README causes) and the template's reviewer-stop rule are the
-  compensating control.
+  the README causes) and the template's rule that a new `TIMED_OUT` mutant
+  is a reviewer stop are the compensating control.
 - **Acceptances by decision.** Rows accepted as unreachable without live
   credentials (`# needs-live-kms`), as uncovered by testing convention, or as
   not deterministically reachable (`# ws-timeout-fallback`,

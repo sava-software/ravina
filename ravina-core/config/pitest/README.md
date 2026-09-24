@@ -82,14 +82,14 @@ from catching them if a future edit makes them genuinely survive.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 
-Per the reviewer-stop bullet in `AGENTS.md`, each suite with timeout-detected
-mutants carries a membership file the verify audits; a timed-out mutant
-outside it is a warning to stop on. Members and their structural causes
-below — line numbers name the code each argument is about (the audit key
-itself is line-less, so a *new* mutant inside an already-listed
+Per the `AGENTS.md` rule that a new `TIMED_OUT` mutant is a reviewer stop, each
+suite with timeout-detected mutants carries a membership file the verify audits;
+a timed-out mutant outside it is a warning to stop on. Members and their
+structural causes below — line numbers name the code each argument is about (the
+audit key itself is line-less, so a *new* mutant inside an already-listed
 method+mutator draws no warning; re-read the argument when the named line
-changes). Seeded 2026-07-27 from a full
-`qualityGate` observation that matched the prior run's population exactly.
+changes). Seeded 2026-07-27 from a full `qualityGate` observation that matched
+the prior run's population exactly.
 
 **backoff** — the set is deliberately empty; the file stays to keep the audit
 armed. Both members were retired, and the first correction is worth keeping:
