@@ -1,5 +1,12 @@
 # Changelog
 
+## [25.6.3](https://github.com/sava-software/ravina/compare/25.6.2...25.6.3) (2026-09-25)
+
+
+### Bug Fixes
+
+* **solana:** keep an unmodifiable copy of a result's instructions ([d0262bc](https://github.com/sava-software/ravina/commit/d0262bcff4e2efd84c9d4818e4e3328194fd38ef))
+
 ## [25.6.2](https://github.com/sava-software/ravina/compare/25.6.1...25.6.2) (2026-09-25)
 
 
