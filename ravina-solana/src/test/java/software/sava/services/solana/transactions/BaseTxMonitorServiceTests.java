@@ -40,7 +40,6 @@ import java.util.function.Function;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
-import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
@@ -71,10 +70,7 @@ final class BaseTxMonitorServiceTests {
 
   static final int DEFAULT_MILLIS_PER_SLOT = 400;
   static final int MEDIAN_MILLIS_PER_SLOT = 500;
-  /// `medianPercentile68()` is `round(median + estimatedStdDev)` — 530 here,
-  /// deliberately distinct from both the median and the default.
   static final double ESTIMATED_STD_DEV = 30;
-  static final long ONE_STD_DEV_MILLIS_PER_SLOT = 530;
   static final long MIN_SLEEP_MILLIS = 700;
 
   static final TransactionError TX_ERROR = new TransactionError.BlockhashNotFound();
@@ -238,7 +234,6 @@ final class BaseTxMonitorServiceTests {
 
     final List<Map<String, TxContext>> batches = new ArrayList<>();
     int stopAfterBatches = 1;
-    long sleepMillis;
     Consumer<Map<String, TxContext>> afterBatch = _ -> {
     };
 
@@ -254,13 +249,12 @@ final class BaseTxMonitorServiceTests {
     }
 
     @Override
-    protected long processTransactions(final Map<String, TxContext> batch) {
+    protected void processTransactions(final Map<String, TxContext> batch) {
       batches.add(Map.copyOf(batch));
       afterBatch.accept(batch);
       if (batches.size() >= stopAfterBatches) {
         throw new StopLoop();
       }
-      return sleepMillis;
     }
   }
 
@@ -516,70 +510,6 @@ final class BaseTxMonitorServiceTests {
     );
   }
 
-  // -------------------------------------------------------- slot duration --
-
-  @Test
-  void slotDurationsComeFromTheSampledStats() {
-    final var epochInfoService = new FakeEpochInfoService();
-    final var service = new RecordingMonitor(null, epochInfoService, Duration.ofMillis(MIN_SLEEP_MILLIS));
-
-    assertEquals(MEDIAN_MILLIS_PER_SLOT, service.medianMillisPerSlot());
-    assertEquals(ONE_STD_DEV_MILLIS_PER_SLOT, service.oneStandardDeviationMillisPerSlot());
-  }
-
-  @Test
-  void slotDurationsFallBackToTheDefaultBeforeTheFirstEpochSample() {
-    final var epochInfoService = new FakeEpochInfoService();
-    epochInfoService.epoch = null;
-    final var service = new RecordingMonitor(null, epochInfoService, Duration.ofMillis(MIN_SLEEP_MILLIS));
-
-    assertEquals(DEFAULT_MILLIS_PER_SLOT, service.medianMillisPerSlot());
-    assertEquals(DEFAULT_MILLIS_PER_SLOT, service.oneStandardDeviationMillisPerSlot());
-  }
-
-  @Test
-  void slotDurationsFallBackToTheDefaultWithoutPerformanceSamples() {
-    final var epochInfoService = new FakeEpochInfoService();
-    epochInfoService.epoch = epoch(null);
-    final var service = new RecordingMonitor(null, epochInfoService, Duration.ofMillis(MIN_SLEEP_MILLIS));
-
-    assertEquals(DEFAULT_MILLIS_PER_SLOT, service.medianMillisPerSlot());
-    assertEquals(DEFAULT_MILLIS_PER_SLOT, service.oneStandardDeviationMillisPerSlot());
-  }
-
-  /// The clamp is a buffer contract: readings that would shrink a `1 - rate`
-  /// buffer (negative, NaN) contribute none, and a pathological rate cannot
-  /// explode it past the 0.5 ceiling.
-  @Test
-  void theSkipRateIsClampedToABufferSafeRange() {
-    final var epochInfoService = new FakeEpochInfoService();
-    final var service = new RecordingMonitor(null, epochInfoService, Duration.ofMillis(MIN_SLEEP_MILLIS));
-    final var stats = slotStats(MEDIAN_MILLIS_PER_SLOT, ESTIMATED_STD_DEV);
-
-    epochInfoService.epoch = epoch(stats, 0.04);
-    assertEquals(0.04, service.clampedSkipRate(), "a typical rate passes through unchanged");
-
-    epochInfoService.epoch = epoch(stats, 0.5);
-    assertEquals(0.5, service.clampedSkipRate(), "exactly the ceiling is not clamped");
-
-    epochInfoService.epoch = epoch(stats, 0.9);
-    assertEquals(0.5, service.clampedSkipRate(), "a pathological rate is capped at the ceiling");
-
-    epochInfoService.epoch = epoch(stats, -0.02);
-    assertEquals(0.0, service.clampedSkipRate(), "sample noise below zero contributes no buffer");
-
-    epochInfoService.epoch = epoch(stats, -0.0);
-    // Also the strict-boundary pin: letting -0.0 through the positive branch
-    // would return it as-is rather than normalizing to positive zero.
-    assertEquals(0.0, service.clampedSkipRate(), "a negative-zero reading normalizes to positive zero");
-
-    epochInfoService.epoch = epoch(stats, Double.NaN);
-    assertEquals(0.0, service.clampedSkipRate(), "an unevaluable rate contributes no buffer");
-
-    epochInfoService.epoch = null;
-    assertEquals(0.0, service.clampedSkipRate(), "no epoch sample, no buffer");
-  }
-
   // ---------------------------------------------------- completing futures --
 
   @Test
@@ -596,7 +526,7 @@ final class BaseTxMonitorServiceTests {
   }
 
   @Test
-  void reachedCommitmentsCompleteWithTheirStatusAndAskForNoFurtherPolling() {
+  void reachedCommitmentsCompleteWithTheirStatus() {
     final var service = monitor();
     // awaitCommitmentOnError deliberately differs from awaitCommitment so that
     // reading the wrong one changes the outcome.
@@ -607,9 +537,8 @@ final class BaseTxMonitorServiceTests {
     final var map = contextMap(confirmed, finalized);
     final var statuses = List.of(status(CONFIRMED, null, OptionalInt.of(5)), status(FINALIZED));
 
-    final long sleep = service.completeFutures(map, sigs(confirmed, finalized), statuses);
+    service.completeFutures(map, sigs(confirmed, finalized), statuses);
 
-    assertEquals(0, sleep, "nothing is left to wait for");
     assertSame(statuses.getFirst(), confirmed.sigStatusFuture().getNow(null));
     assertSame(statuses.getLast(), finalized.sigStatusFuture().getNow(null));
     assertTrue(map.isEmpty(), "settled signatures are taken out of the batch");
@@ -617,99 +546,75 @@ final class BaseTxMonitorServiceTests {
   }
 
   @Test
-  void commitmentIsMetByProcessedByAnExactMatchAndByFinalization() {
+  void aSettledStatusMeetsEveryAwaitAboveProcessed() {
     final var service = monitor();
     final var anyStatus = txContext("any", 10, PROCESSED, PROCESSED);
-    final var exactMatch = txContext("exact", 11, CONFIRMED, CONFIRMED);
-    final var finalization = txContext("finalized", 12, CONFIRMED, CONFIRMED);
-    final var notYet = txContext("not-yet", 13, FINALIZED, FINALIZED);
-    final var map = contextMap(anyStatus, exactMatch, finalization, notYet);
+    final var confirmedForFinalized = txContext("confirmed", 11, FINALIZED, FINALIZED);
+    final var finalizedForConfirmed = txContext("finalized", 12, CONFIRMED, CONFIRMED);
+    final var notYet = txContext("not-yet", 13, CONFIRMED, CONFIRMED);
+    final var map = contextMap(anyStatus, confirmedForFinalized, finalizedForConfirmed, notYet);
     final var statuses = List.of(
-        status(CONFIRMED, null, OptionalInt.of(5)),
+        status(PROCESSED),
         status(CONFIRMED, null, OptionalInt.of(5)),
         status(FINALIZED),
-        status(CONFIRMED, null, OptionalInt.of(5))
+        status(PROCESSED)
     );
 
-    final long sleep = service.completeFutures(map, sigs(anyStatus, exactMatch, finalization, notYet), statuses);
+    service.completeFutures(
+        map, sigs(anyStatus, confirmedForFinalized, finalizedForConfirmed, notYet), statuses);
 
-    assertTrue(anyStatus.sigStatusFuture().isDone(), "PROCESSED is satisfied by any observed commitment");
-    assertTrue(exactMatch.sigStatusFuture().isDone(), "the awaited commitment was observed exactly");
-    assertTrue(finalization.sigStatusFuture().isDone(), "finalization satisfies every awaited commitment");
-    assertFalse(notYet.sigStatusFuture().isDone(), "CONFIRMED does not satisfy an await on FINALIZED");
-    assertEquals((BLOCKS_UNTIL_FINALIZED - 5) * ONE_STD_DEV_MILLIS_PER_SLOT, sleep);
+    assertTrue(anyStatus.sigStatusFuture().isDone(), "PROCESSED is met by any observed status, processed included");
+    assertTrue(confirmedForFinalized.sigStatusFuture().isDone(), "CONFIRMED and FINALIZED are one settled level");
+    assertTrue(finalizedForConfirmed.sigStatusFuture().isDone(), "finalization settles every await");
+    assertFalse(notYet.sigStatusFuture().isDone(), "a processed status has not settled");
   }
 
   @Test
-  void anUnmetProcessedStatusPacesAtTheMinimumPollingInterval() {
+  void anUnmetProcessedStatusKeepsBeingPolled() {
     final var service = monitor();
     final var context = txContext("sig", 10, FINALIZED, FINALIZED);
     service.pendingTransactions.add(context);
     final var map = contextMap(context);
 
-    final long sleep = service.completeFutures(map, sigs(context), List.of(status(PROCESSED)));
+    service.completeFutures(map, sigs(context), List.of(status(PROCESSED)));
 
-    assertEquals(MIN_SLEEP_MILLIS, sleep, "a merely processed transaction is re-polled at the floor interval");
     assertFalse(context.sigStatusFuture().isDone());
     assertTrue(service.pendingTransactions.contains(context), "an unsettled transaction keeps being polled");
   }
 
+  /// The confirmation count means nothing under Alpenglow, where agave
+  /// reports 0 for a status that is confirmed but not yet finalized, so a
+  /// confirmed status settles whatever its count, or with none at all.
   @Test
-  void anUnmetConfirmedStatusPacesOnTheBlocksLeftUntilFinalization() {
+  void aConfirmedStatusSettlesAFinalizedAwaitWhateverItsConfirmationCount() {
     final var service = monitor();
-    final var context = txContext("sig", 10, FINALIZED, FINALIZED);
-    final var map = contextMap(context);
-
-    final long sleep = service.completeFutures(
-        map, sigs(context), List.of(status(CONFIRMED, null, OptionalInt.of(5))));
-
-    assertEquals((BLOCKS_UNTIL_FINALIZED - 5) * ONE_STD_DEV_MILLIS_PER_SLOT, sleep);
-    assertFalse(context.sigStatusFuture().isDone());
-  }
-
-  @Test
-  void theShortestWaitWinsWhenAConfirmedStatusPrecedesAProcessedOne() {
-    final var service = monitor();
-    // One block left to finalize: 530ms, shorter than the 700ms floor that the
-    // processed transaction asks for.
-    final var nearlyFinalized = txContext("nearly", 10, FINALIZED, FINALIZED);
-    final var processed = txContext("processed", 11, FINALIZED, FINALIZED);
-    final var map = contextMap(nearlyFinalized, processed);
+    final var towerCount = txContext("tower", 10, FINALIZED, FINALIZED);
+    final var alpenglowCount = txContext("alpenglow", 11, FINALIZED, FINALIZED);
+    final var noCount = txContext("none", 12, FINALIZED, FINALIZED);
+    final var map = contextMap(towerCount, alpenglowCount, noCount);
     final var statuses = List.of(
-        status(CONFIRMED, null, OptionalInt.of(BLOCKS_UNTIL_FINALIZED - 1)),
-        status(PROCESSED)
+        status(CONFIRMED, null, OptionalInt.of(5)),
+        status(CONFIRMED, null, OptionalInt.of(0)),
+        status(CONFIRMED, null, OptionalInt.empty())
     );
 
-    final long sleep = service.completeFutures(map, sigs(nearlyFinalized, processed), statuses);
+    service.completeFutures(map, sigs(towerCount, alpenglowCount, noCount), statuses);
 
-    assertEquals(ONE_STD_DEV_MILLIS_PER_SLOT, sleep, "a later, longer estimate must not replace a shorter one");
+    assertTrue(towerCount.sigStatusFuture().isDone());
+    assertTrue(alpenglowCount.sigStatusFuture().isDone());
+    assertTrue(noCount.sigStatusFuture().isDone());
   }
-
   @Test
-  void theShortestWaitWinsWhenAProcessedStatusPrecedesAConfirmedOne() {
+  void anUnparseableStatusSettlesNothingAboveProcessed() {
     final var service = monitor();
-    final var processed = txContext("processed", 10, FINALIZED, FINALIZED);
-    final var freshlyConfirmed = txContext("fresh", 11, FINALIZED, FINALIZED);
-    final var map = contextMap(processed, freshlyConfirmed);
-    final var statuses = List.of(status(PROCESSED), status(CONFIRMED, null, OptionalInt.of(5)));
-
-    final long sleep = service.completeFutures(map, sigs(processed, freshlyConfirmed), statuses);
-
-    assertEquals(MIN_SLEEP_MILLIS, sleep, "a later, longer estimate must not replace a shorter one");
-  }
-
-  @Test
-  void aStatusWithNeitherProcessedNorConfirmedAsksForNoExtraPacing() {
-    final var service = monitor();
-    // An errored status with no confirmation level at all: neither pacing
-    // branch applies, and reading confirmations would throw.
+    // An errored status with no confirmation level this client can parse: it
+    // settles nothing above PROCESSED and asks for no pacing.
     final var context = txContext("sig", 10, FINALIZED, FINALIZED);
     final var map = contextMap(context);
     final var statuses = List.of(status(null, TX_ERROR, OptionalInt.empty()));
 
-    final long sleep = service.completeFutures(map, sigs(context), statuses);
+    service.completeFutures(map, sigs(context), statuses);
 
-    assertEquals(0, sleep);
     assertFalse(context.sigStatusFuture().isDone());
   }
 
@@ -724,10 +629,9 @@ final class BaseTxMonitorServiceTests {
     service.pendingTransactions.add(known);
     final var map = contextMap(unknown, known);
 
-    final long sleep = service.completeFutures(
+    service.completeFutures(
         map, sigs(unknown, known), List.of(NIL_STATUS, status(CONFIRMED, null, OptionalInt.of(5))));
 
-    assertEquals(0, sleep);
     assertFalse(unknown.sigStatusFuture().isDone(), "a signature the cluster has never seen is not settled");
     assertEquals(Map.of("unknown", unknown), map, "a nil status leaves its context in the batch");
     assertTrue(service.pendingTransactions.contains(unknown));
@@ -738,16 +642,15 @@ final class BaseTxMonitorServiceTests {
   @Test
   void anErroredTransactionIsSettledAgainstTheOnErrorCommitment() {
     final var service = monitor();
-    // Awaiting FINALIZED normally, but only CONFIRMED on error: the observed
-    // CONFIRMED settles it only if the on-error commitment is the one read.
-    final var context = txContext("sig", 10, FINALIZED, CONFIRMED);
+    // Awaiting a settled result normally, but only PROCESSED on error: the
+    // observed PROCESSED settles it only if the on-error commitment is read.
+    final var context = txContext("sig", 10, CONFIRMED, PROCESSED);
     service.pendingTransactions.add(context);
     final var map = contextMap(context);
-    final var errored = status(CONFIRMED, TX_ERROR, OptionalInt.of(5));
+    final var errored = status(PROCESSED, TX_ERROR, OptionalInt.of(0));
 
-    final long sleep = service.completeFutures(map, sigs(context), List.of(errored));
+    service.completeFutures(map, sigs(context), List.of(errored));
 
-    assertEquals(0, sleep);
     assertSame(errored, context.sigStatusFuture().getNow(null), "the failure is reported to the caller");
     assertFalse(service.pendingTransactions.contains(context));
   }
@@ -758,12 +661,11 @@ final class BaseTxMonitorServiceTests {
     final var context = txContext("sig", 10, PROCESSED, FINALIZED);
     service.pendingTransactions.add(context);
     final var map = contextMap(context);
-    final var errored = status(CONFIRMED, TX_ERROR, OptionalInt.of(5));
+    final var errored = status(PROCESSED, TX_ERROR, OptionalInt.of(0));
 
-    final long sleep = service.completeFutures(map, sigs(context), List.of(errored));
+    service.completeFutures(map, sigs(context), List.of(errored));
 
-    assertEquals((BLOCKS_UNTIL_FINALIZED - 5) * ONE_STD_DEV_MILLIS_PER_SLOT, sleep);
-    assertFalse(context.sigStatusFuture().isDone(), "the error is not reported until the awaited commitment");
+    assertFalse(context.sigStatusFuture().isDone(), "the error is not reported until it settles");
     assertTrue(service.pendingTransactions.contains(context));
   }
 
@@ -772,14 +674,13 @@ final class BaseTxMonitorServiceTests {
     final var service = monitor();
     // The on-error commitment would not be met, so reading it instead of the
     // normal one leaves the future open.
-    final var context = txContext("sig", 10, CONFIRMED, FINALIZED);
+    final var context = txContext("sig", 10, PROCESSED, CONFIRMED);
     final var map = contextMap(context);
-    final var confirmed = status(CONFIRMED, null, OptionalInt.of(5));
+    final var processed = status(PROCESSED);
 
-    final long sleep = service.completeFutures(map, sigs(context), List.of(confirmed));
+    service.completeFutures(map, sigs(context), List.of(processed));
 
-    assertEquals(0, sleep);
-    assertSame(confirmed, context.sigStatusFuture().getNow(null));
+    assertSame(processed, context.sigStatusFuture().getNow(null));
   }
 
   @Test
@@ -787,7 +688,7 @@ final class BaseTxMonitorServiceTests {
     final var service = monitor();
     final var map = new HashMap<String, TxContext>();
 
-    assertEquals(0, service.completeFutures(map, List.of(), List.of()));
+    service.completeFutures(map, List.of(), List.of());
     assertTrue(map.isEmpty());
   }
 

@@ -16,7 +16,6 @@ import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.services.solana.transactions.TransactionResult.EXPIRED;
 
 public class BaseInstructionService implements InstructionService {
@@ -85,7 +84,7 @@ public class BaseInstructionService implements InstructionService {
     final long blockHeight;
     try {
       final var blockHashFuture = rpcCaller.courteousCall(
-          rpcClient -> rpcClient.getLatestBlockHash(CONFIRMED),
+          rpcClient -> rpcClient.getLatestBlockHash(Settlement.COMMITMENT),
           LATEST_BLOCK_HASH_CALL_CONTEXT,
           "rpcClient::getLatestBlockHash"
       );
@@ -140,7 +139,7 @@ public class BaseInstructionService implements InstructionService {
     // Refuse a misconfigured cap before any request is spent, not only once a simulation succeeds.
     SimulationFutures.requireNonNegativeFeeCap(maxLamportPriorityFee);
     for (int retries = 0; ; ) {
-      final var simulationFutures = transactionProcessor.simulateAndEstimate(CONFIRMED, instructions);
+      final var simulationFutures = transactionProcessor.simulateAndEstimate(Settlement.COMMITMENT, instructions);
       final int base64Length = simulationFutures.base64Length();
       if (simulationFutures.exceedsSizeLimit()) {
         return TransactionResult.createSizeExceededResult(
@@ -265,7 +264,7 @@ public class BaseInstructionService implements InstructionService {
                     %s %d %s instructions:
                     %s
                     """,
-                awaitCommitment, instructions.size(), logContext, formattedSig
+                Settlement.reached(awaitCommitment), instructions.size(), logContext, formattedSig
             )
         );
         return TransactionResult.createResult(

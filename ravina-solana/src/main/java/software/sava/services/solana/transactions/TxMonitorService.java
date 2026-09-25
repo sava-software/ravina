@@ -88,6 +88,12 @@ public interface TxMonitorService extends Worker {
 
   void run(final Executor executor);
 
+  /// Completes with the signature's status once it meets `awaitCommitment`,
+  /// or `awaitCommitmentOnError` if the transaction failed. `PROCESSED` is
+  /// met by any status. `CONFIRMED` and `FINALIZED` are one settled level,
+  /// met by either: under Alpenglow they are the same event, and before
+  /// activation ravina accepts a confirmed transaction as final, so an await
+  /// on `FINALIZED` is released at confirmation.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,
@@ -119,6 +125,11 @@ public interface TxMonitorService extends Worker {
                                                              final Commitment awaitCommitmentOnError,
                                                              final String txSig);
 
+  /// Awaits one signature notification, under the settled-level rule of
+  /// [#queueResult]: at `PROCESSED` when both commitments are `PROCESSED`,
+  /// otherwise at the settled level. Completes with `null` when no
+  /// connection is available or the notification does not arrive within the
+  /// timeout, leaving the polling monitor to decide.
   CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
                                                              final Commitment awaitCommitmentOnError,
                                                              final String txSig,

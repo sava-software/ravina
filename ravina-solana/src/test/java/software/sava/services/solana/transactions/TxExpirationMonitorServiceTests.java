@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.OptionalInt;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
@@ -34,9 +33,10 @@ import static software.sava.services.solana.transactions.BaseTxMonitorServiceTes
 final class TxExpirationMonitorServiceTests {
 
   /// `lastValidBlockHeight` of the transactions under test; the settle gate
-  /// opens at `EXPIRED_HEIGHT + BLOCKS_UNTIL_FINALIZED`.
+  /// opens 32 blocks later, TowerBFT's finalization depth, which the monitor
+  /// keeps as its settle buffer.
   private static final long EXPIRED_HEIGHT = 10;
-  private static final long GATE = EXPIRED_HEIGHT + BLOCKS_UNTIL_FINALIZED;
+  private static final long GATE = EXPIRED_HEIGHT + 32;
 
   private static TxExpirationMonitorService service(final FakeRpcClient rpcClient) {
     return new TxExpirationMonitorService(
@@ -68,9 +68,8 @@ final class TxExpirationMonitorServiceTests {
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, landedStatus);
 
     final var batch = contextMap(vanished, landed);
-    final long sleep = service.processTransactions(batch);
+    service.processTransactions(batch);
 
-    assertEquals(0, sleep);
     assertEquals(List.of(List.of("vanished", "landed")), rpcClient.sigStatusRequests);
     assertEquals(
         List.of(Boolean.TRUE),
@@ -141,21 +140,16 @@ final class TxExpirationMonitorServiceTests {
   }
 
   @Test
-  void aSeenButUnsettledSignatureKeepsItsPacing() {
+  void aSeenButUnsettledSignatureIsNotGivenUpOn() {
     final var rpcClient = new FakeRpcClient();
     final var service = service(rpcClient);
 
     final var context = txContext("sig", 10, FINALIZED, FINALIZED);
     service.addTxContext(context);
-    rpcClient.sigStatuses = _ -> List.of(status(CONFIRMED, null, OptionalInt.of(5)));
+    rpcClient.sigStatuses = _ -> List.of(status(PROCESSED));
 
-    final long sleep = service.processTransactions(contextMap(context));
+    service.processTransactions(contextMap(context));
 
-    assertEquals(
-        (BLOCKS_UNTIL_FINALIZED - 5) * ONE_STD_DEV_MILLIS_PER_SLOT,
-        sleep,
-        "the wait computed while settling futures must be the one returned"
-    );
     assertFalse(context.sigStatusFuture().isDone());
     assertTrue(service.pendingTransactions.contains(context), "a visible transaction is not given up on");
   }
@@ -176,7 +170,7 @@ final class TxExpirationMonitorServiceTests {
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
 
     final var batch = contextMap(first, middle, last);
-    assertEquals(0, service.processTransactions(batch));
+    service.processTransactions(batch);
 
     for (final var context : List.of(first, middle, last)) {
       assertTrue(context.sigStatusFuture().isDone(), context.sig() + " was skipped");
@@ -194,7 +188,7 @@ final class TxExpirationMonitorServiceTests {
     final var service = service(rpcClient);
     rpcClient.sigStatuses = _ -> List.<TxStatus>of();
 
-    assertEquals(0, service.processTransactions(contextMap()));
+    service.processTransactions(contextMap());
     assertEquals(List.of(List.<String>of()), rpcClient.sigStatusRequests);
     assertEquals(List.of(Boolean.FALSE), rpcClient.searchTransactionHistoryFlags,
         "with no gates at all there is no verdict to settle, so no history search");

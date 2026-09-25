@@ -20,7 +20,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
-import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 
 public interface TransactionProcessor extends TxPublisher {
 
@@ -195,7 +194,7 @@ public interface TransactionProcessor extends TxPublisher {
                         final long blockHeight);
 
   default SendTxContext publish(final Transaction transaction, final String base64Encoded, final long blockHeight) {
-    return publish(transaction, base64Encoded, CONFIRMED, blockHeight);
+    return publish(transaction, base64Encoded, Settlement.COMMITMENT, blockHeight);
   }
 
   SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);
@@ -210,6 +209,6 @@ public interface TransactionProcessor extends TxPublisher {
   SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions);
 
   default SimulationFutures simulateAndEstimate(final List<Instruction> instructions) {
-    return simulateAndEstimate(CONFIRMED, instructions);
+    return simulateAndEstimate(Settlement.COMMITMENT, instructions);
   }
 }

@@ -163,15 +163,15 @@ edges, and the bugs the effort has found.
   that leaves the `#` at the end of one line and the label on the next reads
   as undocumented (it happened here on 2026-09-24). Rewrap with every
   backtick span kept whole, then check that each label still resolves.
-- **`NO_COVERAGE` accepts here are the ordinary kind**, and the two families
-  are unreached for different reasons — say *which*, and never that the mutant
-  is equivalent. `needs-live-kms` is unreached because
-  `KeyManagementServiceClient.create()` throws `UncheckedIOException` upstream
-  of the accepted line when no credentials are configured. `ws-timeout-fallback`
-  is the opposite shape: its lambda is an `.exceptionally(...)` handler behind
-  `CompletableFuture.orTimeout`, which schedules on the JVM-global delayed
-  executor — real time, unroutable through `NanoClock` — so the timeout never
-  fires in-harness and the handler never runs at all.
+- **`NO_COVERAGE` accepts here are the ordinary kind**: say why the line is
+  unreached, and never that the mutant is equivalent. The one family left,
+  `needs-live-kms`, is unreached because `KeyManagementServiceClient.create()`
+  throws `UncheckedIOException` upstream of the accepted line when no
+  credentials are configured. A second family, `ws-timeout-fallback`, was
+  retired on 2026-09-24. It claimed an `.exceptionally(...)` handler behind
+  `CompletableFuture.orTimeout` never runs in-harness because the timeout is
+  real time, but a zero timeout fires within milliseconds on the JVM's delayed
+  executor, and a wait bounded below PIT's watchdog kills the dropped stages.
 - **The quiet-member counter is machine-local.** The plugin tracks, under the
   git-ignored `.pitest-history/`, how many consecutive runs an audited timeout
   member has not timed out, and nominates a long-quiet one for retirement.
@@ -383,6 +383,19 @@ them, because the list is the argument for the effort.
   size alone. `FeePayerSigningSpan` locates the fee payer's signing span for all
   three formats: a v1 message comes *before* its signatures, with no count
   prefix.
+- **A confirmed transaction is settled.** `transactions.Settlement` is the
+  decision point for the transactions package (`WebSocketManager` and
+  `HeliusJsonRpcClient` pass `CONFIRMED` as client defaults, mirroring sava's
+  builders, and move with them). `CONFIRMED` and `FINALIZED` are one settled
+  level, so an await on `FINALIZED` is released at confirmation, and ravina
+  reads settled state (block heights, block hashes, simulations, signature
+  subscriptions) at `Settlement.COMMITMENT`. Under Alpenglow the two levels are
+  one finalization event; before activation this is a policy that accepts
+  optimistic confirmation as final. Keep `COMMITMENT` at `CONFIRMED` until
+  Alpenglow is active, because a `FINALIZED` read on TowerBFT lags about 32
+  slots, then move it to `FINALIZED` ahead of RPC retiring `confirmed`. The
+  expiration monitor's 32-block settle buffer is margin for backend lag, not
+  finality depth: faster finality is no reason to trim it.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

@@ -1,7 +1,6 @@
 package software.sava.services.solana.transactions;
 
 import software.sava.idl.clients.core.math.SafeMath;
-import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.Worker;
 import software.sava.services.solana.config.ChainItemFormatter;
@@ -19,9 +18,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static java.lang.System.Logger.Level.*;
-import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
-import static software.sava.rpc.json.http.request.Commitment.*;
 
 abstract class BaseTxMonitorService implements Runnable, Worker {
 
@@ -54,7 +51,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     this.processTransactions = workLock.newCondition();
   }
 
-  protected abstract long processTransactions(final Map<String, TxContext> batch) throws InterruptedException;
+  protected abstract void processTransactions(final Map<String, TxContext> batch) throws InterruptedException;
 
   @Override
   public final void run() {
@@ -63,24 +60,25 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
 
     try {
       epochInfoService.awaitInitialized();
-      for (long sleep; ; ) {
-        if (pendingTransactions.isEmpty()) {
-          sleep = minSleepMillisBetweenPolling;
-        } else {
+      for (; ; ) {
+        if (!pendingTransactions.isEmpty()) {
           for (final var txContext : pendingTransactions) {
             batch.put(txContext.sig(), txContext);
             if (++batchSize == MAX_SIG_STATUS) {
               break;
             }
           }
-          sleep = Math.max(minSleepMillisBetweenPolling, processTransactions(batch));
+          processTransactions(batch);
           batch.clear();
           batchSize = 0;
         }
+        // Every pass waits the floor: a transaction short of settlement is
+        // a slot or so from confirmation, and a notifyWorker call cuts the
+        // wait short when new work arrives.
         workLock.lockInterruptibly();
         try {
           //noinspection ResultOfMethodCallIgnored
-          processTransactions.await(sleep, TimeUnit.MILLISECONDS);
+          processTransactions.await(minSleepMillisBetweenPolling, TimeUnit.MILLISECONDS);
         } finally {
           workLock.unlock();
         }
@@ -102,47 +100,16 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     }
   }
 
-  /// The cluster's confirmed block height, read as unsigned. A pending
-  /// transaction's `blockHeight` is its block hash's last valid block height,
-  /// so it is expired exactly when this height passes it — no further offset.
+  /// The cluster's settled block height (read at [Settlement#COMMITMENT]), as
+  /// unsigned. A pending transaction's `blockHeight` is its block hash's last
+  /// valid block height, so it is expired exactly when this height passes
+  /// it — no further offset.
   protected final BigInteger confirmedBlockHeight() {
     final var confirmedBlockHeight = rpcCaller.courteousGet(
-        rpcClient -> rpcClient.getBlockHeight(CONFIRMED),
+        rpcClient -> rpcClient.getBlockHeight(Settlement.COMMITMENT),
         "rpcClient::getBlockHeight"
     );
     return SafeMath.toUnsignedBigInteger(confirmedBlockHeight.height());
-  }
-
-  protected final long medianMillisPerSlot() {
-    final var epochInfo = epochInfoService.epochInfo();
-    if (epochInfo == null) {
-      return epochInfoService.defaultMillisPerSlot();
-    }
-    final var slotStats = epochInfo.slotStats();
-    return slotStats == null ? epochInfoService.defaultMillisPerSlot() : slotStats.median();
-  }
-
-  protected final long oneStandardDeviationMillisPerSlot() {
-    final var epochInfo = epochInfoService.epochInfo();
-    if (epochInfo == null) {
-      return epochInfoService.defaultMillisPerSlot();
-    }
-    final var slotStats = epochInfo.slotStats();
-    return slotStats == null ? epochInfoService.defaultMillisPerSlot() : slotStats.medianPercentile68();
-  }
-
-  /// The epoch-wide skip rate, clamped to `[0, 0.5]`. This is a buffer input
-  /// for time estimates that divide by `1 - skipRate`, so a missing epoch
-  /// sample, a NaN, or a negative reading (sample noise) must contribute no
-  /// buffer rather than a shrunken one, and a pathological rate must not
-  /// explode the estimate.
-  protected final double clampedSkipRate() {
-    final var epochInfo = epochInfoService.epochInfo();
-    if (epochInfo == null) {
-      return 0.0;
-    }
-    final double skipRate = epochInfo.epochSkipRate();
-    return skipRate > 0.0 ? Math.min(skipRate, 0.5) : 0.0;
   }
 
   protected final void completeFuture(final TxContext txContext) {
@@ -155,18 +122,10 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     pendingTransactions.remove(txContext);
   }
 
-  private static boolean commitmentMet(final Commitment desired, final Commitment observed) {
-    return desired == PROCESSED
-        || desired == observed
-        || observed == FINALIZED;
-  }
-
-  protected final long completeFutures(final Map<String, TxContext> contextMap,
+  protected final void completeFutures(final Map<String, TxContext> contextMap,
                                        final List<String> signatures,
                                        final List<TxStatus> sigStatusList) {
     final int numSignatures = signatures.size();
-    long minSleepMillis = Long.MAX_VALUE;
-    final long medianMillisPerSlot = oneStandardDeviationMillisPerSlot();
     for (int i = 0; i < numSignatures; ++i) {
       final var sigStatus = sigStatusList.get(i);
       if (sigStatus.nil()) {
@@ -181,22 +140,22 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
 
       if (error != null) {
         final var awaitCommitmentOnError = txContext.awaitCommitmentOnError();
-        if (commitmentMet(awaitCommitmentOnError, commitment)) {
+        if (Settlement.met(awaitCommitmentOnError, commitment)) {
           completeFuture(txContext, sigStatus);
           continue;
         } else {
-          logger.log(WARNING, """
-                  Transaction erred at commitment level %s, awaiting %s.
-                  %s
-                  
-                  """,
-              commitment, awaitCommitmentOnError,
-              formatter.formatSigStatus(sig, sigStatus)
+          logger.log(WARNING, String.format("""
+                      Transaction erred at commitment level %s, awaiting %s.
+                      %s
+                      """,
+                  commitment, Settlement.reached(awaitCommitmentOnError),
+                  formatter.formatSigStatus(sig, sigStatus)
+              )
           );
         }
       } else {
         final var awaitCommitment = txContext.awaitCommitment();
-        if (commitmentMet(awaitCommitment, commitment)) {
+        if (Settlement.met(awaitCommitment, commitment)) {
           completeFuture(txContext, sigStatus);
           continue;
         } else {
@@ -204,28 +163,13 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
                       Transaction has been successfully %s, awaiting %s.
                       %s
                       """,
-                  commitment, awaitCommitment,
+                  commitment, Settlement.reached(awaitCommitment),
                   formatter.formatSig(sig)
               )
           );
         }
       }
-
-      if (commitment == PROCESSED) {
-        if (minSleepMillisBetweenPolling < minSleepMillis) {
-          minSleepMillis = minSleepMillisBetweenPolling;
-        }
-      } else if (commitment == CONFIRMED) {
-        final int confirmations = sigStatus.confirmations().orElseThrow();
-        final int blocksRemainingUntilFinalized = BLOCKS_UNTIL_FINALIZED - confirmations;
-        final long timeEstimateMillis = blocksRemainingUntilFinalized * medianMillisPerSlot;
-        if (timeEstimateMillis < minSleepMillis) {
-          minSleepMillis = timeEstimateMillis;
-        }
-      }
     }
-
-    return minSleepMillis == Long.MAX_VALUE ? 0 : minSleepMillis;
   }
 
   static long requireMillis(final Duration duration, final String what) {

@@ -18,7 +18,6 @@ import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static software.sava.core.tx.Transaction.BLOCKS_UNTIL_FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.*;
 
 final class TxCommitmentMonitorService extends BaseTxMonitorService implements TxMonitorService {
@@ -118,14 +117,14 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   }
 
   @Override
-  protected long processTransactions(final Map<String, TxContext> contextMap) {
+  protected void processTransactions(final Map<String, TxContext> contextMap) {
     final var signatures = List.copyOf(contextMap.keySet());
     final var sigStatusList = rpcCaller.courteousGet(
         rpcClient -> rpcClient.getSigStatusList(signatures),
         "rpcClient::getSigStatusList"
     );
 
-    final long sleep = completeFutures(contextMap, signatures, sigStatusList);
+    completeFutures(contextMap, signatures, sigStatusList);
 
     final var noSigStatus = new TxContext[signatures.size()];
     int noSigStatusLength = 0;
@@ -146,17 +145,19 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       }
     }
     if (numRemoved < noSigStatusLength) {
-      long minBlocksUntilExpiration = Long.MAX_VALUE;
       final var confirmedBlockHeight = confirmedBlockHeight();
       int numExpired = 0;
       for (int i = 0; i < noSigStatusLength; ++i) {
         final var txContext = noSigStatus[i];
         if (txContext != null) {
           // The context's block height is the block hash's last valid block
-          // height: expired once the confirmed height passes it. At equality
-          // nothing further can land — every future block is taller — but the
-          // last block it could have landed in may not be visible to the
-          // status poll's node yet, so it is given one more pass.
+          // height as RPC reports it, and the hash is still accepted one
+          // block later: a bank registers its hash at its final tick. Handing
+          // off once the confirmed height passes it is therefore exact, not
+          // early — the last block that could hold the transaction is then
+          // confirmed. The status poll ran before this height read, so a
+          // landing in that last block can be missed here; the expiration
+          // monitor's settle buffer, not this check, decides "never landed".
           final var bigBlockHeight = txContext.bigBlockHeight();
           if (bigBlockHeight.compareTo(confirmedBlockHeight) < 0) {
             expirationMonitorService.addTxContext(txContext);
@@ -185,25 +186,13 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 }
               }
             }
-
-            if (blocksRemaining < minBlocksUntilExpiration) {
-              minBlocksUntilExpiration = blocksRemaining;
-            }
           }
         }
       }
       if (numExpired > 0) {
         expirationMonitorService.notifyWorker();
       }
-      if (minBlocksUntilExpiration < Long.MAX_VALUE) {
-        final long estimatedMillisUntilNextExpiration = minBlocksUntilExpiration * oneStandardDeviationMillisPerSlot();
-        if (estimatedMillisUntilNextExpiration < sleep) {
-          return estimatedMillisUntilNextExpiration;
-        }
-      }
     }
-
-    return sleep;
   }
 
   @Override
@@ -230,16 +219,6 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
 
   private static final CompletableFuture<TxResult> NO_RESULT = CompletableFuture.completedFuture(null);
 
-  /// How long to await a finalization notification: 32 more block heights take
-  /// about `32 / (1 - skipRate)` slots, since a skipped slot produces no
-  /// block, estimated with the same median-plus-deviation slot duration the
-  /// expiry pacing uses. An expiry here is benign — the polling monitor takes
-  /// over — so no further doubling is applied. Package-private: the value
-  /// feeds an `orTimeout`, so tests pin the arithmetic directly.
-  long finalizationTimeoutMillis() {
-    return Math.round((BLOCKS_UNTIL_FINALIZED * oneStandardDeviationMillisPerSlot()) / (1.0 - clampedSkipRate()));
-  }
-
   @Override
   public CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
                                                                     final Commitment awaitCommitmentOnError,
@@ -257,54 +236,25 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     if (webSocket == null) {
       return NO_RESULT;
     }
-    var confirmedTxResultFuture = new CompletableFuture<TxResult>();
-    webSocket.signatureSubscribe(CONFIRMED, false, txSig, confirmedTxResultFuture::complete);
-    confirmedTxResultFuture = confirmedTxResultFuture
+    // One subscription settles the await: CONFIRMED and FINALIZED are one
+    // settled level (see Settlement), so there is nothing to escalate to.
+    // PROCESSED is subscribed only when both the result and an error may
+    // stop there; otherwise an error notified at PROCESSED could be reported
+    // below the level the caller wants errors settled at.
+    final var subscribeAt = commitment == PROCESSED && awaitCommitmentOnError == PROCESSED
+        ? PROCESSED
+        : Settlement.COMMITMENT;
+    final var txResultFuture = new CompletableFuture<TxResult>();
+    webSocket.signatureSubscribe(subscribeAt, false, txSig, txResultFuture::complete);
+    return txResultFuture
         .orTimeout(confirmedTimeout, timeUnit)
         .exceptionally(_ -> {
           logger.log(WARNING, String.format(
-              "%s not confirmed via websocket after %d seconds.",
-              txSig, timeUnit.toSeconds(confirmedTimeout)
+              "%s not %s via websocket after %d seconds.",
+              txSig, subscribeAt, timeUnit.toSeconds(confirmedTimeout)
           ));
-          webSocket.signatureUnsubscribe(CONFIRMED, txSig);
+          webSocket.signatureUnsubscribe(subscribeAt, txSig);
           return null;
         });
-    if (commitment == CONFIRMED) {
-      return confirmedTxResultFuture;
-    } else {
-      return confirmedTxResultFuture.thenCompose(txResult -> {
-        if (txResult == null) {
-          return NO_RESULT;
-        }
-        if (txResult.error() != null && (awaitCommitmentOnError == PROCESSED || awaitCommitmentOnError == CONFIRMED)) {
-          return CompletableFuture.completedFuture(txResult);
-        } else {
-          logger.log(INFO, String.format("""
-                  Transaction has been successfully confirmed, awaiting finalization.
-                  %s
-                  """,
-              formatter.formatSig(txSig)
-          ));
-          final var _webSocket = webSocketManager.webSocket();
-          if (_webSocket == null) {
-            return NO_RESULT;
-          } else {
-            final var finalizedTxResultFuture = new CompletableFuture<TxResult>();
-            _webSocket.signatureSubscribe(FINALIZED, false, txSig, finalizedTxResultFuture::complete);
-            final long finalizationTimeout = finalizationTimeoutMillis();
-            return finalizedTxResultFuture
-                .orTimeout(finalizationTimeout, TimeUnit.MILLISECONDS)
-                .exceptionally(_ -> {
-                  logger.log(WARNING, String.format(
-                      "%s not FINALIZED via websocket after %d seconds.",
-                      txSig, TimeUnit.MILLISECONDS.toSeconds(finalizationTimeout)
-                  ));
-                  _webSocket.signatureUnsubscribe(FINALIZED, txSig);
-                  return null;
-                });
-          }
-        }
-      });
-    }
   }
 }

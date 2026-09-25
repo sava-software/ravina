@@ -271,6 +271,20 @@ implementation locks the bug in.
   window. The existing
   test had asserted the buggy reading. Pinned by the window tests in
   `HttpKMSClientTests`; the method now checks the window up front.
+- 2026-09-24: `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket`
+  escalated every await other than `CONFIRMED` to a `FINALIZED` subscription,
+  `PROCESSED` included, so a caller awaiting `PROCESSED` over the websocket
+  waited for finalization, although the polling monitor meets a `PROCESSED`
+  await with any status. Found while making confirmation the settled level.
+  Pinned by `TxCommitmentMonitorServiceTests.awaitingProcessedStopsAtTheProcessedSubscription`,
+  which failed against the old code; the method now makes one subscription.
+- 2026-09-24: `BaseTxMonitorService.completeFutures` logged its "erred at
+  commitment level" warning through
+  `System.Logger.log(Level, String, Object...)` with `%s` placeholders. That
+  overload formats with `MessageFormat`, so the warning printed the literal `%s`
+  and dropped the commitments and the signature status. Found in the same pass;
+  the call now formats with `String.format`, like its neighbour. Log text is not
+  asserted here (the `# log-removal` family), so no test pins it.
 
 ## Equivalence families
 
@@ -429,9 +443,9 @@ is signallable, so a clock cannot stand in for it, and every test that drives a
 service loop therefore parks on real time. A fake clock's empty `sleeps` list
 proves only that nothing asked the clock to sleep, not that nothing waited. The
 other deliberate real-time dependencies are `CompletableFuture.orTimeout`,
-which runs on the JVM-global delayed executor (the `# ws-timeout-fallback`
-rows), and `Epoch`'s no-arg wall-clock delegates, whose arithmetic the
-explicit-`now` overloads carry.
+which runs on the JVM-global delayed executor (tests fire it with a zero
+timeout and bound their wait below PIT's watchdog), and `Epoch`'s no-arg
+wall-clock delegates, whose arithmetic the explicit-`now` overloads carry.
 
 Mutants that need a signal delivered to a parked waiter are not out of reach
 for that: the concurrency-blocked debt was banked by 2026-07-24. Latch shapes
@@ -538,8 +552,8 @@ confirmation.**
   is a reviewer stop are the compensating control.
 - **Acceptances by decision.** Rows accepted as unreachable without live
   credentials (`# needs-live-kms`), as uncovered by testing convention, or as
-  not deterministically reachable (`# ws-timeout-fallback`,
-  `# needs-live-response`) are holes by decision. Each README files them under
+  not deterministically reachable (`# needs-live-response`) are holes by
+  decision. Each README files them under
   a heading that says they are not an equivalence claim. Defensive guards that
   are unreachable in context are a different case: those are argued
   equivalents.

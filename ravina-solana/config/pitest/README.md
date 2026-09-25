@@ -105,6 +105,13 @@ the prior run's population exactly.
   when ravina moved to building SIMD-0385 v1 transactions only. The
   `refreshStaleAccounts` membership row was removed by hand: its coordinate
   cannot recur, and no writer retires a member whose class is gone.
+- `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1`
+  `NakedReceiverMutator` (dropping the finalization subscription's
+  `.orTimeout(...)`, which left that future waiting forever; the 1 `TIMED_OUT`
+  the NAKED_RECEIVER trial table records) — **retired 2026-09-24 by removing
+  the finalization stage**, when a confirmed transaction became settled. Its
+  membership row was removed by hand once a fresh history-free run no longer
+  generated the mutant.
 - `TxCommitmentMonitorService.validateResponseAndAwaitCommitmentViaWebSocket:115`
   `EQUAL_IF` — **retired 2026-08-05.** Forcing the `txResult == null` route
   makes a rejected transaction await the websocket anyway. That was only ever
@@ -114,19 +121,22 @@ the prior run's population exactly.
   the mutated route returns an error-free result, which the test's
   `BlockhashNotFound` assertion rejects outright, and the unmutated route
   still short-circuits before subscribing. `KILLED` on a history-free run.
-- `TxCommitmentMonitorService.lambda$tryAwaitCommitmentViaWebSocket$1:296`
-  `NakedReceiverMutator` — drops `.orTimeout(...)` (a fluent call returning
-  its receiver), leaving the finalization future waiting forever (this is the
-  1 `TIMED_OUT` the NAKED_RECEIVER trial table records).
-- `BaseTxMonitorService.run:67` `EQUAL_IF` — forces the pending-transactions
-  poll to read empty, so the monitor loop sleeps forever and never reaches
-  the work its test terminates on.
-- `TxExpirationMonitorService.lambda$processTransactions$1:83/85` `EQUAL_IF`
-  and `NullReturnValsMutator` — both poison the composed
-  height-then-statuses poll (83 deletes the empty-batch guard, NPE-ing the
-  gate comparison; 85 nulls the lambda's future, NPE-ing `thenCompose`), and
-  a failing courteous call is retried forever, so the poison is only
-  observable as a timeout.
+- `BaseTxMonitorService.run` — its tests end the monitor loop only when
+  `processTransactions` throws (the recording monitor's stop), and the loop
+  is infinite by design, so a mutant that keeps the loop from calling it has
+  no finite completion. `EQUAL_ELSE` on the `pendingTransactions.isEmpty()`
+  guard skips the batch on every pass, and `VoidMethodCallMutator` removes
+  the `processTransactions` call itself. The `EQUAL_IF` member predates the
+  2026-09-24 inversion of that guard, when it was the mutant that read the
+  queue as empty; it now forces an empty batch through, which
+  `anEmptyQueueIsNotPolled` kills, so it stays in the set only until the
+  quiet-run protocol retires it.
+- `TxExpirationMonitorService.lambda$processTransactions$1` `EQUAL_IF` and
+  `NullReturnValsMutator` — both poison the composed height-then-statuses
+  poll (the `EQUAL_IF` deletes the `earliestGate != null` empty-batch guard,
+  NPE-ing the gate comparison; the `NullReturnValsMutator` nulls the lambda's
+  future, NPE-ing `thenCompose`), and a failing courteous call is retried
+  forever, so the poison is only observable as a timeout.
 
 **epochService**
 - `EpochInfoServiceImpl.awaitInitialized:137/141` `VoidMethodCallMutator` —
@@ -227,7 +237,7 @@ A fluent call returning its receiver type is an expression, invisible to
 
 | Suite | Fired | Outcome | Enabled |
 |---|---|---|---|
-| `catchAll` | 61 | 56 killed (3 by new tests/seams: the `LoadBalanceUtil` `httpClient` wiring, the `WebSocketManager` factory prototype via a package-private seam), 4 accepted (below), 1 `TIMED_OUT` | yes |
+| `catchAll` | 61 | 56 killed (3 by new tests/seams: the `LoadBalanceUtil` `httpClient` wiring, the `WebSocketManager` factory prototype via a package-private seam), 4 accepted (below), 1 `TIMED_OUT`. On 2026-09-24 the two websocket-fallback acceptances became kills and were pruned, and the `TIMED_OUT` member was retired with the finalization stage | yes |
 | `epoch` | 9 | all killed — two `logFormat` truncation kills needed non-minute-aligned inputs; the exact-minute test data had made truncation a no-op | yes |
 | `fees` | 5 (2026-07-22); 7 (2026-09-24) | all killed. In 2026-07 the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions. After the move to v1 ConfigValues the 7 are the recipe's five `TxBuilder` calls, the simulation's `setPriorityFeeLamports(0)` and the fee cap's `BigDecimal.min` | yes |
 | `config` | 4 | all killed | yes |
@@ -239,7 +249,10 @@ A fluent call returning its receiver type is an expression, invisible to
 log output is not part of any behavioral contract. The websocket entries include the warning for
 a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, the
 warnings emitted when retry-policy calculation or the optional automatic scheduler rejects a
-wake-up, and the connection-open `INFO` in `markOpen`.
+wake-up, and the connection-open `INFO` in `markOpen`. The transactions entries include the
+warning `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` logs when a signature
+notification times out: the await then yields `null` and the polling monitor carries the
+outcome, so the line is diagnostic only.
 
 One websocket log is deliberately **not** in this family and is killed by an assertion instead:
 the failure of a scheduled wake, reported inside `scheduleRetry`'s completion action. That path
@@ -353,10 +366,9 @@ error branch with a null error calls
 `createResult(..., null, sig, formattedSig)`, which is the record the else
 branch already produces. Only the log line differs.
 
-**Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on a running minimum
-(`BaseTxMonitorService.completeFutures` 196/203, `processTransactions` 177/188,
-`TxExpirationMonitorService.processTransactions` 68, the earliest-gate scan):
-the equal case reassigns the value already held.
+**Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on
+a running minimum (`TxExpirationMonitorService.processTransactions`, the
+earliest-gate scan): the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
 `WebSocketManager.createManager` line 39, `.commitment(Commitment.CONFIRMED)`.
@@ -469,17 +481,15 @@ rows. That last one did not lose coverage: the connection-open log moved to
 now the `markOpen` `# log-removal` row, and the two remaining `accept` rows are the
 close and failure warnings.
 
-**Wall-clock websocket confirmation fallback** `# ws-timeout-fallback` (`catchAll`) —
-`TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` lines 263/264
-(`NakedReceiverMutator` on `.orTimeout(...)` / `.exceptionally(...)`) and the
-`NO_COVERAGE` `VoidMethodCallMutator` at line 265 inside that fallback lambda.
-`CompletableFuture.orTimeout` schedules on the JVM-global delayed executor,
-which is real time and cannot be routed through `NanoClock`, so firing the
-timeout deterministically is impossible in-harness — the fallback lambda never
-runs (hence the no-coverage row: unreachable here, not "equivalent"), and
-dropping the stages is only observable by waiting out the timeout. The RPC
-polling path covers the eventual outcome; the websocket fallback's own timing
-is the recorded debt.
+**Wall-clock websocket confirmation fallback** — retired 2026-09-24. The family
+argued that `CompletableFuture.orTimeout`, which runs on the JVM-global delayed
+executor, could not fire in-harness, so its fallback lambda never ran. A zero
+timeout fires within milliseconds, though:
+`TxCommitmentMonitorServiceTests.anUnansweredSubscriptionIsCancelledAndYieldsNoResult`
+drives it with a two-second bound below PIT's watchdog and kills both dropped
+stages, and the fallback's warning is an ordinary `# log-removal` row. Two of
+the family's rows named the finalization stage that settlement at confirmation
+removed.
 
 **Response-tracker wiring needs a live response** `# needs-live-response` (`catchAll`) —
 `LoadBalanceUtil.createRPCLoadBalancer` line 19, `NakedReceiverMutator` on

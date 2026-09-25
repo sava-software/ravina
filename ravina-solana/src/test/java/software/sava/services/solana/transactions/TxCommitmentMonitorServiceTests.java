@@ -31,7 +31,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
@@ -62,9 +64,8 @@ final class TxCommitmentMonitorServiceTests {
   private static final long CONFIRMED_HEIGHT = 1_000;
   /// A context's block height is its block hash's `lastValidBlockHeight`, so
   /// this is the newest one that can no longer land: the confirmed height has
-  /// already passed it. At `CONFIRMED_HEIGHT` exactly it is still given one
-  /// more pass — the last block it could have landed in may not be visible to
-  /// the status poll's node yet.
+  /// already passed it. At `CONFIRMED_HEIGHT` exactly it is still live, since
+  /// a block hash is accepted one block past its `lastValidBlockHeight`.
   private static final long HORIZON = CONFIRMED_HEIGHT - 1;
 
   private static final Duration WEB_SOCKET_TIMEOUT = Duration.ofMinutes(5);
@@ -127,8 +128,8 @@ final class TxCommitmentMonitorServiceTests {
   static final class FakeWebSocketManager implements WebSocketManager {
 
     SolanaRpcWebsocket webSocket;
-    /// Once this many web sockets have been handed out, report none — the
-    /// connection dropping between the confirmed and finalized subscriptions.
+    /// Once this many web sockets have been handed out, report none, as a
+    /// manager with no open connection does.
     int availableFor = Integer.MAX_VALUE;
     int webSocketCalls;
 
@@ -447,12 +448,10 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aRejectedTransactionIsNotAwaitedOverTheWebSocket() throws InterruptedException {
     final var service = service();
-    // Notifications for both the awaited commitment and its escalation are
-    // standing by, so a route that wrongly awaits returns one of them — an
-    // error-free result the assertions below reject — instead of blocking on a
-    // notification that never arrives. The awaited commitment is the one that
-    // matters here: standing only the other one by would leave a wrongful
-    // await waiting rather than failing.
+    // A notification stands by at every level a wrongful await could subscribe
+    // at, so such a route returns an error-free result the assertions below
+    // reject instead of blocking on a notification that never arrives. The
+    // settled level is the one a FINALIZED await subscribes at.
     webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
     webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
     final var context = new SendTxContext(
@@ -512,9 +511,26 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   @Test
-  void anUnconfirmedTransactionIsNotEscalatedToFinalization() {
+  void awaitingProcessedStopsAtTheProcessedSubscription() {
     final var service = service();
-    // The confirmed subscription notifies with no result at all.
+    final var processed = new TxResult(null, "sig", null);
+    webSocket.notifications.put(PROCESSED, processed);
+    webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
+    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
+
+    final var future = service.tryAwaitCommitmentViaWebSocket(PROCESSED, PROCESSED, "sig", 5, MINUTES);
+
+    // The polling monitor meets a PROCESSED await with any status, so the
+    // websocket path must not hold the caller until a higher level.
+    assertEquals(List.of(new Subscription(PROCESSED, "sig")), webSocket.subscriptions,
+        "awaiting PROCESSED subscribes at PROCESSED and nothing higher");
+    assertSame(processed, future.join());
+  }
+
+  @Test
+  void aNotificationWithoutAResultYieldsNoResult() {
+    final var service = service();
+    // The settled subscription notifies with no result at all.
     webSocket.notifications.put(CONFIRMED, null);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
@@ -522,25 +538,38 @@ final class TxCommitmentMonitorServiceTests {
     assertNotNull(future);
     assertNull(future.join());
     assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions,
-        "there is nothing to finalize if confirmation never arrived");
+        "one subscription, and no result to report");
   }
 
   @Test
-  void awaitingFinalizationEscalatesAfterConfirmation() {
+  void awaitingFinalizationSettlesAtTheSettledSubscription() {
     final var service = service();
     final var confirmed = new TxResult(null, "sig", null);
-    final var finalized = new TxResult(null, "sig", null);
     webSocket.notifications.put(CONFIRMED, confirmed);
-    webSocket.notifications.put(FINALIZED, finalized);
+    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
 
-    assertSame(finalized, future.join(), "the finalized notification is the awaited result");
-    assertEquals(
-        List.of(new Subscription(CONFIRMED, "sig"), new Subscription(FINALIZED, "sig")),
-        webSocket.subscriptions
-    );
-    assertEquals(2, webSocketManager.webSocketCalls, "the connection is re-read before escalating");
+    // CONFIRMED and FINALIZED are one settled level: the confirmation
+    // releases a FINALIZED await, with no second subscription.
+    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+    assertSame(confirmed, future.join());
+    assertEquals(1, webSocketManager.webSocketCalls, "the connection is read once");
+  }
+
+  @Test
+  void awaitingProcessedWithASettledErrorCommitmentSubscribesAtSettlement() {
+    final var service = service();
+    final var confirmed = new TxResult(null, "sig", null);
+    webSocket.notifications.put(PROCESSED, new TxResult(null, "sig", TX_ERROR));
+    webSocket.notifications.put(CONFIRMED, confirmed);
+
+    final var future = service.tryAwaitCommitmentViaWebSocket(PROCESSED, CONFIRMED, "sig", 5, MINUTES);
+
+    // A PROCESSED notification cannot say whether an error has settled, so
+    // the one subscription is at the level errors must reach.
+    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+    assertSame(confirmed, future.join());
   }
 
   @Test
@@ -571,72 +600,37 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   @Test
-  void aFailureAwaitingFinalizationIsStillEscalated() {
+  void aFailureAwaitingFinalizationSettlesAtTheSettledSubscription() {
     final var service = service();
     final var errored = new TxResult(null, "sig", TX_ERROR);
-    final var finalized = new TxResult(null, "sig", TX_ERROR);
     webSocket.notifications.put(CONFIRMED, errored);
-    webSocket.notifications.put(FINALIZED, finalized);
+    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", TX_ERROR));
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, FINALIZED, "sig", 5, MINUTES);
 
-    assertSame(finalized, future.join(), "an error observed at CONFIRMED is not final when FINALIZED is awaited");
-    assertEquals(
-        List.of(new Subscription(CONFIRMED, "sig"), new Subscription(FINALIZED, "sig")),
-        webSocket.subscriptions
-    );
-  }
-
-  @Test
-  void aDroppedConnectionBeforeFinalizationYieldsNoResult() {
-    final var service = service();
-    webSocketManager.availableFor = 1;
-    webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
-
-    final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
-
-    assertNotNull(future);
-    assertNull(future.join());
+    assertSame(errored, future.join(), "an error observed at CONFIRMED is settled for a FINALIZED await");
     assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
   }
 
-  /// 32 more block heights take about `32 / (1 - skipRate)` slots — a skipped
-  /// slot produces no block — estimated at the median-plus-deviation slot
-  /// duration. Pinned as exact values so the arithmetic cannot drift into the
-  /// old always-double buffer or lose the skip-rate term.
+  /// A zero timeout abandons the subscription at once, so the fallback runs
+  /// without waiting: the caller gets no result and the subscription it made
+  /// is cancelled at the level it was made. The timeout fires on the JVM's
+  /// delayed executor within milliseconds; the two-second bound only fails
+  /// fast, well inside PIT's four-second-plus watchdog, if the timeout is
+  /// never armed.
   @Test
-  void theFinalizationTimeoutBuffersSlotDeviationAndSkipRate() {
+  void anUnansweredSubscriptionIsCancelledAndYieldsNoResult() throws Exception {
     final var service = service();
 
-    // 530ms per slot at a 6% skip rate: round(32 * 530 / 0.94).
-    epochInfoService.epoch = epoch(slotStats(MEDIAN_MILLIS_PER_SLOT, ESTIMATED_STD_DEV), 0.06);
-    assertEquals(18_043L, service.finalizationTimeoutMillis());
+    final var settled = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 0, MILLISECONDS);
+    assertNull(settled.get(2, SECONDS));
+    final var processed = service.tryAwaitCommitmentViaWebSocket(PROCESSED, PROCESSED, "other", 0, MILLISECONDS);
+    assertNull(processed.get(2, SECONDS));
 
-    // Without epoch info: the default slot duration, and no skip buffer.
-    epochInfoService.epoch = null;
-    assertEquals(32L * DEFAULT_MILLIS_PER_SLOT, service.finalizationTimeoutMillis());
-  }
-
-  @Test
-  void theFinalizationTimeoutIsDerivedFromTheSlotDuration() {
-    final var service = service();
-    // A degenerate slot duration collapses the finalization timeout to zero,
-    // so the subscription is abandoned instead of being awaited. The timeout
-    // scales with the slot duration; the skip-rate divisor is clamped away
-    // from zero, so the arithmetic stays evaluable even here.
-    epochInfoService.epoch = null;
-    epochInfoService.defaultMillisPerSlot = 0;
-    webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
-
-    final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
-
-    assertNull(future.join());
     assertEquals(
-        List.of(new Subscription(CONFIRMED, "sig"), new Subscription(FINALIZED, "sig")),
-        webSocket.subscriptions
+        List.of(new Subscription(CONFIRMED, "sig"), new Subscription(PROCESSED, "other")),
+        webSocket.unsubscribes
     );
-    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.unsubscribes,
-        "an abandoned finalization subscription must be cancelled");
   }
 
   // ------------------------------------------------------ processing a pass --
@@ -647,9 +641,8 @@ final class TxCommitmentMonitorServiceTests {
     final var context = txContext("sig", 900, FINALIZED, FINALIZED);
     rpcClient.sigStatuses = _ -> List.of(status(PROCESSED));
 
-    final long sleep = service.processTransactions(contextMap(context));
+    service.processTransactions(contextMap(context));
 
-    assertEquals(MIN_SLEEP_MILLIS, sleep, "pacing comes from the signature statuses alone");
     assertEquals(List.of(List.of("sig")), rpcClient.sigStatusRequests);
     assertEquals(0, rpcClient.blockHeightCalls, "no missing status means no expiration check");
   }
@@ -661,9 +654,8 @@ final class TxCommitmentMonitorServiceTests {
     service.pendingTransactions.add(context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
-    final long sleep = service.processTransactions(contextMap(context));
+    service.processTransactions(contextMap(context));
 
-    assertEquals(0, sleep);
     assertTrue(context.sigStatusFuture().isDone());
     assertNull(context.sigStatusFuture().join(), "an unverified missing status resolves to no status");
     assertTrue(service.pendingTransactions.isEmpty());
@@ -683,9 +675,8 @@ final class TxCommitmentMonitorServiceTests {
     service.pendingTransactions.add(expired);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
 
-    final long sleep = service.processTransactions(contextMap(dropped, expired));
+    service.processTransactions(contextMap(dropped, expired));
 
-    assertEquals(0, sleep);
     assertEquals(1, rpcClient.blockHeightCalls, "the horizon is fetched once per pass");
     assertTrue(dropped.sigStatusFuture().isDone());
     assertFalse(expired.sigStatusFuture().isDone(), "an expired transaction is re-checked, not abandoned here");
@@ -752,40 +743,6 @@ final class TxCommitmentMonitorServiceTests {
       service.processTransactions(contextMap(live));
       assertTrue(waiter.parked(), "a pass with nothing expired must not wake the expiration worker");
     }
-  }
-
-  @Test
-  void theNextPollIsPacedAtTheSoonestExpiration() {
-    final var service = service();
-    expirationMonitor(service);
-
-    // 700ms of pacing from the signature statuses, against expirations one and
-    // five blocks away: the soonest expiration is 530ms, which wins.
-    final var polling = txContext("polling", 900, FINALIZED, FINALIZED);
-    final var soon = txContext("soon", HORIZON + 2, FINALIZED, FINALIZED,
-        sendTxContext(HORIZON + 2, PUBLISHED_LONG_AGO), true, false);
-    final var later = txContext("later", HORIZON + 6, FINALIZED, FINALIZED,
-        sendTxContext(HORIZON + 6, PUBLISHED_LONG_AGO), true, false);
-    rpcClient.sigStatuses = _ -> List.of(status(PROCESSED), NIL_STATUS, NIL_STATUS);
-
-    final long sleep = service.processTransactions(contextMap(polling, soon, later));
-
-    assertEquals(ONE_STD_DEV_MILLIS_PER_SLOT, sleep, "one block away at one standard deviation per slot");
-    assertTrue(publisher.retried.isEmpty(), "neither transaction opted into resending");
-  }
-
-  @Test
-  void aDistantExpirationDoesNotStretchTheNextPoll() {
-    final var service = service();
-    expirationMonitor(service);
-
-    final var polling = txContext("polling", 900, FINALIZED, FINALIZED);
-    final var later = txContext("later", HORIZON + 6, FINALIZED, FINALIZED, null, true, false);
-    rpcClient.sigStatuses = _ -> List.of(status(PROCESSED), NIL_STATUS);
-
-    final long sleep = service.processTransactions(contextMap(polling, later));
-
-    assertEquals(MIN_SLEEP_MILLIS, sleep, "5 blocks away is further off than the status pacing already asks for");
   }
 
   // ------------------------------------------------------------- resending --

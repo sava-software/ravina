@@ -11,6 +11,13 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.function.Function;
 
+/// Builds, sends and awaits transactions for lists of instructions. The
+/// commitment arguments follow [TxMonitorService#queueResult]: `CONFIRMED`
+/// and `FINALIZED` are one settled level, so the overloads that take no
+/// commitment, which await `FINALIZED`, are released at confirmation today
+/// and keep their meaning once RPC retires `confirmed`. Over the websocket a
+/// `PROCESSED` await with a higher on-error commitment waits for the settled
+/// level (see [TxMonitorService#tryAwaitCommitmentViaWebSocket]).
 public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,
