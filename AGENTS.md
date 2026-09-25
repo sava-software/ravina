@@ -159,6 +159,10 @@ edges, and the bugs the effort has found.
   family-label legend is that file's bold headings. A label with no literal
   `# <label>` mention in the README draws a warning: treat it as a triage bug,
   not noise — chasing one here exposed two swapped label pairs in `calls`.
+  "Literal" is exact: the match is the single string `# <label>`, so a reflow
+  that leaves the `#` at the end of one line and the label on the next reads
+  as undocumented (it happened here on 2026-09-24). Rewrap with every
+  backtick span kept whole, then check that each label still resolves.
 - **`NO_COVERAGE` accepts here are the ordinary kind**, and the two families
   are unreached for different reasons — say *which*, and never that the mutant
   is equivalent. `needs-live-kms` is unreached because
