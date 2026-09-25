@@ -27,6 +27,12 @@ public record TransactionResult(List<Instruction> instructions,
                                 String sig,
                                 String formattedSig) {
 
+  /// The result keeps its own unmodifiable copy of the batch: a caller that hands in its working list, or a
+  /// `subList` view of one, and then clears or reuses it does not change an outcome already reported.
+  public TransactionResult {
+    instructions = List.copyOf(instructions);
+  }
+
   public static final TransactionError FAILED_TO_RETRIEVE_BLOCK_HASH = new TransactionError.Unknown("FAILED_RETRIEVE_BLOCK_HASH");
   /// The instructions do not fit one SIMD-0385 v1 transaction, whichever limit they break: 4,096 bytes, 64 accounts,
   /// 64 instructions, 12 signatures, or a field of the wire format. A smaller batch may fit.

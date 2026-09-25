@@ -17,9 +17,10 @@ import java.util.OptionalLong;
 import static org.junit.jupiter.api.Assertions.*;
 
 /// [TransactionResult] is a pure value type: the static factories only fix the
-/// fields each entry point is documented to fix, and the fee accessors report
-/// what `transaction` bids, decoded from its wire format by sava. Everything
-/// here is asserted in memory; no transaction is ever sent.
+/// fields each entry point is documented to fix, the record keeps its own copy
+/// of the batch, and the fee accessors report what `transaction` bids, decoded
+/// from its wire format by sava. Everything here is asserted in memory; no
+/// transaction is ever sent.
 final class TransactionResultTests {
 
   private static final List<Instruction> NO_IX = List.of();
@@ -66,7 +67,7 @@ final class TransactionResultTests {
     final var result = TransactionResult.createSizeExceededResult(instructions, transaction, 1_234);
 
     assertNotNull(result);
-    assertSame(instructions, result.instructions());
+    assertEquals(instructions, result.instructions());
     assertTrue(result.simulationFailed());
     assertEquals(1_400_000, result.cuBudget());
     assertEquals(0, result.cuPrice());
@@ -88,7 +89,7 @@ final class TransactionResultTests {
     final var failed = TransactionResult.createResult(
         instructions, true, 200_000, 10_000, transaction, 99, txSimulation, error);
     assertNotNull(failed);
-    assertSame(instructions, failed.instructions());
+    assertEquals(instructions, failed.instructions());
     assertTrue(failed.simulationFailed());
     assertEquals(200_000, failed.cuBudget());
     assertEquals(10_000, failed.cuPrice());
@@ -115,7 +116,7 @@ final class TransactionResultTests {
     final var result = TransactionResult.createResult(
         instructions, 200_000, 10_000, transaction, 99, txSimulation, error, "sig", "formatted");
     assertNotNull(result);
-    assertSame(instructions, result.instructions());
+    assertEquals(instructions, result.instructions());
     assertFalse(result.simulationFailed());
     assertEquals(200_000, result.cuBudget());
     assertEquals(10_000, result.cuPrice());
@@ -136,7 +137,7 @@ final class TransactionResultTests {
     final var result = TransactionResult.createResult(
         instructions, 200_000, 10_000, transaction, 99, txSimulation, "sig", "formatted");
     assertNotNull(result);
-    assertSame(instructions, result.instructions());
+    assertEquals(instructions, result.instructions());
     assertFalse(result.simulationFailed());
     assertEquals(200_000, result.cuBudget());
     assertEquals(10_000, result.cuPrice());
@@ -146,6 +147,42 @@ final class TransactionResultTests {
     assertNull(result.error());
     assertEquals("sig", result.sig());
     assertEquals("formatted", result.formattedSig());
+  }
+
+  /// A caller hands in its working list and goes on using it: clearing it, or the parent
+  /// list behind a `subList` view of it, leaves the result reporting the batch it was made
+  /// for, through every factory and the constructor alike, and the copy cannot be changed.
+  @Test
+  void theResultKeepsItsOwnCopyOfTheBatch() {
+    final var first = Instruction.createInstruction(key(2), List.of(), new byte[]{1});
+    final var second = Instruction.createInstruction(key(2), List.of(), new byte[]{2});
+    final var third = Instruction.createInstruction(key(2), List.of(), new byte[]{3});
+
+    final var working = new java.util.ArrayList<>(List.of(first, second, third));
+    final var results = List.of(
+        TransactionResult.createSizeExceededResult(working, null, 0),
+        TransactionResult.createResult(working, true, 0, 0, twoSignerTx(), 0, null, null),
+        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null, null),
+        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null),
+        new TransactionResult(working, false, 0, 0, twoSignerTx(), 0, null, null, null, null)
+    );
+    working.clear();
+    for (final var result : results) {
+      assertEquals(List.of(first, second, third), result.instructions());
+      assertNotSame(working, result.instructions());
+      assertThrows(UnsupportedOperationException.class, () -> result.instructions().clear());
+      assertThrows(UnsupportedOperationException.class, () -> result.instructions().add(first));
+    }
+
+    // a subList view is a window on its parent: the parent's later edits would change, or
+    // invalidate, the view, and must not reach the result
+    final var parent = new java.util.ArrayList<>(List.of(first, second, third));
+    final var view = parent.subList(0, 2);
+    final var ofView = TransactionResult.createResult(view, 0, 0, twoSignerTx(), 0, null, null, null);
+    view.clear();
+    parent.add(third);
+    assertEquals(List.of(first, second), ofView.instructions());
+    assertEquals(2, ofView.instructions().size());
   }
 
   @Test
