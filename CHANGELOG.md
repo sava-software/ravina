@@ -1,5 +1,25 @@
 # Changelog
 
+## [25.6.2](https://github.com/sava-software/ravina/compare/25.6.1...25.6.2) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **solana:** a FINALIZED await, including the default overloads of InstructionService and BatchInstructionService, now completes once the transaction is confirmed rather than rooted.
+* **solana:** TransactionProcessor.createProcessor no longer takes a LookupTableCache. transactionFactory(...), legacyTransactionFactory() and lookupTableCache() are removed, as are every InstructionService and BatchInstructionService overload that took a Function<List<Instruction>, Transaction> factory. SimulationFutures loses its factory component, createTransaction(SolanaAccounts, ...) and capCuPrice. TransactionProcessor gains an abstract createTransaction(SimulationFutures, BigDecimal, int, int). The software.sava.services.solana.alt package is deleted. Callers that depended on ravina prepending two ComputeBudget instructions, for example to offset instruction error indexes, must stop.
+
+### Features
+
+* **solana:** build SIMD-0385 v1 transactions and drop lookup tables ([43008eb](https://github.com/sava-software/ravina/commit/43008eb68f95c37c6f3682562971233294f0dfb1))
+* **solana:** treat a confirmed transaction as settled ([bb3db8e](https://github.com/sava-software/ravina/commit/bb3db8ecd4714e5f05ccd03ee2f65fc314bc25a7))
+
+
+### Bug Fixes
+
+* **ci:** restrict workflow token permissions ([fbf89a5](https://github.com/sava-software/ravina/commit/fbf89a5228b6f96f8acce895a6716902a6250549))
+* **kms:** sign HttpKMSClient's (offset, length) window ([b344473](https://github.com/sava-software/ravina/commit/b344473b519d97b6697f334293e73f8dc738252c))
+* **tests:** validate transaction signatures in SendTxContextTests ([5a61393](https://github.com/sava-software/ravina/commit/5a613934b75f08b528a529d99d40576361797c54))
+
 ## [25.6.1](https://github.com/sava-software/ravina/compare/25.6.0...25.6.1) (2026-08-14)
 
 
