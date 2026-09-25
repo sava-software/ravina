@@ -187,6 +187,13 @@ family back at once:
   balanced variant, one class earlier.
 - `UncheckedBalancedCall.get:72` `ORDER_ELSE` — deletes the
   throw-when-exhausted exit of the balanced retry loop.
+- `CourteousCall.call` and `CourteousBalancedCall.call`
+  `VoidMethodCallMutator` on `clock.sleep` — never members, but observed
+  `TIMED_OUT` on 2026-09-24 whenever a covering test with an unbounded try
+  budget ran first: without the sleep the loop spins on a clock that never
+  moves, and a sleep budget cannot see a loop that stops sleeping. The three
+  covering clocks (`CourteousCallTests`, `CallTests`, `BalancedCallTests`) now
+  also cap clock reads between sleeps, so that spin fails as an assertion.
 
 The `capacity` and `loadBalance` members below are deliberately *not* treated
 this way. They spin on CPU with no `sleep` at all — a round-robin scan, a

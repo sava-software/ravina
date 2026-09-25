@@ -21,6 +21,9 @@ final class CourteousCallTests {
 
   private static final class TestClock implements NanoClock {
 
+    private static final int MAX_READS_BETWEEN_SLEEPS = 100_000;
+    private int readsSinceSleep;
+
     private final boolean frozen;
     private long nanos;
     private final List<Long> sleeps = new ArrayList<>();
@@ -31,11 +34,19 @@ final class CourteousCallTests {
 
     @Override
     public long nanoTime() {
+      // The sleep budget below cannot see a wait loop that stops sleeping: it
+      // spins on a clock that no longer moves. Reads between sleeps are few in
+      // every test here, so this many means the loop lost its sleep, and it
+      // fails as an assertion in milliseconds instead of a watchdog timeout.
+      if (++readsSinceSleep > MAX_READS_BETWEEN_SLEEPS) {
+        throw new AssertionError("clock read " + readsSinceSleep + " times without a sleep: a wait loop is spinning");
+      }
       return nanos;
     }
 
     @Override
     public void sleep(final long millis) {
+      readsSinceSleep = 0;
       sleeps.add(millis);
       // Safety bound, far above the three sleeps the largest test here expects.
       // Every claim loop below is bounded by maxTryClaim, so a run past this has
