@@ -73,7 +73,12 @@ final class RecordingRpcClient implements InvocationHandler {
       complete(event, startedAt, "OK", null);
       return null;
     }
-    future.whenComplete((value, failure) -> {
+    // The caller gets the observer's own stage, not the client's future: a dependent completes
+    // only after this callback has run, so a send is in the ledger before anything downstream
+    // can read the result and remove the timeline. Same value or exception either way. A
+    // caller cancelling the returned stage does not reach the client's exchange; ravina never
+    // cancels these, and sava-rpc's own deadline holds the exchange it bounds.
+    return future.whenComplete((value, failure) -> {
       counters.inFlightRpc.decrement();
       final long now = System.nanoTime();
       if (failure == null) {
@@ -85,7 +90,6 @@ final class RecordingRpcClient implements InvocationHandler {
         complete(event, startedAt, classify(failure), failure);
       }
     });
-    return future;
   }
 
   private Object invokeUnwrapped(final Method method, final Object[] args) throws Throwable {

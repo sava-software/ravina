@@ -299,6 +299,10 @@ done
   || cannot_start "SOAK_DURATION_SECONDS must be a positive whole number, not '$SOAK_DURATION_SECONDS'"
 [[ $SOAK_DRAIN_SECONDS =~ ^[0-9]+$ ]] \
   || cannot_start "SOAK_DRAIN_SECONDS must be a whole number, not '$SOAK_DRAIN_SECONDS'"
+# Decimal, whatever was typed: bash arithmetic reads a leading zero as octal, so '08' would
+# abort the watchdog sum and '03600' would fire it at 2,160 s while the client ran 3,600.
+SOAK_DURATION_SECONDS=$((10#$SOAK_DURATION_SECONDS))
+SOAK_DRAIN_SECONDS=$((10#$SOAK_DRAIN_SECONDS))
 # Main computes the submit period as 1e9 / rate; zero would schedule nothing at all.
 if ! [[ $SOAK_RATE_PER_SECOND =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ $SOAK_RATE_PER_SECOND =~ ^0*([.]0*)?$ ]]; then
   cannot_start "SOAK_RATE_PER_SECOND must be a positive decimal, not '$SOAK_RATE_PER_SECOND'"

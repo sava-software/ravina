@@ -80,7 +80,9 @@ final class Workload {
       workers.execute(() -> transaction(seq));
     }, 0, periodNanos, TimeUnit.NANOSECONDS);
     try {
-      done.await();
+      // The deadline ends submission on its own: the tick only observes it, and at a rate
+      // slower than the duration the next tick would come long after the deadline.
+      done.await(durationSeconds, TimeUnit.SECONDS);
     } finally {
       tick.cancel(false);
     }

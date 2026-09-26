@@ -3,6 +3,7 @@ package software.sava.ravina.soak;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /// What the harness observed about each signature at the public seams, keyed by the base58
 /// signature so the workload can join it to the result `processInstructions` hands back. The
@@ -25,6 +26,10 @@ final class SignatureLedger {
     volatile long unsubscribedAtNanos;
     volatile String commitment;
     final long createdAtNanos = System.nanoTime();
+    /// Set while an accepted subscription has neither been notified nor unsubscribed, so the
+    /// live count moves exactly once per accepted subscription: not for a refused one, and
+    /// not twice when a notification and the monitor's timeout race.
+    final AtomicBoolean live = new AtomicBoolean();
 
     long millisFromSend(final long nanos) {
       final long sent = firstSentAtNanos;
@@ -48,27 +53,45 @@ final class SignatureLedger {
     timeline.sends = timeline.sends + 1;
   }
 
-  void subscribed(final String signature, final String commitment, final long nanos) {
+  /// Marks the subscription live before its request is handed to the engine, because the
+  /// engine (or a test fake) may deliver the notification from inside that call.
+  void subscribing(final String signature, final String commitment) {
     final var timeline = timeline(signature);
     timeline.commitment = commitment;
+    timeline.live.set(true);
+  }
+
+  void subscribed(final String signature, final long nanos) {
+    final var timeline = timeline(signature);
     if (timeline.subscribedAtNanos == 0) {
       timeline.subscribedAtNanos = nanos;
     }
   }
 
-  /// @return whether this is the first notification for the signature
-  boolean notified(final String signature, final boolean error, final long nanos) {
-    final var timeline = timeline(signature);
-    if (timeline.notifiedAtNanos != 0) {
-      return false;
-    }
-    timeline.notifiedAtNanos = nanos;
-    timeline.notifiedError = error;
-    return true;
+  /// The engine refused the request (already subscribed, or closed): nothing is live.
+  void refused(final String signature) {
+    timeline(signature).live.set(false);
   }
 
-  void unsubscribed(final String signature, final long nanos) {
-    timeline(signature).unsubscribedAtNanos = nanos;
+  /// @return whether this notification ends a live subscription: false for a second delivery
+  /// or one that raced the monitor's timeout
+  boolean notified(final String signature, final boolean error, final long nanos) {
+    final var timeline = timeline(signature);
+    if (timeline.notifiedAtNanos == 0) {
+      timeline.notifiedAtNanos = nanos;
+      timeline.notifiedError = error;
+    }
+    return timeline.live.compareAndSet(true, false);
+  }
+
+  /// @return whether this unsubscribe ends a live subscription: false when the subscription
+  /// was refused, already notified, or already unsubscribed
+  boolean unsubscribed(final String signature, final long nanos) {
+    final var timeline = timeline(signature);
+    if (timeline.unsubscribedAtNanos == 0) {
+      timeline.unsubscribedAtNanos = nanos;
+    }
+    return timeline.live.compareAndSet(true, false);
   }
 
   Timeline remove(final String signature) {

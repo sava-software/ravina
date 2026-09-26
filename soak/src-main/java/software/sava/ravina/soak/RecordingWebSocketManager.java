@@ -105,12 +105,18 @@ final class RecordingWebSocketManager implements WebSocketManager {
             commit("NOTIFIED", signature, commitment, error);
             consumer.accept(txResult);
           };
+          // Live before the engine sees the request: a notification may be delivered from
+          // inside it, and the live count must move once per accepted subscription, never for
+          // a refused one and never twice when a notification races the monitor's timeout.
+          ledger.subscribing(signature, commitment);
+          counters.liveSubscriptions.incrementAndGet();
           final var accepted = (Boolean) invokeUnwrapped(method, replaced);
           if (accepted) {
-            ledger.subscribed(signature, commitment, System.nanoTime());
-            counters.liveSubscriptions.incrementAndGet();
+            ledger.subscribed(signature, System.nanoTime());
             commit("SUBSCRIBE", signature, commitment, false);
           } else {
+            ledger.refused(signature);
+            counters.liveSubscriptions.decrementAndGet();
             commit("SUBSCRIBE_REFUSED", signature, commitment, false);
           }
           return accepted;
@@ -119,9 +125,10 @@ final class RecordingWebSocketManager implements WebSocketManager {
           final var signature = firstString(args);
           final var commitment = firstCommitment(args);
           final var accepted = (Boolean) invokeUnwrapped(method, args);
-          ledger.unsubscribed(signature, System.nanoTime());
-          counters.timedOut.incrementAndGet();
-          counters.liveSubscriptions.decrementAndGet();
+          if (ledger.unsubscribed(signature, System.nanoTime())) {
+            counters.timedOut.incrementAndGet();
+            counters.liveSubscriptions.decrementAndGet();
+          }
           commit("UNSUBSCRIBE", signature, commitment, false);
           return accepted;
         }
