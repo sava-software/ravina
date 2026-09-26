@@ -354,6 +354,26 @@ final class CapacityStateTests {
     assertEquals(Long.MAX_VALUE, wraps.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, NANOSECONDS));
   }
 
+  /// The next weight lands one refill period after the last update, not one
+  /// after the question is asked: the time already accrued toward it comes
+  /// off the wait, or a courteous caller sleeps past the refill by up to a
+  /// whole period, half an hour here.
+  @Test
+  void durationUntilCountsTheTimeAlreadyAccruedTowardTheNextWeight() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    final var state = createState(clock, 1, Duration.ofHours(1));
+    assertTrue(state.tryClaimRequest(1, 0));
+
+    clock.advanceMillis(30 * 60 * 1_000);
+    assertEquals(30 * 60 * 1_000L, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, MILLISECONDS));
+
+    // Exactly at the refill the wait is gone and the weight is back.
+    clock.advanceMillis(30 * 60 * 1_000);
+    assertEquals(0, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, MILLISECONDS));
+    assertEquals(1, state.capacity());
+  }
+
   @Test
   void durationUntilLeavesStateUntouchedWhenCapacityAlreadySuffices() {
     final var clock = new TestClock();

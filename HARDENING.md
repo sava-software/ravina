@@ -220,9 +220,10 @@ check, check it.
 ### Reading the code that a mutant cluster or a slow test pointed at
 
 An unkillable cluster or an expensive covering path is a reason to read the
-production code, not only the test. So is a plan to instrument it: the two
+production code, not only the test. So is a plan to instrument it: the
 2026-09-26 entries surfaced while choosing which waits the JFR soak harness
-(`soak/`) should time.
+(`soak/`) should time, and an adversarial review of the fixes found the two
+that the first one had been hiding.
 
 - 2026-09-26: `CapacityStateVal.durationUntil` passed its `int * long`
   product through `Math.round`, which resolves that argument to the `float`
@@ -235,6 +236,14 @@ production code, not only the test. So is a plan to instrument it: the two
   `durationUntilKeepsNanosecondPrecision`; the product is now exact, and
   saturates at `Long.MAX_VALUE` where a deep overdraft at a slow refill would
   have wrapped negative (`durationUntilSaturatesInsteadOfWrapping`).
+- 2026-09-26: the same method measured the wait from the question, not from
+  the last capacity update. When the pacing gate declines an update (under one
+  refill period since the last one), the time already accrued toward the next
+  weight was not subtracted, so a caller owed one weight per hour who asked
+  thirty minutes in was told to wait a full hour and slept thirty minutes past
+  the refill. The 2,147 ms cap had hidden it: the caller re-polled every two
+  seconds and claimed on time. Found by the review of the cap's removal.
+  Pinned by `durationUntilCountsTheTimeAlreadyAccruedTowardTheNextWeight`.
 - 2026-09-26: `CourteousBalancedCall.call` retried a failed claim on a peer
   that reported capacity without counting the try: both failover `continue`s
   skipped the increment, so a claim that kept losing to competing threads

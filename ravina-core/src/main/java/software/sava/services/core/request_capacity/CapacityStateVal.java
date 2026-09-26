@@ -215,12 +215,19 @@ class CapacityStateVal implements CapacityState {
       // overdraft at a slow refill can overflow the product: saturate rather
       // than wrap to a negative wait, which a courteous caller would read as
       // "call now".
-      long nanosUntil;
+      long nanosOwed;
       try {
-        nanosUntil = Math.multiplyExact((long) capacityNeeded, nanosPerWeight);
+        nanosOwed = Math.multiplyExact((long) capacityNeeded, nanosPerWeight);
       } catch (final ArithmeticException overflow) {
-        nanosUntil = Long.MAX_VALUE;
+        nanosOwed = Long.MAX_VALUE;
       }
+      // The next weight lands one refill period after the last update, not
+      // one after this question: the time already accrued toward it (under a
+      // period when the update above was declined, none when it ran) comes
+      // off the wait, or a courteous caller sleeps past the refill by up to a
+      // whole period.
+      final long accrued = clock.nanoTime() - updatedAtSystemNanoTime.get();
+      final long nanosUntil = Math.max(0, nanosOwed - accrued);
       return timeUnit.convert(nanosUntil, NANOSECONDS);
     }
   }
