@@ -209,7 +209,18 @@ class CapacityStateVal implements CapacityState {
           return 0;
         }
       }
-      final long nanosUntil = Math.round(capacityNeeded * nanosPerWeight);
+      // An exact long product; it must not pass through Math.round, whose
+      // float overload an int * long resolves to (precision lost above 2^24 ns
+      // and an int result that capped every wait at 2,147 ms). A deep
+      // overdraft at a slow refill can overflow the product: saturate rather
+      // than wrap to a negative wait, which a courteous caller would read as
+      // "call now".
+      long nanosUntil;
+      try {
+        nanosUntil = Math.multiplyExact((long) capacityNeeded, nanosPerWeight);
+      } catch (final ArithmeticException overflow) {
+        nanosUntil = Long.MAX_VALUE;
+      }
       return timeUnit.convert(nanosUntil, NANOSECONDS);
     }
   }

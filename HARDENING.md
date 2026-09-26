@@ -220,8 +220,21 @@ check, check it.
 ### Reading the code that a mutant cluster or a slow test pointed at
 
 An unkillable cluster or an expensive covering path is a reason to read the
-production code, not only the test.
+production code, not only the test. So is a plan to instrument it: the two
+2026-09-26 entries surfaced while choosing which waits the JFR soak harness
+(`soak/`) should time.
 
+- 2026-09-26: `CapacityStateVal.durationUntil` passed its `int * long`
+  product through `Math.round`, which resolves that argument to the `float`
+  overload: precision was lost above 2^24 ns (about 17 ms) and the `int`
+  result saturated at `Integer.MAX_VALUE`, so **no courteous wait could
+  exceed 2,147 ms** whatever the refill rate, and a caller owed an hour was
+  woken every two seconds to be told to wait again. Every existing
+  `durationUntil` test asked for waits under a second. Pinned by
+  `CapacityStateTests.durationUntilIsExactBeyondTwoSeconds` and
+  `durationUntilKeepsNanosecondPrecision`; the product is now exact, and
+  saturates at `Long.MAX_VALUE` where a deep overdraft at a slow refill would
+  have wrapped negative (`durationUntilSaturatesInsteadOfWrapping`).
 - 2026-07-21: `EpochInfoServiceImpl.logEpoch` called `millisRemaining()`
   twice, so the logged delta carried whatever the clock did between the two
   reads. Found when the method's twelve-row cluster was refactored (see "A

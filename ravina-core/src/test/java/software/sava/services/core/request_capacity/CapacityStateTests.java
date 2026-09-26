@@ -7,6 +7,7 @@ import software.sava.services.core.request_capacity.context.CallContext;
 import java.time.Duration;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,10 +38,16 @@ final class CapacityStateTests {
 
   // maxCapacity 100 over PT1S replenishes 1 weight per 10ms.
   private static CapacityStateVal createState(final TestClock clock) {
+    return createState(clock, 100, Duration.ofSeconds(1));
+  }
+
+  private static CapacityStateVal createState(final TestClock clock,
+                                              final int maxCapacity,
+                                              final Duration resetDuration) {
     final var config = new CapacityConfig(
         -100,
-        100,
-        Duration.ofSeconds(1),
+        maxCapacity,
+        resetDuration,
         8,
         Duration.ofSeconds(1),
         Duration.ofSeconds(1),
@@ -298,6 +305,53 @@ final class CapacityStateTests {
     // 30 weights replenished; never a negative duration.
     assertEquals(0, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 25, MILLISECONDS));
     assertEquals(30, state.capacity());
+  }
+
+  /// The wait is `capacityNeeded * nanosPerWeight`, an exact `long`. It used
+  /// to pass through `Math.round`, which for an `int * long` product resolves
+  /// to the `float` overload: the product lost precision above 2^24 ns
+  /// (about 17 ms) and the `int` result saturated at `Integer.MAX_VALUE`, so
+  /// no courteous wait could exceed 2,147 ms whatever the refill rate.
+  @Test
+  void durationUntilIsExactBeyondTwoSeconds() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // One weight per hour: a single claim owes a full hour.
+    final var state = createState(clock, 1, Duration.ofHours(1));
+    assertTrue(state.tryClaimRequest(1, 0));
+    assertEquals(3_600_000L, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, MILLISECONDS));
+  }
+
+  @Test
+  void durationUntilKeepsNanosecondPrecision() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // Three weights per second is 333,333,333 ns each, and three of them are
+    // 999,999,999 ns, which a float rounds up to a whole second.
+    final var state = createState(clock, 3, Duration.ofSeconds(1));
+    assertTrue(state.tryClaimRequest(3, 0));
+    assertEquals(999_999_999L, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 3, NANOSECONDS));
+  }
+
+  /// A deep overdraft at a slow refill can owe more nanoseconds than a long
+  /// holds. The wait saturates rather than wrapping negative, which a
+  /// courteous caller would read as "call now".
+  @Test
+  void durationUntilSaturatesInsteadOfWrapping() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // One weight per hour is 3.6e12 ns, of which Long.MAX_VALUE holds
+    // 2,562,047 whole weights.
+    final var fits = createState(clock, 1, Duration.ofHours(1));
+    fits.claimRequest(2_562_047);
+    assertEquals(
+        2_562_047L * 3_600_000_000_000L,
+        fits.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, NANOSECONDS)
+    );
+
+    final var wraps = createState(clock, 1, Duration.ofHours(1));
+    wraps.claimRequest(2_562_048);
+    assertEquals(Long.MAX_VALUE, wraps.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, NANOSECONDS));
   }
 
   @Test
