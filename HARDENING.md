@@ -254,6 +254,16 @@ that the first one had been hiding.
   the shortest wait any peer owes, ties to the first in balancer order. Pinned
   by `BalancedCallTests.courteousBalancedCallWaitsForThePeerThatRefillsFirst`,
   its sorted-head variant and `aZeroWaitTieGoesToTheFirstPeer`.
+- 2026-09-26: the same method charged the whole overdraft below the floor.
+  A refill raises any overdraft deeper than `CapacityConfig.minCapacity()` up
+  to that floor and credits nothing beyond it, so a dock below the floor is
+  forgiven at the next update; the exact wait slept it out anyway (a
+  five-minute dock at a zero floor: 300 s asked, 20 ms owed). Found by the
+  local review of the cap's removal. Below the floor the wait is now one
+  refill period, and the call after that update answers the rest, floor to
+  target; charging both at once would double it, because the first update
+  discards the elapsed credit beyond the floor. Pinned by
+  `durationUntilBelowTheFloorIsOneRefillPeriodThenTheRest`.
 - 2026-09-26: `CourteousBalancedCall.call` retried a failed claim on a peer
   that reported capacity without counting the try: both failover `continue`s
   skipped the increment, so a claim that kept losing to competing threads

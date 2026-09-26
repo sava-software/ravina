@@ -22,6 +22,9 @@ class CapacityStateVal implements CapacityState {
   private final AtomicInteger capacity;
   private final double weightPerNanosecond;
   private final long nanosPerWeight;
+  /// The configured floor: a refill raises any deeper overdraft to it and
+  /// credits nothing beyond it, see [#updateCapacity].
+  private final int floor;
   private final IntBinaryOperator updateCapacity;
   private final AtomicLong updatedAtSystemNanoTime;
 
@@ -36,6 +39,7 @@ class CapacityStateVal implements CapacityState {
     final int maxCapacity = capacityConfig.maxCapacity();
     this.weightPerNanosecond = maxCapacity / (double) capacityConfig.resetDuration().toNanos();
     this.nanosPerWeight = Math.round(1 / weightPerNanosecond);
+    this.floor = capacityConfig.minCapacity();
     this.updateCapacity = (numRemaining, newCapacity) ->
         Math.clamp(numRemaining + newCapacity, capacityConfig.minCapacity(), maxCapacity);
     this.capacity = new AtomicInteger(maxCapacity);
@@ -196,30 +200,43 @@ class CapacityStateVal implements CapacityState {
   public long durationUntil(final CallContext callContext, final int runtimeCallWeight, final TimeUnit timeUnit) {
     final int callWeight = getCallWeight(callContext, runtimeCallWeight);
     final int minCapacity = getMinCapacity(callContext);
-    int excessCapacity = capacity.get() - callWeight;
+    int current = capacity.get();
+    int excessCapacity = current - callWeight;
     int capacityNeeded = minCapacity - excessCapacity;
     if (capacityNeeded <= 0) {
       return 0;
     } else {
-      final int capacity = tryUpdateCapacity();
-      if (capacity != Integer.MIN_VALUE) {
-        excessCapacity = capacity - callWeight;
+      final int updated = tryUpdateCapacity();
+      if (updated != Integer.MIN_VALUE) {
+        current = updated;
+        excessCapacity = current - callWeight;
         capacityNeeded = minCapacity - excessCapacity;
         if (capacityNeeded <= 0) {
           return 0;
         }
       }
-      // An exact long product; it must not pass through Math.round, whose
-      // float overload an int * long resolves to (precision lost above 2^24 ns
-      // and an int result that capped every wait at 2,147 ms). A deep
-      // overdraft at a slow refill can overflow the product: saturate rather
-      // than wrap to a negative wait, which a courteous caller would read as
-      // "call now".
       long nanosOwed;
-      try {
-        nanosOwed = Math.multiplyExact((long) capacityNeeded, nanosPerWeight);
-      } catch (final ArithmeticException overflow) {
-        nanosOwed = Long.MAX_VALUE;
+      if (current < floor) {
+        // Deeper than the floor: the next update raises the reading to the
+        // floor and credits nothing beyond it, so the wait until anything
+        // changes is one refill period, and the call after that update
+        // answers the rest, floor to target, exactly. Charging the whole
+        // debt here would sleep out a dock the floor is about to forgive;
+        // charging the rest here too would double it, because that first
+        // update discards the elapsed credit beyond the floor.
+        nanosOwed = nanosPerWeight;
+      } else {
+        // An exact long product; it must not pass through Math.round, whose
+        // float overload an int * long resolves to (precision lost above
+        // 2^24 ns and an int result that capped every wait at 2,147 ms). A
+        // deep floor at a slow refill can overflow the product: saturate
+        // rather than wrap to a negative wait, which a courteous caller
+        // would read as "call now".
+        try {
+          nanosOwed = Math.multiplyExact((long) capacityNeeded, nanosPerWeight);
+        } catch (final ArithmeticException overflow) {
+          nanosOwed = Long.MAX_VALUE;
+        }
       }
       // The next weight lands one refill period after the last update, not
       // one after this question: the time already accrued toward it (under a

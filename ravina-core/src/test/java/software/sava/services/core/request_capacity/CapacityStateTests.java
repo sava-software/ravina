@@ -44,8 +44,15 @@ final class CapacityStateTests {
   private static CapacityStateVal createState(final TestClock clock,
                                               final int maxCapacity,
                                               final Duration resetDuration) {
+    return createState(clock, -100, maxCapacity, resetDuration);
+  }
+
+  private static CapacityStateVal createState(final TestClock clock,
+                                              final int minCapacity,
+                                              final int maxCapacity,
+                                              final Duration resetDuration) {
     final var config = new CapacityConfig(
-        -100,
+        minCapacity,
         maxCapacity,
         resetDuration,
         8,
@@ -333,7 +340,7 @@ final class CapacityStateTests {
     assertEquals(999_999_999L, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 3, NANOSECONDS));
   }
 
-  /// A deep overdraft at a slow refill can owe more nanoseconds than a long
+  /// A deep floor at a slow refill can owe more nanoseconds than a long
   /// holds. The wait saturates rather than wrapping negative, which a
   /// courteous caller would read as "call now".
   @Test
@@ -341,17 +348,45 @@ final class CapacityStateTests {
     final var clock = new TestClock();
     clock.advanceNanos(7);
     // One weight per hour is 3.6e12 ns, of which Long.MAX_VALUE holds
-    // 2,562,047 whole weights.
-    final var fits = createState(clock, 1, Duration.ofHours(1));
+    // 2,562,047 whole weights. The floor sits below both overdrafts, so
+    // neither is forgiven and the whole debt is owed.
+    final var fits = createState(clock, Integer.MIN_VALUE, 1, Duration.ofHours(1));
     fits.claimRequest(2_562_047);
     assertEquals(
         2_562_047L * 3_600_000_000_000L,
         fits.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, NANOSECONDS)
     );
 
-    final var wraps = createState(clock, 1, Duration.ofHours(1));
+    final var wraps = createState(clock, Integer.MIN_VALUE, 1, Duration.ofHours(1));
     wraps.claimRequest(2_562_048);
     assertEquals(Long.MAX_VALUE, wraps.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, NANOSECONDS));
+  }
+
+  /// A refill raises any overdraft deeper than the floor up to the floor and
+  /// credits nothing beyond it, so a dock below the floor is forgiven at the
+  /// next update. The wait must not sleep out the forgiven part: below the
+  /// floor it is one refill period, and once the reading sits at the floor
+  /// the next answer is the rest, floor to target, exactly.
+  @Test
+  void durationUntilBelowTheFloorIsOneRefillPeriodThenTheRest() {
+    final var clock = new TestClock();
+    clock.advanceNanos(7);
+    // Floor -100 at 10 ms per weight: a dock of 30,000 is forgiven down to -100.
+    final var state = createState(clock);
+    state.claimRequest(30_100);
+    assertEquals(-30_000, state.capacity());
+
+    assertEquals(10, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, MILLISECONDS));
+
+    clock.advanceMillis(10);
+    assertFalse(state.tryClaimRequest(1, 0));
+    assertEquals(-100, state.capacity(), "the first update raises the reading to the floor");
+    // 101 weights from the floor to a claim of 1: not one period, the rest.
+    assertEquals(1_010, state.durationUntil(CallContext.DEFAULT_CALL_CONTEXT, 1, MILLISECONDS));
+
+    clock.advanceMillis(1_010);
+    assertTrue(state.tryClaimRequest(1, 0));
+    assertEquals(0, state.capacity());
   }
 
   /// The next weight lands one refill period after the last update, not one

@@ -1,4 +1,4 @@
 !sava-hardening-baseline-schema,1
-software.sava.services.core.request_capacity.CapacityStateVal,claimRequest,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 106
-software.sava.services.core.request_capacity.CapacityStateVal,durationUntil,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 208
-software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 153
+software.sava.services.core.request_capacity.CapacityStateVal,claimRequest,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 110
+software.sava.services.core.request_capacity.CapacityStateVal,durationUntil,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 214
+software.sava.services.core.request_capacity.CapacityStateVal,tryClaimRequest,ConditionalsBoundaryMutator,SURVIVED # zero-weight # line 157
