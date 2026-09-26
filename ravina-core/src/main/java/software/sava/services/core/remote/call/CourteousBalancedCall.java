@@ -77,7 +77,12 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
         throw new RuntimeException(e);
       }
       loadBalancer.sort();
-      this.next = loadBalancer.withContext();
+      // The peer the loop waited for is the one to claim if it refilled: a
+      // balancer re-pick can hand back a still-empty item and spend a second
+      // try on the failover to reach it. Otherwise the balancer chooses.
+      if (!this.next.capacityState().hasCapacity(callContext)) {
+        this.next = loadBalancer.withContext();
+      }
     }
     if (callContext.forceCall()) {
       this.next.capacityState().claimRequest(callContext);

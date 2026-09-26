@@ -556,6 +556,32 @@ final class BalancedCallTests {
     assertEquals(0, slowMonitor.capacityState().capacity());
   }
 
+  /// A wait cycle costs one try: after the sleep the loop claims the peer it
+  /// waited for, now refilled, rather than letting the balancer re-pick the
+  /// still-empty head and spend a second, counted try on the failover. With a
+  /// budget of two and no force, the second try is the difference between a
+  /// result and a decline.
+  @Test
+  void aWaitCycleCostsOneTry() {
+    final var clock = new TestClock(false);
+    final var slowMonitor = createMonitor(clock, 1, Duration.ofHours(1));
+    slowMonitor.capacityState().claimRequest(1);
+    final var fastMonitor = createMonitor(clock);
+    fastMonitor.capacityState().claimRequest(10);
+    final var slow = BalancedItem.createItem("slow", slowMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var fast = BalancedItem.createItem("fast", fastMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(slow, fast)),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, 2, false, Long.MAX_VALUE, false),
+        clock,
+        "test::oneTryPerWait"
+    );
+    assertEquals("fast", call.get());
+    assertEquals(List.of(100L), clock.sleeps);
+    assertEquals(0, fastMonitor.capacityState().capacity());
+  }
+
   /// A capacity state that refuses every claim, reports no capacity, and owes
   /// no wait at all: the state a competing release leaves between a failed
   /// claim and the wait computation. Only `claimRequest` is scripted beyond
