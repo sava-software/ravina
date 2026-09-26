@@ -336,7 +336,8 @@ final class BaseTxMonitorServiceTests {
     for (int i = 0; i < MAX_SIG_STATUS + overflow; ++i) {
       // Distinct block heights keep the batch order deterministic; height
       // ties would be broken by signature.
-      assertTrue(service.pendingTransactions.add(txContext("sig-" + i, 1_000 + i, FINALIZED, PROCESSED)));
+      final var context = txContext("sig-" + i, 1_000 + i, FINALIZED, PROCESSED);
+      assertNull(service.pendingTransactions.put(context, context));
     }
 
     service.run();
@@ -379,9 +380,9 @@ final class BaseTxMonitorServiceTests {
     final var kept = txContext("kept", 10, FINALIZED, PROCESSED);
     final var settledA = txContext("settled-a", 11, FINALIZED, PROCESSED);
     final var settledB = txContext("settled-b", 12, FINALIZED, PROCESSED);
-    service.pendingTransactions.add(kept);
-    service.pendingTransactions.add(settledA);
-    service.pendingTransactions.add(settledB);
+    service.pendingTransactions.put(kept, kept);
+    service.pendingTransactions.put(settledA, settledA);
+    service.pendingTransactions.put(settledB, settledB);
     service.afterBatch = _ -> {
       if (service.batches.size() == 1) {
         service.pendingTransactions.remove(settledA);
@@ -400,7 +401,7 @@ final class BaseTxMonitorServiceTests {
   void theRunLoopReleasesTheWorkLock() {
     final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
     service.stopAfterBatches = 2;
-    service.pendingTransactions.add(txContext("sig", 10, FINALIZED, PROCESSED));
+    service.pendingTransactions.put(txContext("sig", 10, FINALIZED, PROCESSED), txContext("sig", 10, FINALIZED, PROCESSED));
 
     service.run();
 
@@ -516,13 +517,13 @@ final class BaseTxMonitorServiceTests {
   void completingWithoutAStatusResolvesTheFutureToNullAndDropsTheTransaction() {
     final var service = monitor();
     final var context = txContext("sig", 10, FINALIZED, PROCESSED);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
 
     service.completeFuture(context);
 
     assertTrue(context.sigStatusFuture().isDone());
     assertNull(context.sigStatusFuture().join(), "an unverifiable transaction resolves to no status");
-    assertFalse(service.pendingTransactions.contains(context), "a completed transaction must stop being polled");
+    assertFalse(service.pendingTransactions.containsKey(context), "a completed transaction must stop being polled");
   }
 
   @Test
@@ -532,8 +533,8 @@ final class BaseTxMonitorServiceTests {
     // reading the wrong one changes the outcome.
     final var confirmed = txContext("confirmed", 10, CONFIRMED, FINALIZED);
     final var finalized = txContext("finalized", 11, FINALIZED, PROCESSED);
-    service.pendingTransactions.add(confirmed);
-    service.pendingTransactions.add(finalized);
+    service.pendingTransactions.put(confirmed, confirmed);
+    service.pendingTransactions.put(finalized, finalized);
     final var map = contextMap(confirmed, finalized);
     final var statuses = List.of(status(CONFIRMED, null, OptionalInt.of(5)), status(FINALIZED));
 
@@ -573,13 +574,13 @@ final class BaseTxMonitorServiceTests {
   void anUnmetProcessedStatusKeepsBeingPolled() {
     final var service = monitor();
     final var context = txContext("sig", 10, FINALIZED, FINALIZED);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     final var map = contextMap(context);
 
     service.completeFutures(map, sigs(context), List.of(status(PROCESSED)));
 
     assertFalse(context.sigStatusFuture().isDone());
-    assertTrue(service.pendingTransactions.contains(context), "an unsettled transaction keeps being polled");
+    assertTrue(service.pendingTransactions.containsKey(context), "an unsettled transaction keeps being polled");
   }
 
   /// The confirmation count means nothing under Alpenglow, where agave
@@ -625,8 +626,8 @@ final class BaseTxMonitorServiceTests {
     // instead of skipping it would visibly complete its future.
     final var unknown = txContext("unknown", 10, PROCESSED, PROCESSED);
     final var known = txContext("known", 11, CONFIRMED, CONFIRMED);
-    service.pendingTransactions.add(unknown);
-    service.pendingTransactions.add(known);
+    service.pendingTransactions.put(unknown, unknown);
+    service.pendingTransactions.put(known, known);
     final var map = contextMap(unknown, known);
 
     service.completeFutures(
@@ -634,9 +635,9 @@ final class BaseTxMonitorServiceTests {
 
     assertFalse(unknown.sigStatusFuture().isDone(), "a signature the cluster has never seen is not settled");
     assertEquals(Map.of("unknown", unknown), map, "a nil status leaves its context in the batch");
-    assertTrue(service.pendingTransactions.contains(unknown));
+    assertTrue(service.pendingTransactions.containsKey(unknown));
     assertTrue(known.sigStatusFuture().isDone());
-    assertFalse(service.pendingTransactions.contains(known));
+    assertFalse(service.pendingTransactions.containsKey(known));
   }
 
   @Test
@@ -645,28 +646,28 @@ final class BaseTxMonitorServiceTests {
     // Awaiting a settled result normally, but only PROCESSED on error: the
     // observed PROCESSED settles it only if the on-error commitment is read.
     final var context = txContext("sig", 10, CONFIRMED, PROCESSED);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     final var map = contextMap(context);
     final var errored = status(PROCESSED, TX_ERROR, OptionalInt.of(0));
 
     service.completeFutures(map, sigs(context), List.of(errored));
 
     assertSame(errored, context.sigStatusFuture().getNow(null), "the failure is reported to the caller");
-    assertFalse(service.pendingTransactions.contains(context));
+    assertFalse(service.pendingTransactions.containsKey(context));
   }
 
   @Test
   void anErroredTransactionBelowItsOnErrorCommitmentKeepsBeingPolled() {
     final var service = monitor();
     final var context = txContext("sig", 10, PROCESSED, FINALIZED);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     final var map = contextMap(context);
     final var errored = status(PROCESSED, TX_ERROR, OptionalInt.of(0));
 
     service.completeFutures(map, sigs(context), List.of(errored));
 
     assertFalse(context.sigStatusFuture().isDone(), "the error is not reported until it settles");
-    assertTrue(service.pendingTransactions.contains(context));
+    assertTrue(service.pendingTransactions.containsKey(context));
   }
 
   @Test

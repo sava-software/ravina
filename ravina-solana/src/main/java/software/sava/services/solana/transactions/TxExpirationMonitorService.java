@@ -56,7 +56,13 @@ final class TxExpirationMonitorService extends BaseTxMonitorService {
   }
 
   void addTxContext(final TxContext txContext) {
-    pendingTransactions.add(txContext);
+    // The commitment monitor holds one entry per signature, so the key is expected to be
+    // free; should a second context for a pending signature arrive, the first's outcome
+    // answers it too, rather than the second's future being dropped or the first's replaced.
+    final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
+    if (pending != null) {
+      pending.sigStatusFuture().whenComplete((status, _) -> txContext.completeFuture(status));
+    }
   }
 
   @Override

@@ -293,7 +293,7 @@ final class TxCommitmentMonitorServiceTests {
     assertNotNull(future);
     assertFalse(future.isDone());
     assertEquals(1, service.pendingTransactions.size());
-    final var context = service.pendingTransactions.first();
+    final var context = service.pendingTransactions.firstEntry().getValue();
     assertSame(future, context.sigStatusFuture(), "the caller must be handed the queued transaction's future");
     assertEquals("sig", context.sig());
     assertEquals(FINALIZED, context.awaitCommitment());
@@ -306,10 +306,9 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   /// Two transactions sent in the same slot share a `lastValidBlockHeight`.
-  /// The pending set derives equality from `TxContext` ordering, so without
-  /// the signature tie-break the second `queueResult` would be a silent no-op
-  /// and its caller's future could never complete — the client-side version
-  /// of exactly the "waits indefinitely" failure this monitor exists to end.
+  /// The pending map derives equality from `TxContext` ordering, so without
+  /// the signature tie-break the second `queueResult` would be handed the
+  /// first transaction's future and await a transaction that is not its own.
   @Test
   void twoTransactionsSharingABlockHeightAreBothMonitored() {
     final var service = service();
@@ -323,13 +322,112 @@ final class TxCommitmentMonitorServiceTests {
     // Settling one must not touch the other.
     final var statuses = List.of(status(FINALIZED), NIL_STATUS);
     rpcClient.sigStatuses = _ -> statuses;
-    final var contextA = service.pendingTransactions.stream().filter(c -> c.sig().equals("sig-a")).findFirst().orElseThrow();
-    final var contextB = service.pendingTransactions.stream().filter(c -> c.sig().equals("sig-b")).findFirst().orElseThrow();
+    final var contextA = service.pendingTransactions.values().stream().filter(c -> c.sig().equals("sig-a")).findFirst().orElseThrow();
+    final var contextB = service.pendingTransactions.values().stream().filter(c -> c.sig().equals("sig-b")).findFirst().orElseThrow();
     service.completeFutures(contextMap(contextA, contextB), List.of("sig-a", "sig-b"), statuses);
 
     assertTrue(first.isDone());
     assertFalse(second.isDone(), "settling one transaction at a height must leave its sibling pending");
-    assertEquals(List.of(contextB), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(contextB), List.copyOf(service.pendingTransactions.values()));
+  }
+
+  /// One signature queued twice is one transaction published twice (the JFR
+  /// soak harness produced it on 2026-09-26 through a shared signer, where
+  /// it was two different messages under one signature; with a signer per
+  /// thread one signature is one message). The map refuses the second
+  /// context, and before the fix its caller's future was never completed: an
+  /// uninterruptible join for the life of the process. Both callers await the
+  /// same signature, so they share a future.
+  @Test
+  void aSignatureQueuedTwiceSharesTheFirstQueuesFuture() {
+    final var service = service();
+
+    final var first = service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, false);
+    final var second = service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, false);
+
+    assertSame(first, second, "the second queue of a signature must be handed the pending future");
+    assertEquals(1, service.pendingTransactions.size());
+    final var context = service.pendingTransactions.firstEntry().getValue();
+    final var statuses = List.of(status(FINALIZED));
+    service.completeFutures(contextMap(context), List.of("sig"), statuses);
+
+    assertTrue(first.isDone());
+    assertTrue(second.isDone());
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  /// A weaker second caller shares the pending future: it settles at the
+  /// pending level, which is at least what it asked for. `CONFIRMED` and
+  /// `FINALIZED` are one level either way round.
+  @Test
+  void aWeakerOrEqualSecondQueueSharesThePendingFuture() {
+    final var service = service();
+    final var first = service.queueResult(CONFIRMED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, true);
+
+    assertSame(first, service.queueResult(PROCESSED, PROCESSED, "sig", sendTxContext(4_242, 0), false, false));
+    assertSame(first, service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(4_242, 0), true, true));
+    assertEquals(1, service.pendingTransactions.size());
+
+    final var finalizedFirst = service();
+    final var finalized = finalizedFirst.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(4_242, 0), false, false);
+    assertSame(finalized, finalizedFirst.queueResult(CONFIRMED, CONFIRMED, "sig", sendTxContext(4_242, 0), false, false));
+  }
+
+  /// A stricter second caller is refused on its own thread rather than
+  /// answered below the level it asked for, since only the pending settings
+  /// steer the monitor. Each setting alone decides it.
+  @Test
+  void aStricterSecondQueueIsRefused() {
+    record Stricter(String setting, Commitment await, Commitment onError, boolean verifyExpired, boolean retrySend) {
+    }
+    final var cases = List.of(
+        new Stricter("await", CONFIRMED, PROCESSED, false, false),
+        new Stricter("onError", PROCESSED, FINALIZED, false, false),
+        new Stricter("verifyExpired", PROCESSED, PROCESSED, true, false),
+        new Stricter("retrySend", PROCESSED, PROCESSED, false, true)
+    );
+    for (final var stricter : cases) {
+      final var service = service();
+      final var first = service.queueResult(PROCESSED, PROCESSED, "sig", sendTxContext(4_242, 0), false, false);
+
+      final var refused = assertThrows(
+          IllegalArgumentException.class,
+          () -> service.queueResult(stricter.await, stricter.onError, "sig", sendTxContext(4_242, 0), stricter.verifyExpired, stricter.retrySend),
+          stricter.setting
+      );
+
+      assertEquals(
+          "Signature sig is already awaited with weaker settings"
+              + " [await=PROCESSED, onError=PROCESSED, verifyExpired=false, retrySend=false] than the requested"
+              + " [await=" + stricter.await + ", onError=" + stricter.onError
+              + ", verifyExpired=" + stricter.verifyExpired + ", retrySend=" + stricter.retrySend + "]",
+          refused.getMessage(),
+          stricter.setting
+      );
+      assertFalse(first.isDone());
+      assertEquals(1, service.pendingTransactions.size(), stricter.setting);
+    }
+  }
+
+  /// A resend replaces the entry's value in one write and keeps its future,
+  /// so a queue of the same signature after a resend shares that future too:
+  /// there is no moment at which the signature has no entry, which is what a
+  /// remove-then-add would have opened.
+  @Test
+  void aQueueAfterAResendSharesTheResentContextsFuture() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var first = service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    final var context = service.pendingTransactions.firstEntry().getValue();
+
+    service.processTransactions(contextMap(context));
+
+    final var resent = service.pendingTransactions.firstEntry().getValue();
+    assertNotSame(context, resent);
+    assertEquals(1, resent.retryCount());
+    assertSame(first, resent.sigStatusFuture(), "a resend keeps the future");
+    assertSame(first, service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true));
+    assertEquals(1, service.pendingTransactions.size());
   }
 
   /// The publisher-availability mask must only ever clear the flag: an
@@ -340,7 +438,7 @@ final class TxCommitmentMonitorServiceTests {
 
     service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, false);
 
-    final var context = service.pendingTransactions.first();
+    final var context = service.pendingTransactions.firstEntry().getValue();
     assertFalse(context.retrySend(), "an opt-out must not be overridden by publisher availability");
     assertTrue(context.verifyExpired());
   }
@@ -366,7 +464,7 @@ final class TxCommitmentMonitorServiceTests {
 
     service.queueResult(FINALIZED, CONFIRMED, "sig", sendTxContext(4_242, 0), true, true);
 
-    final var context = service.pendingTransactions.first();
+    final var context = service.pendingTransactions.firstEntry().getValue();
     assertFalse(context.retrySend(), "nothing can be resent without a publisher");
     assertTrue(context.verifyExpired(), "the mask must only touch the resend flag");
   }
@@ -651,7 +749,7 @@ final class TxCommitmentMonitorServiceTests {
   void aMissingStatusIsGivenUpOnWhenExpirationIsNotBeingVerified() {
     final var service = service();
     final var context = txContext("sig", 900, FINALIZED, FINALIZED, null, false, false);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(context));
@@ -671,8 +769,8 @@ final class TxCommitmentMonitorServiceTests {
     final var dropped = txContext("dropped", 800, FINALIZED, FINALIZED, null, false, false);
     // Exactly at the horizon: the newest height that can no longer land.
     final var expired = txContext("expired", HORIZON, FINALIZED, FINALIZED, null, true, false);
-    service.pendingTransactions.add(dropped);
-    service.pendingTransactions.add(expired);
+    service.pendingTransactions.put(dropped, dropped);
+    service.pendingTransactions.put(expired, expired);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
 
     service.processTransactions(contextMap(dropped, expired));
@@ -682,7 +780,7 @@ final class TxCommitmentMonitorServiceTests {
     assertFalse(expired.sigStatusFuture().isDone(), "an expired transaction is re-checked, not abandoned here");
     assertEquals(
         List.of(expired),
-        List.copyOf(expirationMonitor.pendingTransactions),
+        List.copyOf(expirationMonitor.pendingTransactions.values()),
         "an expired block hash moves to the expiration monitor"
     );
     assertTrue(service.pendingTransactions.isEmpty(), "and stops being polled by the commitment monitor");
@@ -694,7 +792,7 @@ final class TxCommitmentMonitorServiceTests {
     final var expirationMonitor = expirationMonitor(service);
 
     final var expired = txContext("expired", HORIZON, FINALIZED, FINALIZED, null, true, false);
-    service.pendingTransactions.add(expired);
+    service.pendingTransactions.put(expired, expired);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     // The expiration worker sleeps between passes; handing it an expired
@@ -707,7 +805,7 @@ final class TxCommitmentMonitorServiceTests {
       assertFalse(waiter.parked(), "an expired transaction must wake the expiration worker");
     }
 
-    assertEquals(List.of(expired), List.copyOf(expirationMonitor.pendingTransactions));
+    assertEquals(List.of(expired), List.copyOf(expirationMonitor.pendingTransactions.values()));
   }
 
   @Test
@@ -716,13 +814,13 @@ final class TxCommitmentMonitorServiceTests {
     final var expirationMonitor = expirationMonitor(service);
 
     final var live = txContext("live", HORIZON + 1, FINALIZED, FINALIZED, null, true, false);
-    service.pendingTransactions.add(live);
+    service.pendingTransactions.put(live, live);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(live));
 
     assertTrue(expirationMonitor.pendingTransactions.isEmpty(), "a live block hash must not be expired");
-    assertTrue(service.pendingTransactions.contains(live));
+    assertTrue(service.pendingTransactions.containsKey(live));
   }
 
   @Test
@@ -731,7 +829,7 @@ final class TxCommitmentMonitorServiceTests {
     final var expirationMonitor = expirationMonitor(service);
 
     final var live = txContext("live", HORIZON + 1, FINALIZED, FINALIZED, null, true, false);
-    service.pendingTransactions.add(live);
+    service.pendingTransactions.put(live, live);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     // The complement of the wake-up test: no expiration, no signal. A spurious
@@ -752,14 +850,14 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service(Duration.ofSeconds(1), 3);
     final var original = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
     final var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(context));
 
     assertEquals(List.of(original), publisher.retried);
     assertEquals(1, service.pendingTransactions.size(), "the resent transaction replaces the original");
-    final var resent = service.pendingTransactions.first();
+    final var resent = service.pendingTransactions.firstEntry().getValue();
     assertEquals(1, resent.retryCount());
     assertEquals("sig", resent.sig());
     assertEquals(context.blockHeight(), resent.blockHeight(), "a resend reuses the original block hash");
@@ -772,13 +870,13 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service(Duration.ofSeconds(1), 3);
     final var original = sendTxContext(HORIZON + 4, PUBLISHED_LONG_AGO);
     final var context = txContext("sig", HORIZON + 4, FINALIZED, FINALIZED, original, true, true);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(context));
 
     assertTrue(publisher.retried.isEmpty(), "exactly the minimum blocks remaining is not more than the minimum");
-    assertEquals(List.of(context), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(context), List.copyOf(service.pendingTransactions.values()));
   }
 
   @Test
@@ -786,13 +884,13 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service(Duration.ofSeconds(1), 3);
     final var original = sendTxContext(HORIZON + 10, PUBLISHED_IN_THE_FUTURE);
     final var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(context));
 
     assertTrue(publisher.retried.isEmpty(), "the resend delay is measured as time elapsed since publication");
-    assertEquals(List.of(context), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(context), List.copyOf(service.pendingTransactions.values()));
   }
 
   @Test
@@ -800,13 +898,13 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service(Duration.ofSeconds(1), 3);
     final var original = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
     final var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, false);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
 
     service.processTransactions(contextMap(context));
 
     assertTrue(publisher.retried.isEmpty());
-    assertEquals(List.of(context), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(context), List.copyOf(service.pendingTransactions.values()));
   }
 
   @Test
@@ -816,15 +914,15 @@ final class TxCommitmentMonitorServiceTests {
 
     final var settled = txContext("settled", 900, CONFIRMED, CONFIRMED);
     final var missing = txContext("missing", HORIZON + 2, FINALIZED, FINALIZED, null, true, false);
-    service.pendingTransactions.add(settled);
-    service.pendingTransactions.add(missing);
+    service.pendingTransactions.put(settled, settled);
+    service.pendingTransactions.put(missing, missing);
     final var confirmed = status(CONFIRMED, null, OptionalInt.of(5));
     rpcClient.sigStatuses = _ -> List.of(confirmed, NIL_STATUS);
 
     service.processTransactions(contextMap(settled, missing));
 
     assertSame(confirmed, settled.sigStatusFuture().getNow(null));
-    assertEquals(List.of(missing), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(missing), List.copyOf(service.pendingTransactions.values()));
   }
 
   /// Advances only when told to; non-zero origin so a `publishedAt` computed
@@ -858,7 +956,7 @@ final class TxCommitmentMonitorServiceTests {
     var service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
     var original = sendTxContext(HORIZON + 10, now - retryDelayMillis + 1);
     var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
     service.processTransactions(contextMap(context));
     assertTrue(publisher.retried.isEmpty(), "one millisecond younger than the delay must not resend");
@@ -867,7 +965,7 @@ final class TxCommitmentMonitorServiceTests {
     service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
     original = sendTxContext(HORIZON + 10, now - retryDelayMillis);
     context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
-    service.pendingTransactions.add(context);
+    service.pendingTransactions.put(context, context);
     rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
     service.processTransactions(contextMap(context));
     assertEquals(List.of(original), publisher.retried, "exactly the delay is due");

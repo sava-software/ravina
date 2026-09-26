@@ -171,8 +171,12 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
                   final var sendContext = transactionPublisher.retry(previousSendContext);
                   final var nexContext = txContext.resent(sendContext);
-                  pendingTransactions.remove(txContext);
-                  pendingTransactions.add(nexContext);
+                  // One atomic write, never a remove and an add: between those two a
+                  // queueResult of the same signature could take the key with a fresh
+                  // future, the add of the resent context would be refused, and the future
+                  // this transaction's caller holds would never be completed. This thread
+                  // is the only writer of an existing entry, so the replace holds.
+                  pendingTransactions.replace(txContext, txContext, nexContext);
                   logger.log(INFO, String.format("""
                           Resent transaction:
                            * retry: %d
@@ -213,8 +217,28 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         // failing when the first resend comes due.
         retrySend && transactionPublisher != null
     );
-    pendingTransactions.add(txContext);
-    return txContext.sigStatusFuture();
+    final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
+    if (pending == null) {
+      return txContext.sigStatusFuture();
+    }
+    // The key is (block height, signature), so a refused entry means this signature is already
+    // pending. Both callers await one signature, so the second is handed the pending future,
+    // provided the pending settings are at least as demanding as its own: only the pending
+    // context's settings steer the monitor, so a stricter second caller is refused here, on
+    // its own thread, rather than answered below the level it asked for. Before this the
+    // refused caller's future was never completed, and its processInstructions sat in an
+    // uninterruptible join for the life of the process (seen 2026-09-26, when a shared signer
+    // gave two workers one signature over two different messages; sharing a future is right
+    // only because signatures are per thread now, so one signature is one message). A
+    // same-signature context at another height cannot exist: the signature covers the
+    // message, and the message holds the block hash whose last valid height this is.
+    if (!pending.atLeastAsStrictAs(txContext)) {
+      throw new IllegalArgumentException(String.format(
+          "Signature %s is already awaited with weaker settings %s than the requested %s",
+          sig, pending.settings(), txContext.settings()
+      ));
+    }
+    return pending.sigStatusFuture();
   }
 
   private static final CompletableFuture<TxResult> NO_RESULT = CompletableFuture.completedFuture(null);

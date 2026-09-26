@@ -80,10 +80,33 @@ final class TxExpirationMonitorServiceTests {
 
     assertTrue(vanished.sigStatusFuture().isDone());
     assertNull(vanished.sigStatusFuture().join(), "an expired, unseen transaction resolves to no status");
-    assertFalse(service.pendingTransactions.contains(vanished));
+    assertFalse(service.pendingTransactions.containsKey(vanished));
 
     assertSame(landedStatus, landed.sigStatusFuture().getNow(null));
-    assertFalse(service.pendingTransactions.contains(landed));
+    assertFalse(service.pendingTransactions.containsKey(landed));
+  }
+
+  /// The commitment monitor holds one entry per signature, so a second
+  /// context for a pending signature is not expected here; if one arrives it
+  /// must neither be dropped (its caller would wait forever) nor replace the
+  /// first (whose caller would): the first's outcome answers both.
+  @Test
+  void aSecondContextForAPendingSignatureCompletesWithTheFirstsOutcome() {
+    final var rpcClient = new FakeRpcClient();
+    final var service = service(rpcClient);
+    final var first = txContext("sig", EXPIRED_HEIGHT, FINALIZED, FINALIZED);
+    final var second = txContext("sig", EXPIRED_HEIGHT, FINALIZED, FINALIZED);
+
+    service.addTxContext(first);
+    service.addTxContext(second);
+
+    assertEquals(1, service.pendingTransactions.size());
+    assertSame(first, service.pendingTransactions.firstEntry().getValue());
+    assertFalse(second.sigStatusFuture().isDone());
+    final var status = status(FINALIZED);
+    first.completeFuture(status);
+    assertTrue(second.sigStatusFuture().isDone());
+    assertSame(status, second.sigStatusFuture().join());
   }
 
   /// One block inside the buffer: the block that could contain the
@@ -108,7 +131,7 @@ final class TxExpirationMonitorServiceTests {
         "a pass that cannot settle a verdict must not pay for a history search"
     );
     assertFalse(context.sigStatusFuture().isDone(), "a miss inside the buffer must not settle the future");
-    assertTrue(service.pendingTransactions.contains(context), "a gated signature keeps being polled");
+    assertTrue(service.pendingTransactions.containsKey(context), "a gated signature keeps being polled");
   }
 
   /// The earliest gate in the batch decides the history flag: one open gate
@@ -136,7 +159,7 @@ final class TxExpirationMonitorServiceTests {
     assertTrue(due.sigStatusFuture().isDone());
     assertNull(due.sigStatusFuture().join());
     assertFalse(recent.sigStatusFuture().isDone(), "only a transaction's own open gate settles it");
-    assertEquals(List.of(recent), List.copyOf(service.pendingTransactions));
+    assertEquals(List.of(recent), List.copyOf(service.pendingTransactions.values()));
   }
 
   @Test
@@ -151,7 +174,7 @@ final class TxExpirationMonitorServiceTests {
     service.processTransactions(contextMap(context));
 
     assertFalse(context.sigStatusFuture().isDone());
-    assertTrue(service.pendingTransactions.contains(context), "a visible transaction is not given up on");
+    assertTrue(service.pendingTransactions.containsKey(context), "a visible transaction is not given up on");
   }
 
   @Test

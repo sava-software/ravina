@@ -12,7 +12,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -28,7 +28,11 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   protected final RpcCaller rpcCaller;
   private final EpochInfoService epochInfoService;
   private final long minSleepMillisBetweenPolling;
-  protected final ConcurrentSkipListSet<TxContext> pendingTransactions;
+  /// Keyed by the context itself: equality is (block height, signature), so one signature
+  /// has one entry, and the value is the context currently monitoring it (a resend replaces
+  /// the value, never the key). Callers enter with `putIfAbsent`; a refused caller shares the
+  /// entry's future. The monitor thread is the only writer of an existing entry.
+  protected final ConcurrentSkipListMap<TxContext, TxContext> pendingTransactions;
   final ReentrantLock workLock; // package-private: tests assert the loop never leaks it
   // package-private: tests observe the waiter queue via workLock.hasWaiters.
   final Condition processTransactions;
@@ -46,7 +50,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     this.minSleepMillisBetweenPolling = requireMillis(
         minSleepBetweenSigStatusPolling, "minimum sleep between signature status polling"
     );
-    this.pendingTransactions = new ConcurrentSkipListSet<>();
+    this.pendingTransactions = new ConcurrentSkipListMap<>();
     this.workLock = new ReentrantLock(false);
     this.processTransactions = workLock.newCondition();
   }
@@ -62,7 +66,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
       epochInfoService.awaitInitialized();
       for (; ; ) {
         if (!pendingTransactions.isEmpty()) {
-          for (final var txContext : pendingTransactions) {
+          for (final var txContext : pendingTransactions.values()) {
             batch.put(txContext.sig(), txContext);
             if (++batchSize == MAX_SIG_STATUS) {
               break;

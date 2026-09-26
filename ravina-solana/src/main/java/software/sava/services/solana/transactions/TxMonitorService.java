@@ -94,6 +94,14 @@ public interface TxMonitorService extends Worker {
   /// met by either: under Alpenglow they are the same event, and before
   /// activation ravina accepts a confirmed transaction as final, so an await
   /// on `FINALIZED` is released at confirmation.
+  ///
+  /// One signature has one pending entry. A second queue of a pending
+  /// signature is handed the pending future, provided the pending settings
+  /// are at least as demanding as its own (`PROCESSED` is below `CONFIRMED`
+  /// and `FINALIZED`, which are one level; `verifyExpired` and `retrySend`
+  /// true are above false), and is otherwise refused with
+  /// `IllegalArgumentException`, because only the pending settings steer the
+  /// monitor.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,

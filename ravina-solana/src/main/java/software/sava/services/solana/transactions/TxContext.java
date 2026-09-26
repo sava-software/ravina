@@ -62,14 +62,34 @@ record TxContext(Commitment awaitCommitment,
     sigStatusFuture.complete(null);
   }
 
+  /// Whether a caller with `other`'s settings can share this context's future: every setting
+  /// here is at least as demanding as the other's. `CONFIRMED` and `FINALIZED` are one settled
+  /// level (see Settlement) and `PROCESSED` is below both; `verifyExpired` and `retrySend`
+  /// true are above false.
+  boolean atLeastAsStrictAs(final TxContext other) {
+    return level(awaitCommitment) >= level(other.awaitCommitment)
+        && level(awaitCommitmentOnError) >= level(other.awaitCommitmentOnError)
+        && (verifyExpired || !other.verifyExpired)
+        && (retrySend || !other.retrySend);
+  }
+
+  private static int level(final Commitment commitment) {
+    return commitment == Commitment.PROCESSED ? 0 : 1;
+  }
+
+  String settings() {
+    return "[await=" + awaitCommitment + ", onError=" + awaitCommitmentOnError
+        + ", verifyExpired=" + verifyExpired + ", retrySend=" + retrySend + "]";
+  }
+
   @Override
   public int compareTo(final TxContext o) {
     final int byBlockHeight = Long.compareUnsigned(blockHeight, o.blockHeight);
-    // The pending set derives *equality* from this ordering, so without the
+    // The pending map derives *equality* from this ordering, so without the
     // signature tie-break two transactions sharing a lastValidBlockHeight —
-    // routine for sends in the same slot — would collide: the second add
-    // silently dropped, its caller's future never completed, and a resend
-    // able to remove a different transaction at the same height.
+    // routine for sends in the same slot — would collide: the second would be
+    // handed the first's future and await a different transaction, and a
+    // resend could replace a different transaction's entry at the same height.
     return byBlockHeight == 0 ? sig.compareTo(o.sig) : byBlockHeight;
   }
 }
