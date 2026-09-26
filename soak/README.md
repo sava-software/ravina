@@ -10,22 +10,25 @@ SIMD-0385 v1 memo transactions through them. It is not part of `check`, PIT or f
 published, and it is not a release gate.
 
 It is modelled on sava's `soak/` and is deliberately much smaller: one workload (memo transactions
-at a fixed rate), one validator, no fault peer and no controls table.
+at a fixed rate), one validator, an optional fault-injecting proxy in front of its RPC (see "Fault
+injection") and no controls table.
 
 **Ravina never `requires jdk.jfr` and defines no JFR event** (owner decision, 2026-09-26; the rule
 is in `../AGENTS.md`). Waits are read from the JDK's built-in events and JEP 520 method timing.
 Every domain fact is a `ravina.soak.*` event this module commits from its own side of a public
 seam:
 
-- a `Proxy` over `SolanaRpcClient` (`RecordingRpcClient`), which is the client inside the one
-  balanced RPC item;
+- a `Proxy` over `SolanaRpcClient` (`RecordingRpcClient`), which is the client inside each
+  balanced RPC item (one, or two with `SOAK_PEERS=2`);
 - a wrapping `WebSocketManager` (`RecordingWebSocketManager`) whose `webSocket()` hands out a
   `Proxy` over the socket the real manager owns. The real manager keeps connection attempts and
   pacing; nothing here calls `connect()`;
-- a wrapping `Backoff` (`RecordingBackoff`), one for the RPC item and one for the websocket
+- a wrapping `Backoff` (`RecordingBackoff`), one for each RPC item and one for the websocket
   manager;
 - the workload's own call boundary around `InstructionService.processInstructions`;
-- public capacity readings: the RPC item's `CapacityState.capacity()`.
+- public capacity readings: each RPC item's `CapacityState.capacity()`;
+- the wire between ravina's RPC client and the validator, when a fault proxy sits there
+  (`FaultProxy`, see "Fault injection").
 
 This is the only module in the repository that requires `jdk.jfr`. If a question ever needs state
 that no public seam exposes, the answer is an additive observer hook in ravina with the event still
@@ -125,9 +128,13 @@ client would have used on its own.
 | `SOAK_WEBSOCKET` | | `false` for the control run: the manager hands out no socket. Only `true` or `false` is accepted, because `Boolean.parseBoolean` would read a typo as `false` |
 | `SOAK_OUT` | `--out` | the run directory |
 | `SOAK_AIRDROP_SOL` | | the faucet airdrop that funds the throwaway payer |
-| `SOAK_RPC_CAPACITY` | | the RPC item's capacity, refilled over one second; its floor is the negative of the same value |
+| `SOAK_RPC_CAPACITY` | | each RPC item's capacity, refilled over one second; its floor is the negative of the same value |
 | `SOAK_POLL_MILLIS` | | `TxMonitorConfig.minSleepBetweenSigStatusPolling`, the monitor's floor between polling passes |
 | `SOAK_WS_TIMEOUT_MILLIS` | | `TxMonitorConfig.webSocketConfirmationTimeout`, how long a signature subscription is awaited before polling takes over |
+| `SOAK_FAULT` | | peer 1's fault spec, empty for none; see "Fault injection" |
+| `SOAK_PEERS` | | balanced RPC peers, `1` or `2` |
+| `SOAK_PEER2_FAULT` | | peer 2's fault spec, read only with `SOAK_PEERS=2` |
+| `SOAK_PROXY_PORT` | | peer 1's proxy port; peer 2's is the next one |
 | `SOAK_VALIDATOR` | `--validator` | the runner's, not the client's: the `solana-test-validator` binary |
 | `SOAK_JAVA_HOME` | | `config/generate-jfc.sh`'s; the runner tolerates it |
 
@@ -206,11 +213,11 @@ strings, and it must be new or empty.
 | `run.env` | soak.sh | every resolved `SOAK_*` value |
 | `run.txt` | soak.sh | the git revision and dirty files, the JDK and its `java -version`, the validator and its version, the endpoint's `getVersion`, the method-timing entries and the launch line |
 | `config/` | soak.sh | the recording and logging settings the run used |
-| `logs/client.log` | client JVM | its output, closing with `Run finished: submitted=N settled=N pending=N dropped=N notified=N timedOut=N threw=N`, or `Run interrupted: …` from the shutdown hook when the run was stopped |
+| `logs/client.log` | client JVM | its output, closing with `Run finished: submitted=N settled=N pending=N dropped=N notified=N timedOut=N threw=N faultsInjected=N`, or `Run interrupted: …` from the shutdown hook when the run was stopped |
 | `logs/jfr-methodtrace.log` | client JVM | the method tracer's log, which gate 2 reads |
 | `logs/validator.log` | validator | its output; the ledger itself is under `build/ledger` |
 | `jfr-repo/`, `jfr/soak.jfr` | client JVM | the chunk repository, and the recording dumped on exit |
-| `gauge.csv` | Main | one row every ten seconds and a last one at close |
+| `gauge.csv` | Main | one row every ten seconds and a last one at close; `rpcCapacity` is peer 1's capacity reading and `rpcCapacityMin` the lowest across peers |
 | `jfr-summary.txt` | soak.sh | `jfr summary` over the recording, which gate 3 reads |
 | `gates.txt` | soak.sh | one line per gate, the notes, the report's result and the final `RESULT` line |
 | `summary.md`, `logs/report.log` | Report | the report |
@@ -232,10 +239,14 @@ A run is evidence only if all six hold; `gates.txt` records each with its detail
    `jdk.InitialSystemProperty`, `jdk.SystemProcess` or `jdk.NativeLibrary` event. A default
    recording stores environment variables, system properties and every command line on the machine
    verbatim, in a file people attach to issues.
-4. **`transaction-count`**: the `ravina.soak.Transaction` events equal `submitted` in the client
-   log's `Run finished:` line, and at least one was submitted. On a shortfall the detail says
-   whether both `ravina.soak.Run` events survived, which separates a ring that dropped the start
-   from a lost event.
+4. **`transaction-count`**: the `ravina.soak.Transaction` events equal `submitted` minus `pending`
+   in the client log's `Run finished:` line, and at least one was submitted. The workload commits a
+   transaction's event when its `processInstructions` call returns, so one still pending at exit
+   has none. A run that ends with work pending (the fault proxy verification under "First runs")
+   passes this gate with the pending count in its detail, and fails gate 6 by the client's exit
+   status, not here. On a shortfall against that figure the detail says whether both
+   `ravina.soak.Run` events survived, which separates a ring that dropped the start from a lost
+   event.
 5. **`settle-routes`**: with the websocket on, at least one transaction settled by notification;
    with it off, every route is `NO_WEBSOCKET`. The second branch holds by construction for every
    transaction that got a signature, because the workload labels each transaction of such a run
@@ -253,8 +264,11 @@ After the gates the runner runs the report, and a report that exits non-zero or 
 ### The report
 
 `Report`, in this module, reads the recording in one pass with `jdk.jfr.consumer.RecordingFile` and
-writes `summary.md`: a table of checks, then sections on the run, transactions, signature
-subscriptions, RPC, monitor passes, waits, backoff, the gauge and retention, and privacy. It reads
+writes `summary.md`: a table of checks (the transaction-event check counts against submitted minus
+pending, as gate 4 does), then sections on the run, transactions, signature
+subscriptions, RPC, monitor passes, waits, backoff, the gauge and retention, privacy, and, when a
+fault proxy ran, its windows and faults and every transaction and failed call split by whether it
+fell inside a window. It reads
 thresholds, the method-timing filter and the privacy switches from the recording's own
 `jdk.ActiveSetting` rows, not from the `.jfc`, and never prints a value the recording holds verbatim
 from the environment. Its checks table is for the reader: the runner fails a run on the report only
@@ -350,18 +364,20 @@ All are defined in `SoakEvents.java`. Any thread that matters is an explicit fie
 `eventThread` is the thread that committed the event, which for a notification is the websocket's
 thread, not the caller's.
 
-**`ravina.soak.Transaction`**: one per submission, committed in a `finally` whatever happened, so
-the event count equals the transactions submitted. Its duration is the whole `processInstructions`
-call: build, simulate, sign, send and settle. `outcome` is `OK`, `ERROR`, `EXPIRED`,
-`SIMULATION_FAILED`, `NO_BLOCK_HASH`, `SIZE_LIMIT` or `THREW`. `route` names what settled it, from
-what the seams saw for that signature: `WEBSOCKET` when a notification arrived, `TIMEOUT_THEN_POLL`
-when the monitor unsubscribed without one and polling settled it, `POLL` when no subscription
-activity was seen, `NO_WEBSOCKET` for every transaction of a run with the websocket disabled, and
-`UNSETTLED` when no signature came back. The millisecond fields count from the first send RPC
-returning, as the RPC proxy stamped it, to the result (`sendToResultMillis`), the notification
-(`sendToNotifyMillis`) and the subscription registering (`sendToSubscribeMillis`), each -1 when
-unobserved. `sendRpcMillis` is the last send call's own length, and `retries` counts the sends of
-the same signature beyond the first.
+**`ravina.soak.Transaction`**: one per submission, committed in a `finally` whatever happened once
+`processInstructions` returns, so the event count equals the transactions submitted minus those
+still pending at exit. Its duration is the whole `processInstructions` call: build, simulate, sign,
+send and settle. `outcome` is `OK`, `ERROR`, `EXPIRED`, `SIMULATION_FAILED`, `NO_BLOCK_HASH`,
+`SIZE_LIMIT`, `THREW` or `INTERRUPTED` (the run's own shutdown caught the worker in a wait; counted
+apart from a throw, and it makes the client exit 1 like pending work does). `route` names what
+settled it, from what the seams saw for that signature:
+`WEBSOCKET` when a notification arrived, `TIMEOUT_THEN_POLL` when the monitor unsubscribed without
+one and polling settled it, `POLL` when no subscription activity was seen, `NO_WEBSOCKET` for every
+transaction of a run with the websocket disabled, and `UNSETTLED` when no signature came back. The
+millisecond fields count from the first send RPC returning, as the recording RPC proxy stamped it,
+to the result (`sendToResultMillis`), the notification (`sendToNotifyMillis`) and the subscription
+registering (`sendToSubscribeMillis`), each -1 when unobserved. `sendRpcMillis` is the last send
+call's own length, and `retries` counts the sends of the same signature beyond the first.
 
 **`ravina.soak.SignatureSubscription`**: one per step in a subscription's life, from the socket
 proxy: `SUBSCRIBE`, `SUBSCRIBE_REFUSED` (the socket returned false), `NOTIFIED` (with `error` set
@@ -370,26 +386,28 @@ thread. The monitor's only `signatureUnsubscribe` call is in the handler for a w
 did not complete, so the harness counts each unsubscribe as a timeout.
 
 **`ravina.soak.RpcCall`**: one per future-returning `SolanaRpcClient` call, timed from invocation to
-the future completing, with a 25 ms threshold, so only slow calls are recorded. `outcome` is `OK`,
+the future completing, with a 25 ms threshold, so only slow calls are recorded. `peer` is the
+balanced item whose client made the call, `peer-1`, or `peer-2` with two peers. `outcome` is `OK`,
 `RPC_ERROR`, `TRANSPORT`, `CANCELLED` or `TIMEOUT` and `failure` the throwable's text; `batch` is
 the number of signatures in a `getSigStatusList` call, which is the monitor's poll batch, and 0 for
 every other method.
 
-**`ravina.soak.RpcOutcome`**: the same call's outcome with its elapsed milliseconds, committed for
-every non-OK outcome and for every hundredth OK call across all methods, so a recording whose calls
-all fall under the `RpcCall` threshold still carries the outcome mix and a sample of the poll
-cadence.
+**`ravina.soak.RpcOutcome`**: the same call's peer and outcome with its elapsed milliseconds,
+committed for every non-OK outcome and for every hundredth OK call across all methods, so a
+recording whose calls all fall under the `RpcCall` threshold still carries the outcome mix and a
+sample of the poll cadence.
 
 **`ravina.soak.Backoff`**: one per delay ravina asks a backoff for, with the caller's stack: `owner`
-(`rpc` or `websocket`), the error count and the delay in milliseconds. A negative delay, which tells
-the caller to give up, is recorded as given. The event is the delay computed, not a sleep taken; the
-sleep is a `jdk.ThreadSleep`. The websocket manager asks once per accepted connection failure, the
-balanced call once per failed RPC.
+(`rpc-peer-1`, `rpc-peer-2` or `websocket`), the error count and the delay in milliseconds. A
+negative delay, which tells the caller to give up, is recorded as given. The event is the delay
+computed, not a sleep taken; the sleep is a `jdk.ThreadSleep`. The websocket manager asks once per
+accepted connection failure, the balanced call once per failed RPC.
 
 **`ravina.soak.Gauge`**: every ten seconds through `FlightRecorder.addPeriodicEvent`. It carries
 submitted, settled and pending (the harness's own counters, pending being submitted minus settled,
-never a read of the monitor's private state), RPC calls in flight at the proxy, the RPC item's
-capacity reading (negative is an overdraft or a dock), the websocket state, live subscriptions,
+never a read of the monitor's private state), RPC calls in flight at the recording proxy, peer 1's
+capacity reading as `rpcCapacity` and the lowest reading across peers as `rpcCapacityMin`, the same
+figure with one peer (negative is an overdraft or a dock), the websocket state, live subscriptions,
 the notified and timed-out totals, heap used, heap after the last collection (the heap pools'
 collection usage) and live threads. The websocket state is `OPEN` or `CLOSED` for the socket the
 manager hands out, `NONE` while it hands out none, `DISABLED` in the control run and `ERROR` if the
@@ -397,11 +415,126 @@ accessor threw. `gauge.csv` carries the same fields plus `dropped` and the ledge
 the harness's own ten-second schedule and once more at close. It is the whole-run series that
 survives a rolled ring or a killed JVM.
 
+**`ravina.soak.FaultWindow`**: one per fault window of a fault proxy, begun when the window opens
+and committed when it closes, so its start and duration are the window's, whether or not a request
+arrived in it. `proxy` names the peer (`peer-1`, `peer-2`) and `kind` the fault (`RATE_LIMIT`,
+`SERVER_ERROR`, `LATENCY`, `STALL` or `BLACKHOLE`). These are the intervals to split every other
+event by, inside a window or outside one. Each carries its `window` ordinal, from 0. A window
+still open when the proxy closes is committed as far as it got, so a run that ends inside a
+window keeps that window.
+
+**`ravina.soak.Fault`**: one per request a proxy faulted, delayed ones included, begun at the
+injection so its timestamp is inside its window whatever the fault's own delay, and committed
+once the fault has been served. It carries `proxy`, `kind`, `method`, the schedule `window` it
+fell in (from 0, joining `FaultWindow.window`: bucket by this rather than by time, since the
+window event's own start trails the schedule by a few milliseconds) and, for `BLACKHOLE`, the
+swallowed transaction's signature in `detail`. `method` is the JSON-RPC method read from the request body
+(`getSignatureStatuses`), not the `SolanaRpcClient` method that `RpcCall` and `RpcOutcome` name
+(`getSigStatusList`), so the two are matched by meaning, not by string.
+
 **`ravina.soak.Run`**: committed at `START` and at `END`, so a recording read on its own says what
 produced it and how it ended: the RPC endpoint, whether the websocket was on, the rate, the
 duration, and the submitted and settled totals. `detail` carries the payer, the RPC capacity, the
-poll floor and the websocket timeout at start, and the pending, dropped, notified and timed-out
-totals at end.
+poll floor, the websocket timeout, the peer count and each proxy's fault at start
+(`peer-1=rate_limit:on=5,off=15,ms=500`, or `peer-2=pass-through`: the kind prints with an
+underscore and `ms` always shows), and the pending, dropped, notified, timed-out, thrown and
+injected-fault totals at end.
+
+## Fault injection
+
+`FaultProxy` is a fault-injecting reverse proxy in front of the validator's JSON-RPC, run inside the
+harness JVM on 127.0.0.1 (`com.sun.net.httpserver`, hence `requires jdk.httpserver`), so a run needs
+no other process and the recording sees its threads. It is HTTP only: ravina's RPC clients are
+pointed at the proxy, and the websocket always goes to the validator directly, so nothing here
+faults a subscription. The proxy forwards to `SOAK_RPC` on its own HTTP/1.1 client with a
+30-second timeout and answers 502 when the upstream cannot be reached. With one peer and no fault
+there is no proxy at all: the peer talks to the validator as it did before the proxy existed.
+
+Faults follow a fixed schedule armed when the workload starts, not when the proxy does, so the
+epoch service's initialisation and the funding never see a window: `on` seconds of fault, `off`
+seconds of pass-through, repeating. Each window is a `ravina.soak.FaultWindow` event and each injected fault a
+`ravina.soak.Fault`, so every other number can be split by whether it fell inside a window (see
+"Harness events"); the client log's `Run finished:` line counts the faults as `faultsInjected`.
+
+### The spec
+
+```
+<kind>[:on=SECONDS][,off=SECONDS][,ms=MILLIS][,methods=NAME+NAME]
+```
+
+One fault per proxy. `on` defaults to 10 and `off` to 50; `on` must be positive, and `off=0` keeps
+the fault on for the whole run. `ms` defaults to 500, and to 30,000 for `stall`. `methods` limits
+the fault to those JSON-RPC methods, named as they are on the wire (`getSignatureStatuses`, not
+`getSigStatusList`); without it every method is faulted. `429` and `503` are accepted as names for
+`rate-limit` and `server-error`. An unknown kind or option, a bad window, or a proxy port already
+in use throws while `Main` builds the RPC seam, and the client exits 2 before its workload.
+
+The kinds, chosen for what they exercise in ravina:
+
+- **`rate-limit`**: 429 with a JSON-RPC error body and a `Retry-After` header (the seconds left in
+  the window, at least 1). Docks the item's bucket by `rateLimitedBackOffCapacity`, fails the call,
+  and drives the balanced call's backoff and, with two peers, its failover. The dock is the
+  capacity of `rateLimitedBackOffDuration`, which `Main`'s `CapacityConfig` sets to one second;
+  ravina's error tracker does not read `Retry-After`.
+- **`server-error`**: 503, the same with the server-error dock (`serverErrorBackOffDuration`, also
+  one second here). A plain 500 docks capacity like any other 5xx since 2026-09-26
+  (`HttpErrorTracker.isServerError` was `> 500` before, and its test had pinned that as
+  deliberate; it was not).
+- **`latency`**: the request is forwarded after `ms` milliseconds; join parks and method timing
+  show the added time, nothing fails.
+- **`stall`**: the response headers are sent and the body never follows, for `ms` milliseconds
+  (default 30 s, and never under 20 s: the server ends a closed chunked body with its terminating
+  chunk, so a stall released before sava-rpc's 16 s deadline reaches the client as a complete,
+  malformed response, a different fault): the exchange deadline's case. The proxy cannot see the
+  client give up, so a handler thread is held for the whole stall. On JDK 25 a request
+  timeout bounds only the wait for the headers; sava-rpc's `JsonHttpClient` bounds the whole
+  exchange on its default routes from 25.11.2 on, and `ExchangeDeadline` in `ravina-core` is the
+  same bound for ravina's own HTTP clients. The proxy writes one byte of a chunked body, holds it
+  open, and closes the exchange unfinished when the stall ends.
+- **`blackhole`**: `sendTransaction` is swallowed and answered with the transaction's own
+  signature, as an RPC that accepted and then dropped it would; every other method passes, and
+  `methods` is ignored. The proxy remembers every signature it swallowed and swallows its
+  resends outside the windows too, so the transaction never lands and its block hash expires:
+  the resend and expiration paths.
+
+### Settings and peers
+
+| variable | default | what it controls |
+|---|---|---|
+| `SOAK_FAULT` | empty | peer 1's fault spec; empty means no fault |
+| `SOAK_PEERS` | `1` | balanced RPC peers, `1` or `2` |
+| `SOAK_PEER2_FAULT` | empty | peer 2's fault spec, read only with `SOAK_PEERS=2` |
+| `SOAK_PROXY_PORT` | `18899` | peer 1's proxy port; peer 2's is the next one, 18900 by default |
+
+With `SOAK_PEERS=2` both peers go through a proxy, a pass-through one where no fault is set, so
+their latencies match: the balancer orders on latency as well as errors, and should see the fault,
+not the extra hop. The two items are combined with `LoadBalancer.createSortedBalancer`, the sorted
+balancer ravina uses in production (`LoadBalanceUtil.createRPCLoadBalancer` builds it from a
+consumer's config), where a single peer gets `LoadBalancer.createBalancer`. Each peer has its own
+bucket of `SOAK_RPC_CAPACITY`, its own `rpc-peer-N` backoff and its own `peer` label on the RPC
+events, and both forward to the same validator. A fault on peer 1 alone is the failover case.
+
+Funding, the airdrop and the balance polls that confirm it, goes to the validator directly on a
+`SolanaRpcClient` of its own, so a window open at start cannot fail the run. Everything else goes
+through the proxy, the epoch service included. The first window opens as the client starts, so a
+fault that hits `getEpochInfo` or `getRecentPerformanceSamples` delays the epoch service's
+initialisation, which the client waits for before funding (6,585 ms in the verification run under
+"First runs").
+
+### Running one
+
+The settings go on the command line as environment; `soak.sh` takes them like any other `SOAK_*`
+name and writes them to `run.env`:
+
+```sh
+cd soak
+SOAK_FAULT='rate-limit:on=10,off=50' ./soak.sh smoke
+SOAK_FAULT='latency:ms=800,methods=simulateTransaction' ./soak.sh smoke
+SOAK_PEERS=2 SOAK_FAULT='server-error:on=20,off=40' ./soak.sh smoke   # peer 2 passes through
+```
+
+A fault run can end with work still pending. That passes gate 4 and fails gate 6 (see "Gates"),
+which is a finding to read, not necessarily a defect in the harness.
 
 ## Measurement: a late signature subscription is still notified
 
@@ -517,6 +650,62 @@ gates passed; the client exited 0 after 3,603 s.
   threads at 24 throughout; 11 distinct old-object samples, mostly byte arrays, none a ravina
   type. At this rate and length the pipeline retains nothing measurable.
 
+**Capacity pressure, 2026-09-26 (`smoke-20260926T211758Z`, 8 tx/s for 300 s against the
+50-per-second bucket, sends charged at 10, websocket on).** Deliberately oversubscribed about
+twofold, to make the courteous path wait. It exits 1 with work pending, which is the
+measurement, not a defect: 2,400 submitted, 1,575 settled, 866 still pending at the end of the
+two-minute drain and 681 workers interrupted in their courteous sleeps by the shutdown.
+
+- Throughput was pinned at the bucket: about 3.7 settled per second against 8 submitted,
+  which is 45 weight per second of the 50 the bucket refills (a send costs 10, a simulation
+  and a block-hash read 1 each). Pending grew linearly to 1,303 and the worker pool to 2,090
+  threads, one per pending transaction by the harness's design.
+- A transaction that reached the send settled as before: send to result p50 302 ms, max
+  595 ms, all over the websocket. The queueing is in front of the send: `processInstructions`
+  p50 115 s, max 413 s, all of it courteous waiting in `CourteousBalancedCall::call`, which
+  averaged 44 s over 6,522 calls.
+- The wait is a convoy, not a queue. `jdk.ThreadSleep` recorded 2,229,065 sleeps in
+  `CourteousBalancedCall.call`, median 44 ms, p90 236 ms, max 945 ms: about 340 sleeps per
+  courteous call. Each waiter sleeps the exact wait for one claim's worth of capacity, wakes,
+  finds another waiter took it, and computes a new wait; nothing reserves capacity for a
+  waiter, so two thousand of them wake about 45,000 times a second between them. Fairness is
+  by luck. That is a design fact about the token bucket under sustained oversubscription,
+  raised, not changed: a reservation (claim the debt, then sleep until it is covered) would
+  give one wake per call, but the floor that forgives deep overdrafts would then forgive
+  reservations too.
+- Three `simulateTransaction` calls failed with `RejectedExecutionException` at shutdown,
+  when the executor was already stopping; a shutdown artefact. No RPC failure before that.
+- The recording held all 2.2 million sleep events in 88 MB. `jdk.ThreadSleep` has no
+  throttle setting, only a threshold, so a pressure profile that runs longer than this must
+  raise the threshold or accept a rolling ring.
+
+**Fault proxy verification, 2026-09-26 (`smoke-20260926T212724Z`, ravina at e0ef9f9 plus the
+uncommitted proxy work, Agave 4.2.2, 60 s at 2 tx/s with a 30 s drain, websocket on, one peer,
+`SOAK_FAULT='rate-limit:on=5,off=15'`).** A check that the proxy works, not a measurement. Gates 1
+to 5 passed, gate 4 as `117 ravina.soak.Transaction events = 120 submitted - 3 still pending at
+exit`; gate 6 failed on the client's exit 1, so the run's `RESULT` is `FAIL`.
+
+- 32 faults over 5 windows, 7 in each of the first four and 4 in the last: 18
+  `simulateTransaction`, 7 `getSignatureStatuses`, 4 `getRecentPerformanceSamples`, 3
+  `getEpochInfo` and no `sendTransaction`. They surfaced as 32 `RPC_ERROR` outcomes
+  (`JsonRpcException: Too many requests`) and were retried on the exponential backoff: 32
+  `rpc-peer-1` delays, p50 250 ms, max 2,000 ms, error counts up to 4; 29 retry sleeps in
+  `UncheckedBalancedCall.get`, p50 500 ms, max 2,001 ms. The first window fell on the epoch
+  service's first refresh, and `getAndSetEpochInfo` took 6,585 ms.
+- The dock showed as courteous waiting while it cleared: 673 sleeps in
+  `CourteousBalancedCall.call`, p50 219 ms, p90 1,004 ms, max 1,023 ms, the longest about the one
+  second a dock charges; `gauge.csv`'s lowest capacity reading was −30.
+- A transaction that reached its send settled as before: 117 `OK` on the `WEBSOCKET` route, send
+  to result p50 242 ms, max 545 ms, no resend. The faults cost time in front of the send:
+  `processInstructions` p50 527 ms, p90 5,785 ms, max 10,112 ms.
+- Three transactions, published within about three seconds after the second window closed, were
+  never notified. The monitor gave up on each subscription after the 5-second websocket timeout
+  (`SUBSCRIBE` to `UNSUBSCRIBE` 5,002 ms), the polling pass ran (`processTransactions` 16 times,
+  1,298 ms on average, 8,653 ms at most), and each was resent eight times, the last resends
+  reporting 16, 9 and 9 blocks remaining. All three were still pending at exit. The run does not
+  show why they never landed: no `sendTransaction` was faulted, so every send and resend was
+  forwarded, `RpcOutcome` recorded no failed send, and the validator runs `--quiet`.
+
 ### The 60-second shakeout, 2026-09-26
 
 Against the local Agave 4.2.2 validator at 2 transactions per second, the shakeout settled 120 of
@@ -536,7 +725,6 @@ more facts from it shape the runs above:
 
 ## Later, not in the first cut
 
-A small fault proxy between ravina and the validator's RPC, injecting 429, 503, added latency and a
-body that stalls after its headers, to exercise capacity docking and retries. A plain 500 docks
-capacity like any other 5xx since 2026-09-26 (`HttpErrorTracker.isServerError` was `> 500`
-before, and its test had pinned that as deliberate; it was not).
+The fault proxy this section used to propose is built; see "Fault injection". The websocket path
+still has no fault of its own: subscriptions always go to the validator directly, so a dropped
+connection or a lost notification needs a websocket-side fault this harness does not inject.

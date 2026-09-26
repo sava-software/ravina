@@ -1008,6 +1008,18 @@ see Window -> Flight Recorder Template Manager
       <setting name="enabled">true</setting>
       <setting name="stackTrace">false</setting>
     </event>
+
+    <event name="ravina.soak.FaultWindow">
+      <setting name="enabled">true</setting>
+      <setting name="stackTrace">false</setting>
+      <setting name="threshold">0 ms</setting>
+    </event>
+
+    <event name="ravina.soak.Fault">
+      <setting name="enabled">true</setting>
+      <setting name="stackTrace">false</setting>
+      <setting name="threshold">0 ms</setting>
+    </event>
   <control>
 
     <selection default="normal" name="gc" label="Garbage Collector">

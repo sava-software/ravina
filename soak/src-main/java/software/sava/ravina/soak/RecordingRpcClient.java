@@ -21,20 +21,22 @@ import java.util.concurrent.TimeoutException;
 final class RecordingRpcClient implements InvocationHandler {
 
   private final SolanaRpcClient delegate;
+  private final String peer;
   private final Counters counters;
   private final SignatureLedger ledger;
 
-  private RecordingRpcClient(final SolanaRpcClient delegate, final Counters counters, final SignatureLedger ledger) {
+  private RecordingRpcClient(final SolanaRpcClient delegate, final String peer, final Counters counters, final SignatureLedger ledger) {
     this.delegate = delegate;
+    this.peer = peer;
     this.counters = counters;
     this.ledger = ledger;
   }
 
-  static SolanaRpcClient wrap(final SolanaRpcClient delegate, final Counters counters, final SignatureLedger ledger) {
+  static SolanaRpcClient wrap(final SolanaRpcClient delegate, final String peer, final Counters counters, final SignatureLedger ledger) {
     return (SolanaRpcClient) Proxy.newProxyInstance(
         SolanaRpcClient.class.getClassLoader(),
         new Class<?>[]{SolanaRpcClient.class},
-        new RecordingRpcClient(delegate, counters, ledger)
+        new RecordingRpcClient(delegate, peer, counters, ledger)
     );
   }
 
@@ -53,6 +55,7 @@ final class RecordingRpcClient implements InvocationHandler {
     }
     final var event = new SoakEvents.RpcCall();
     final var name = method.getName();
+    event.peer = peer;
     event.method = name;
     event.batch = name.equals("getSigStatusList") && args != null && args[0] instanceof Collection<?> signatures
         ? signatures.size()
@@ -111,6 +114,7 @@ final class RecordingRpcClient implements InvocationHandler {
     }
     if (!ok || counters.rpcOk.sum() % 100 == 0) {
       final var sample = new SoakEvents.RpcOutcome();
+      sample.peer = peer;
       sample.method = event.method;
       sample.outcome = outcome;
       sample.batch = event.batch;

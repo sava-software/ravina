@@ -28,11 +28,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.function.Function;
+import java.util.function.ToLongFunction;
+import java.util.regex.Pattern;
 
 /// Reads one soak recording and writes the Markdown report the plan asks of the first runs:
 /// send-to-confirmation latency, the share of confirmations by websocket, by polling and by
 /// timeout, monitor pass length and poll batch size, courteous wait lengths, and whether pending
-/// transactions are retained.
+/// transactions are retained. A run with a fault proxy also gets the faults it injected and the
+/// transaction and RPC figures split by whether they fell inside a fault window.
 ///
 /// `java ... -m software.sava.ravina.soak/software.sava.ravina.soak.Report <soak.jfr> <report.md>`
 /// writes the report to the second path and to stdout.
@@ -53,6 +57,10 @@ import java.util.TreeSet;
 ///   own `jdk.ActiveSetting` rows, never assumed from `config/ravina-soak.jfc`: a run made with
 ///   `settings=default` records sleeps and parks at 20 ms, not 5 ms, and carries the privacy
 ///   events.
+/// - A `ravina.soak.FaultWindow` is committed when its window closes, and events arrive in buffer
+///   order, not time order, so a window can be read after the transactions and calls it covers.
+///   Those are buffered as compact rows and classified against the windows only when the report
+///   is rendered.
 /// - Nothing the recording holds verbatim from the environment is printed: the privacy section
 ///   counts events and never shows a value, the RPC endpoint is printed without its path, query
 ///   or user info (a hosted endpoint keeps its key there), and the recording's destination path is
@@ -171,11 +179,91 @@ public final class Report {
   }
 
   record GaugeRow(Instant at, long submitted, long settled, long pending, long heapAfterLastGc,
-                  long heapUsed, long liveThreads, long liveSubscriptions, long rpcCapacity) {
+                  long heapUsed, long liveThreads, long liveSubscriptions, long rpcCapacity,
+                  long rpcCapacityMin) {
   }
 
   /// Where a wait was attributed: the site, or a reason there is none.
   record Site(String name, int line) {
+  }
+
+  /// One `ravina.soak.Transaction`, kept for the fault-window split: its lifetime in epoch nanos,
+  /// and -1 for a missing latency or retry count.
+  record TransactionRow(long start, long end, String outcome, String route, long sendToResultNanos,
+                        long processNanos, long retries) {
+  }
+
+  /// One not-OK `ravina.soak.RpcOutcome`, at its commit instant in epoch nanos.
+  record NotOkRow(long at, String peer, String method, String outcome) {
+  }
+
+  /// One `ravina.soak.Fault`, at its commit instant in epoch nanos.
+  record FaultRow(long at, String proxy, String kind, String method) {
+  }
+
+  /// One `ravina.soak.FaultWindow`, from its start to its end in epoch nanos.
+  record WindowRow(long start, long end, String proxy, String kind) {
+  }
+
+  /// Disjoint, ascending intervals in epoch nanos, merged from windows that may overlap (two
+  /// proxies' windows, or one proxy's back to back).
+  static final class Intervals {
+
+    private final long[] starts;
+    private final long[] ends;
+
+    Intervals(final List<WindowRow> windows) {
+      final var sorted = new ArrayList<>(windows);
+      sorted.sort(Comparator.comparingLong(WindowRow::start));
+      final var merged = new ArrayList<long[]>();
+      for (final var window : sorted) {
+        final long[] last = merged.isEmpty() ? null : merged.getLast();
+        if (last != null && window.start <= last[1]) {
+          last[1] = Math.max(last[1], window.end);
+        } else {
+          merged.add(new long[]{window.start, window.end});
+        }
+      }
+      starts = new long[merged.size()];
+      ends = new long[merged.size()];
+      for (int i = 0; i < starts.length; ++i) {
+        starts[i] = merged.get(i)[0];
+        ends[i] = merged.get(i)[1];
+      }
+    }
+
+    /// Whether `[from, to]` shares at least one instant with an interval, edges included.
+    boolean overlaps(final long from, final long to) {
+      // The first interval ending at or after `from`: the ends ascend because the intervals are
+      // disjoint and sorted.
+      int low = 0;
+      int high = ends.length;
+      while (low < high) {
+        final int mid = (low + high) >>> 1;
+        if (ends[mid] < from) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      return low < ends.length && starts[low] <= to;
+    }
+
+    boolean contains(final long at) {
+      return overlaps(at, at);
+    }
+
+    int size() {
+      return starts.length;
+    }
+
+    long totalNanos() {
+      long total = 0;
+      for (int i = 0; i < starts.length; ++i) {
+        total += ends[i] - starts[i];
+      }
+      return total;
+    }
   }
 
   // Recording
@@ -215,6 +303,11 @@ public final class Report {
   // 4. RPC
   private final Map<String, Rpc> rpc = new TreeMap<>();
   private final Map<String, Failure> failures = new TreeMap<>();
+  /// The same, keyed `method \0 peer` and `method \0 peer \0 outcome`, for a run with more than
+  /// one balanced peer; `peers` holds the distinct `peer` values, a missing field excluded.
+  private final Map<String, Rpc> rpcByPeer = new TreeMap<>();
+  private final Map<String, Failure> failuresByPeer = new TreeMap<>();
+  private final Set<String> peers = new TreeSet<>();
   private final Samples batchFromOutcome = new Samples();
   private final Samples batchFromCall = new Samples();
   private final Map<Integer, long[]> batchBuckets = new TreeMap<>();
@@ -241,10 +334,17 @@ public final class Report {
   private Instant maxPendingAt;
   private long maxLiveSubscriptions = Long.MIN_VALUE;
   private long minRpcCapacity = Long.MAX_VALUE;
+  private long minRpcCapacityMin = Long.MAX_VALUE;
   private final Map<String, Long> webSocketStates = new TreeMap<>();
   private long oldObjectEvents;
   private final Set<String> oldObjectKeys = new HashSet<>();
   private final Map<String, Long> oldObjectTypes = new HashMap<>();
+
+  // 10-11. Faults, and the split by fault window
+  private final List<WindowRow> faultWindows = new ArrayList<>();
+  private final List<FaultRow> faults = new ArrayList<>();
+  private final List<TransactionRow> transactionRows = new ArrayList<>();
+  private final List<NotOkRow> notOkRows = new ArrayList<>();
 
   private final StringBuilder out = new StringBuilder(32_768);
 
@@ -302,6 +402,8 @@ public final class Report {
       case "ravina.soak.RpcCall" -> rpcCall(event);
       case "ravina.soak.Backoff" -> backoff(event);
       case "ravina.soak.Gauge" -> gauge(event);
+      case "ravina.soak.FaultWindow" -> faultWindow(event);
+      case "ravina.soak.Fault" -> fault(event);
       case "jdk.MethodTiming" -> methodTiming(event);
       case "jdk.MethodTrace" -> methodTrace(event);
       case "jdk.ThreadSleep" -> wait(event, sleeps, true);
@@ -361,10 +463,16 @@ public final class Report {
     if (send >= 0) {
       sendRpc.add(millisToNanos(send));
     }
-    processInstructions.add(event.getDuration().toNanos());
+    final long process = event.getDuration().toNanos();
+    processInstructions.add(process);
     if (event.hasField("retries")) {
       count(retries, lng(event, "retries", 0));
     }
+    transactionRows.add(new TransactionRow(
+        epochNanos(event.getStartTime()), epochNanos(event.getEndTime()), outcome, route,
+        result >= 0 ? millisToNanos(result) : -1, process,
+        event.hasField("retries") ? lng(event, "retries", 0) : -1
+    ));
   }
 
   private void subscription(final RecordedEvent event) {
@@ -409,27 +517,45 @@ public final class Report {
     }
   }
 
-  private Rpc rpc(final String method) {
-    return rpc.computeIfAbsent(orUnknown(method), _ -> new Rpc());
+  /// The method's totals and its row for the peer that made the call (`?` when the recording
+  /// has no `peer` field), updated alike.
+  private Rpc[] rpc(final String method, final String peer) {
+    if (peer != null) {
+      peers.add(peer);
+    }
+    return new Rpc[]{
+        rpc.computeIfAbsent(method, _ -> new Rpc()),
+        rpcByPeer.computeIfAbsent(method + '\u0000' + orUnknown(peer), _ -> new Rpc())
+    };
+  }
+
+  private static void failure(final Map<String, Failure> failures, final String key, final RecordedEvent event) {
+    final var failure = failures.computeIfAbsent(key, _ -> new Failure());
+    ++failure.count;
+    if (failure.example == null) {
+      failure.example = str(event, "failure");
+    }
   }
 
   private void rpcOutcome(final RecordedEvent event) {
     final var method = orUnknown(str(event, "method"));
     final var outcome = orUnknown(str(event, "outcome"));
-    final var stats = rpc(method);
+    final var peer = str(event, "peer");
     final long elapsed = lng(event, "elapsedMillis", -1);
-    if (elapsed >= 0) {
-      stats.elapsed.add(millisToNanos(elapsed));
-    }
-    if (outcome.equals("OK")) {
-      ++stats.ok;
-    } else {
-      count(stats.notOk, outcome);
-      final var failure = failures.computeIfAbsent(method + '\u0000' + outcome, _ -> new Failure());
-      ++failure.count;
-      if (failure.example == null) {
-        failure.example = str(event, "failure");
+    for (final var stats : rpc(method, peer)) {
+      if (elapsed >= 0) {
+        stats.elapsed.add(millisToNanos(elapsed));
       }
+      if (outcome.equals("OK")) {
+        ++stats.ok;
+      } else {
+        count(stats.notOk, outcome);
+      }
+    }
+    if (!outcome.equals("OK")) {
+      failure(failures, method + '\u0000' + outcome, event);
+      failure(failuresByPeer, method + '\u0000' + orUnknown(peer) + '\u0000' + outcome, event);
+      notOkRows.add(new NotOkRow(epochNanos(event.getStartTime()), peer, method, outcome));
     }
     if ("getSigStatusList".equals(method) && event.hasField("batch")) {
       final int batch = (int) lng(event, "batch", 0);
@@ -440,10 +566,11 @@ public final class Report {
 
   private void rpcCall(final RecordedEvent event) {
     final var method = orUnknown(str(event, "method"));
-    final var stats = rpc(method);
     final long nanos = event.getDuration().toNanos();
-    ++stats.overThreshold;
-    stats.overThresholdMax = Math.max(stats.overThresholdMax, nanos);
+    for (final var stats : rpc(method, str(event, "peer"))) {
+      ++stats.overThreshold;
+      stats.overThresholdMax = Math.max(stats.overThresholdMax, nanos);
+    }
     if ("getSigStatusList".equals(method) && event.hasField("batch")) {
       final int batch = (int) lng(event, "batch", 0);
       batchFromCall.add(batch);
@@ -476,7 +603,8 @@ public final class Report {
         lng(event, "heapUsed", Long.MIN_VALUE),
         lng(event, "liveThreads", Long.MIN_VALUE),
         lng(event, "liveSubscriptions", Long.MIN_VALUE),
-        lng(event, "rpcCapacity", Long.MIN_VALUE)
+        lng(event, "rpcCapacity", Long.MIN_VALUE),
+        lng(event, "rpcCapacityMin", Long.MIN_VALUE)
     );
     if (firstGauge == null || row.at.isBefore(firstGauge.at)) {
       firstGauge = row;
@@ -494,10 +622,23 @@ public final class Report {
     if (row.rpcCapacity != Long.MIN_VALUE) {
       minRpcCapacity = Math.min(minRpcCapacity, row.rpcCapacity);
     }
+    if (row.rpcCapacityMin != Long.MIN_VALUE) {
+      minRpcCapacityMin = Math.min(minRpcCapacityMin, row.rpcCapacityMin);
+    }
     final var webSocket = str(event, "webSocket");
     if (webSocket != null) {
       count(webSocketStates, webSocket);
     }
+  }
+
+  private void faultWindow(final RecordedEvent event) {
+    faultWindows.add(new WindowRow(epochNanos(event.getStartTime()), epochNanos(event.getEndTime()),
+        orUnknown(str(event, "proxy")), orUnknown(str(event, "kind"))));
+  }
+
+  private void fault(final RecordedEvent event) {
+    faults.add(new FaultRow(epochNanos(event.getStartTime()), orUnknown(str(event, "proxy")),
+        orUnknown(str(event, "kind")), orUnknown(str(event, "method"))));
   }
 
   private void methodTiming(final RecordedEvent event) {
@@ -628,6 +769,8 @@ public final class Report {
     writeBackoff();
     writeGauge();
     writePrivacy();
+    writeFaults();
+    writeFaultSplit();
     return out.toString();
   }
 
@@ -672,8 +815,11 @@ public final class Report {
           "no END `ravina.soak.Run` event: the JVM did not shut down cleanly, counts are partial"));
       rows.add(row("END `settled` equals END `submitted`", "INCONCLUSIVE", "no END event"));
     } else {
-      rows.add(row("Transaction events equal END `submitted`", transactions == end.submitted ? "PASS" : "FAIL",
-          transactions + " events, submitted=" + end.submitted));
+      final var pendingMatcher = java.util.regex.Pattern.compile("pending=(\\d+)").matcher(end.detail == null ? "" : end.detail);
+      final long pendingAtEnd = pendingMatcher.find() ? Long.parseLong(pendingMatcher.group(1)) : 0;
+      rows.add(row("Transaction events equal END `submitted` minus `pending`",
+          transactions == end.submitted - pendingAtEnd ? "PASS" : "FAIL",
+          transactions + " events, submitted=" + end.submitted + ", pending=" + pendingAtEnd));
       rows.add(row("END `settled` equals END `submitted`", end.settled == end.submitted ? "PASS" : "FAIL",
           "settled=" + end.settled + ", submitted=" + end.submitted));
     }
@@ -812,28 +958,34 @@ public final class Report {
         + " so its OK column is a sample and its not-OK column is complete; the percentiles are over that sample."
         + " `ravina.soak.RpcCall` is recorded only at or over its threshold ("
         + (threshold == null ? "25 ms by annotation" : threshold) + "), so its count is the slow calls.");
+    // One table per method, or per method and peer when the calls went to more than one peer.
+    final boolean byPeer = peers.size() > 1;
     if (rpc.isEmpty()) {
       para("No RPC events.");
     } else {
+      if (byPeer) {
+        para("Rows are per method and balanced peer (the events' `peer` field): " + peers.size() + " peers, "
+            + String.join(", ", peers) + ". A `?` peer is an event with no `peer` value.");
+      }
       final var rows = new ArrayList<String[]>();
-      rpc.forEach((method, stats) -> {
+      (byPeer ? rpcByPeer : rpc).forEach((key, stats) -> {
         final long[] sorted = stats.elapsed.sorted();
         final long notOk = stats.notOk.values().stream().mapToLong(Long::longValue).sum();
-        rows.add(row(method, count(stats.ok + notOk), count(stats.ok), count(notOk),
+        rows.add(concat(key.split("\u0000", 2), row(count(stats.ok + notOk), count(stats.ok), count(notOk),
             ms(percentile(sorted, 0.5)), ms(percentile(sorted, 0.9)), ms(percentile(sorted, 0.99)),
             ms(sorted.length == 0 ? -1 : sorted[sorted.length - 1]),
-            count(stats.overThreshold), ms(stats.overThresholdMax)));
+            count(stats.overThreshold), ms(stats.overThresholdMax))));
       });
-      table("lrrrrrrrrr", new String[]{"method", "outcomes", "OK (sampled)", "not OK", "p50 ms", "p90 ms",
-          "p99 ms", "max ms", "RpcCall slow", "RpcCall max ms"}, rows);
+      table((byPeer ? "ll" : "l") + "rrrrrrrrr", concat(byPeer ? row("method", "peer") : row("method"),
+          row("outcomes", "OK (sampled)", "not OK", "p50 ms", "p90 ms", "p99 ms", "max ms", "RpcCall slow",
+              "RpcCall max ms")), rows);
     }
     if (!failures.isEmpty()) {
       final var rows = new ArrayList<String[]>();
-      failures.forEach((key, failure) -> {
-        final var parts = key.split("\u0000", 2);
-        rows.add(row(parts[0], parts[1], count(failure.count), truncate(failure.example)));
-      });
-      table("llrl", new String[]{"method", "outcome", "count", "first failure"}, rows);
+      (byPeer ? failuresByPeer : failures).forEach((key, failure) ->
+          rows.add(concat(key.split("\u0000", 3), row(count(failure.count), truncate(failure.example)))));
+      table((byPeer ? "lll" : "ll") + "rl", concat(byPeer ? row("method", "peer", "outcome") : row("method", "outcome"),
+          row("count", "first failure")), rows);
     }
     para("`getSigStatusList` batch size (signatures per poll):");
     if (batchBuckets.isEmpty()) {
@@ -959,8 +1111,13 @@ public final class Report {
       extremes.add(row("max pending", maxPending == Long.MIN_VALUE ? "n/a" : count(maxPending)
           + (maxPendingAt == null ? "" : " at " + instant(maxPendingAt))));
       extremes.add(row("max liveSubscriptions", maxLiveSubscriptions == Long.MIN_VALUE ? "n/a" : count(maxLiveSubscriptions)));
-      extremes.add(row("min rpcCapacity (negative is an overdraft or a dock)",
-          minRpcCapacity == Long.MAX_VALUE ? "n/a" : Long.toString(minRpcCapacity)));
+      final var minCapacity = minRpcCapacity == Long.MAX_VALUE ? "n/a" : Long.toString(minRpcCapacity);
+      if (minRpcCapacityMin == Long.MAX_VALUE) {
+        extremes.add(row("min rpcCapacity (negative is an overdraft or a dock)", minCapacity));
+      } else {
+        extremes.add(row("min rpcCapacity (peer 1) and min rpcCapacityMin (lowest peer); negative is an overdraft"
+            + " or a dock", minCapacity + " and " + minRpcCapacityMin));
+      }
       final var states = new StringBuilder();
       webSocketStates.forEach((state, n) -> states.append(states.isEmpty() ? "" : ", ").append(state).append(' ').append(n));
       extremes.add(row("webSocket state samples", states.isEmpty() ? "n/a" : states.toString()));
@@ -993,6 +1150,161 @@ public final class Report {
       rows.add(row("`" + type + "`", count(n), orNotRecorded(setting(type, "enabled")), n == 0 ? "ok" : "PRESENT"));
     }
     table("lrll", new String[]{"event", "count", "enabled setting", "status"}, rows);
+  }
+
+  private void writeFaults() {
+    h2("10. Faults");
+    final var end = run("END");
+    final long injected = end == null ? -1 : detailLong(end.detail, "faultsInjected");
+    if (faultWindows.isEmpty() && faults.isEmpty()) {
+      para("No `ravina.soak.FaultWindow` or `ravina.soak.Fault` event: no fault proxy in this run (a pass-through"
+          + " proxy commits neither)" + (injected > 0
+          ? ", yet END Run `faultsInjected` = " + injected + ": **the fault events are missing**." : "."));
+      return;
+    }
+    para("A fault proxy sits between one balanced peer and the validator's RPC and injects its fault only inside its"
+        + " windows: `on` seconds of fault, then `off` seconds of pass-through, repeating from the proxy's start."
+        + " Each proxy's spec is in the START Run detail, section 1.");
+    if (faultWindows.isEmpty()) {
+      para("No `ravina.soak.FaultWindow` event.");
+    } else {
+      final var byProxy = new TreeMap<String, Waits>();
+      for (final var window : faultWindows) {
+        byProxy.computeIfAbsent(window.proxy + '\u0000' + window.kind, _ -> new Waits()).add(window.end - window.start, -1);
+      }
+      final var rows = new ArrayList<String[]>();
+      byProxy.forEach((key, windows) -> {
+        final long[] sorted = windows.nanos.sorted();
+        rows.add(concat(key.split("\u0000", 2), row(count(sorted.length), ms(windows.total), ms(sorted[sorted.length - 1]))));
+      });
+      table("llrrr", new String[]{"proxy", "kind", "windows", "total ms", "max ms"}, rows);
+    }
+    final var comparison = end == null ? "; no END Run event to compare against."
+        : injected < 0 ? "; the END Run detail carries no `faultsInjected`."
+        : ", END Run `faultsInjected` = " + injected + ": " + (faults.size() == injected ? "equal." : "**not equal**.");
+    para(faults.size() + " `ravina.soak.Fault` events" + comparison);
+    if (!faults.isEmpty()) {
+      para("`method` here is the JSON-RPC method the proxy read off the wire, where section 4 names the client's"
+          + " Java method: `getSignatureStatuses` is `getSigStatusList` there.");
+      final var byMethod = new TreeMap<String, Long>();
+      for (final var fault : faults) {
+        count(byMethod, fault.proxy + '\u0000' + fault.kind + '\u0000' + fault.method);
+      }
+      final var rows = new ArrayList<String[]>();
+      byMethod.forEach((key, n) -> rows.add(concat(key.split("\u0000", 3), row(count(n), share(n, faults.size())))));
+      table("lllrr", new String[]{"proxy", "kind", "method", "faults", "share"}, rows);
+      final var windowsByProxy = new HashMap<String, List<WindowRow>>();
+      for (final var window : faultWindows) {
+        windowsByProxy.computeIfAbsent(window.proxy, _ -> new ArrayList<>()).add(window);
+      }
+      final var intervalsByProxy = new HashMap<String, Intervals>();
+      windowsByProxy.forEach((proxy, windows) -> intervalsByProxy.put(proxy, new Intervals(windows)));
+      long outside = 0;
+      for (final var fault : faults) {
+        final var intervals = intervalsByProxy.get(fault.proxy);
+        if (intervals == null || !intervals.contains(fault.at)) {
+          ++outside;
+        }
+      }
+      para("Faults in no recorded window of their own proxy: " + outside + "." + (outside == 0 ? ""
+          : " A window still open when the proxy closed is never committed (closing interrupts the window thread"
+          + " mid-window), and a window's event begins a moment after the schedule the proxy tests, so a fault in"
+          + " the first instant of a window can precede it. More than a few, or any away from the run's end, is"
+          + " something else."));
+    }
+  }
+
+  private void writeFaultSplit() {
+    h2("11. Inside versus outside fault windows");
+    if (faultWindows.isEmpty()) {
+      para(faults.isEmpty()
+          ? "No fault window: no fault proxy in this run, so there is nothing to split."
+          : "No `ravina.soak.FaultWindow` event, so there is nothing to split against: " + faults.size()
+              + " fault(s) were injected with no committed window.");
+      return;
+    }
+    final var windows = new Intervals(faultWindows);
+    final var span = firstEvent == null || lastEvent == null ? null : Duration.between(firstEvent, lastEvent);
+    para(faultWindows.size() + " windows of every proxy, merged into " + windows.size() + " interval(s) covering "
+        + fmt(windows.totalNanos() / 1e9) + " s"
+        + (span == null ? "" : " of the recording's " + fmt(span.toMillis() / 1000.0) + " s ("
+        + share(windows.totalNanos(), span.toNanos()) + ")") + ".");
+    final var end = run("END");
+    final long pending = end == null ? -1 : detailLong(end.detail, "pending");
+    para("A transaction is inside when its lifetime, the `ravina.soak.Transaction` event from the start of"
+        + " `processInstructions` to its return, overlaps a window of any proxy. **A transaction whose lifetime spans"
+        + " a window edge counts as inside.** Everything else is outside. A transaction still pending at exit"
+        + " committed no event and is in neither column"
+        + (pending < 0 ? "." : " (END Run `pending` = " + pending + ")."));
+    final var inside = new ArrayList<TransactionRow>();
+    final var outside = new ArrayList<TransactionRow>();
+    for (final var transaction : transactionRows) {
+      (windows.overlaps(transaction.start, transaction.end) ? inside : outside).add(transaction);
+    }
+    final var rows = new ArrayList<String[]>();
+    final long all = inside.size() + outside.size();
+    rows.add(row("transactions", count(inside.size()), share(inside.size(), all), count(outside.size()),
+        share(outside.size(), all)));
+    splitRows(rows, "outcome ", inside, outside, TransactionRow::outcome);
+    splitRows(rows, "route ", inside, outside, TransactionRow::route);
+    splitRows(rows, "retries ", inside.stream().filter(t -> t.retries >= 0).toList(),
+        outside.stream().filter(t -> t.retries >= 0).toList(), TransactionRow::retries);
+    table("lrrrr", new String[]{"measure", "inside", "share", "outside", "share"}, rows);
+    para("Shares in the outcome, route and retries rows are of their own column. Latency, ms:");
+    final var latency = new ArrayList<String[]>();
+    latency.add(distribution("send to result, inside", samples(inside, TransactionRow::sendToResultNanos)));
+    latency.add(distribution("send to result, outside", samples(outside, TransactionRow::sendToResultNanos)));
+    latency.add(distribution("processInstructions, inside", samples(inside, TransactionRow::processNanos)));
+    latency.add(distribution("processInstructions, outside", samples(outside, TransactionRow::processNanos)));
+    distributionTable("measure", latency);
+
+    para("Not-OK `ravina.soak.RpcOutcome` events (every failed call is recorded), inside when the event's time falls"
+        + " in a window of any proxy. The event is committed when the call completes and has no start of its own,"
+        + " so its time is the completion instant: a call that began inside a window and completed after it, as a"
+        + " `stall` fault's can, counts as outside.");
+    if (notOkRows.isEmpty()) {
+      para("No not-OK RPC outcome.");
+      return;
+    }
+    final boolean byPeer = peers.size() > 1;
+    final var counts = new TreeMap<String, long[]>();
+    final long[] total = new long[2];
+    for (final var notOk : notOkRows) {
+      final var key = notOk.method + (byPeer ? '\u0000' + orUnknown(notOk.peer) : "") + '\u0000' + notOk.outcome;
+      final int column = windows.contains(notOk.at) ? 0 : 1;
+      counts.computeIfAbsent(key, _ -> new long[2])[column]++;
+      total[column]++;
+    }
+    final var rpcRows = new ArrayList<String[]>();
+    counts.forEach((key, n) -> rpcRows.add(concat(key.split("\u0000", byPeer ? 3 : 2), row(count(n[0]), count(n[1])))));
+    rpcRows.add(concat(byPeer ? row("all", "", "") : row("all", ""), row(count(total[0]), count(total[1]))));
+    table((byPeer ? "lll" : "ll") + "rr", concat(byPeer ? row("method", "peer", "outcome") : row("method", "outcome"),
+        row("not OK inside", "not OK outside")), rpcRows);
+  }
+
+  /// One row per distinct key across both columns, in key order, each share of its own column.
+  private static <K extends Comparable<K>> void splitRows(final List<String[]> rows,
+                                                          final String prefix,
+                                                          final List<TransactionRow> inside,
+                                                          final List<TransactionRow> outside,
+                                                          final Function<TransactionRow, K> key) {
+    final var counts = new TreeMap<K, long[]>();
+    inside.forEach(transaction -> counts.computeIfAbsent(key.apply(transaction), _ -> new long[2])[0]++);
+    outside.forEach(transaction -> counts.computeIfAbsent(key.apply(transaction), _ -> new long[2])[1]++);
+    counts.forEach((value, n) -> rows.add(row(prefix + value, count(n[0]), share(n[0], inside.size()),
+        count(n[1]), share(n[1], outside.size()))));
+  }
+
+  private static Samples samples(final List<TransactionRow> transactions,
+                                 final ToLongFunction<TransactionRow> field) {
+    final var samples = new Samples();
+    for (final var transaction : transactions) {
+      final long value = field.applyAsLong(transaction);
+      if (value >= 0) {
+        samples.add(value);
+      }
+    }
+    return samples;
   }
 
   // ------------------------------------------------------------------------------------------
@@ -1102,6 +1414,12 @@ public final class Report {
   }
 
   private static String[] row(final String... cells) {
+    return cells;
+  }
+
+  private static String[] concat(final String[] first, final String[] second) {
+    final var cells = Arrays.copyOf(first, first.length + second.length);
+    System.arraycopy(second, 0, cells, first.length, second.length);
     return cells;
   }
 
@@ -1275,6 +1593,20 @@ public final class Report {
       return null;
     }
     return object.getValue(field) instanceof RecordedObject nested ? nested : null;
+  }
+
+  /// A `key=<digits>` value from a Run event's detail, or -1 when the detail does not carry it
+  /// (an END detail from an older harness has no `faultsInjected`).
+  static long detailLong(final String detail, final String key) {
+    if (detail == null) {
+      return -1;
+    }
+    final var matcher = Pattern.compile("(?:^|\\s)" + Pattern.quote(key) + "=(\\d+)").matcher(detail);
+    try {
+      return matcher.find() ? Long.parseLong(matcher.group(1)) : -1;
+    } catch (final NumberFormatException overflow) {
+      return -1;
+    }
   }
 
   private static long millisToNanos(final long millis) {

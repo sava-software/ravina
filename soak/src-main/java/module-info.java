@@ -16,6 +16,8 @@ module software.sava.ravina.soak {
   requires jdk.jfr;
   // the transport under test
   requires java.net.http;
+  // the fault proxy in front of the validator's RPC (com.sun.net.httpserver)
+  requires jdk.httpserver;
   // MXBean heap/GC/thread gauges sampled alongside the recording
   requires java.management;
   // System.Logger output from sava and ravina arrives through the JUL backend

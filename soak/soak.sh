@@ -543,7 +543,7 @@ while kill -0 "$CLIENT_PID" 2>/dev/null; do
     row=$(tail -n 1 "$RUN_DIR/gauge.csv" 2>/dev/null || true)
     case $row in
       '' | epochMillis*) log "running $((SECONDS - LAUNCHED_AT)) s, no gauge row yet" ;;
-      *) log "running $((SECONDS - LAUNCHED_AT)) s: $(awk -F, '{ printf "submitted=%s settled=%s pending=%s dropped=%s rpcCapacity=%s webSocket=%s", $2, $3, $4, $5, $7, $8 }' <<< "$row")" ;;
+      *) log "running $((SECONDS - LAUNCHED_AT)) s: $(awk -F, '{ printf "submitted=%s settled=%s pending=%s dropped=%s rpcCapacity=%s/%s webSocket=%s", $2, $3, $4, $5, $7, $8, $9 }' <<< "$row")" ;;
     esac
   fi
   sleep 1
@@ -624,10 +624,15 @@ else
   fi
 fi
 
-# 4. One Transaction event per submission, and at least one submission: the workload commits
-# exactly one per transaction whatever happened, so a shortfall is a lost event or a lost ring.
+# 4. One Transaction event per settled submission, and at least one submission: the workload
+# commits exactly one per transaction when it settles, whatever happened, so the events must
+# equal submitted minus pending. A run that ends with work pending (an oversubscribed profile,
+# or the drain bound) reports them as pending here and fails gate 6 by its exit status; a
+# shortfall against that figure is a lost event or a lost ring.
 finished=$(grep -o 'Run finished: .*' "$CLIENT_LOG" 2>/dev/null | tail -n 1 || true)
 submitted=$(sed -n 's/^Run finished: submitted=\([0-9]*\).*/\1/p' <<< "$finished")
+pending=$(sed -n 's/^Run finished: .*pending=\([0-9]*\).*/\1/p' <<< "$finished")
+pending=${pending:-0}
 TX_FILE=$SCRATCH/transactions.txt
 tx_status=0
 if [ -s "$JFR_FILE" ]; then
@@ -643,13 +648,17 @@ elif [ -z "$submitted" ]; then
   gate 4 transaction-count FAIL "no 'Run finished: submitted=N' line in logs/client.log; $tx_count Transaction events"
 elif [ "$submitted" -eq 0 ]; then
   gate 4 transaction-count FAIL "the run submitted nothing"
-elif [ "$tx_count" -eq "$submitted" ]; then
-  gate 4 transaction-count PASS "$tx_count ravina.soak.Transaction events = $submitted submitted"
+elif [ "$tx_count" -eq $((submitted - pending)) ]; then
+  if [ "$pending" -eq 0 ]; then
+    gate 4 transaction-count PASS "$tx_count ravina.soak.Transaction events = $submitted submitted"
+  else
+    gate 4 transaction-count PASS "$tx_count ravina.soak.Transaction events = $submitted submitted - $pending still pending at exit"
+  fi
 else
   # Both Run events present means the ring kept the whole run; one missing says maxsize or
   # maxage dropped the start, which explains a shortfall without any event being lost.
   runs=$(awk '$1 == "ravina.soak.Run" { print $2; exit }' "$RUN_DIR/jfr-summary.txt" 2>/dev/null || true)
-  gate 4 transaction-count FAIL "$tx_count ravina.soak.Transaction events != $submitted submitted (ravina.soak.Run events: ${runs:-unknown} of 2)"
+  gate 4 transaction-count FAIL "$tx_count ravina.soak.Transaction events != $submitted submitted - $pending pending (ravina.soak.Run events: ${runs:-unknown} of 2)"
 fi
 
 # 5. The route matches the websocket setting: with it off every transaction settled by polling

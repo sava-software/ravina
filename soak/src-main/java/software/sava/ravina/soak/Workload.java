@@ -136,12 +136,16 @@ final class Workload {
       event.error = result.error() == null ? null : result.error().toString();
       event.signature = result.sig();
     } catch (final Throwable thrown) {
-      event.outcome = "THREW";
       event.error = thrown.toString();
-      counters.threw.incrementAndGet();
-      logger.log(WARNING, "Transaction " + seq + " threw", thrown);
-      if (thrown instanceof InterruptedException) {
+      if (interrupted(thrown)) {
+        // The run's own shutdown, not the pipeline: counted apart from a throw.
+        event.outcome = "INTERRUPTED";
+        counters.interrupted.incrementAndGet();
         Thread.currentThread().interrupt();
+      } else {
+        event.outcome = "THREW";
+        counters.threw.incrementAndGet();
+        logger.log(WARNING, "Transaction " + seq + " threw", thrown);
       }
     } finally {
       final long now = System.nanoTime();
@@ -163,6 +167,15 @@ final class Workload {
       event.commit();
       counters.settled.incrementAndGet();
     }
+  }
+
+  private static boolean interrupted(Throwable thrown) {
+    for (; thrown != null; thrown = thrown.getCause()) {
+      if (thrown instanceof InterruptedException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String outcome(final TransactionResult result) {

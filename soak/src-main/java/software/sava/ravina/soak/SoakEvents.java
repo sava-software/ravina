@@ -104,6 +104,10 @@ public final class SoakEvents {
   @Threshold("25 ms")
   public static final class RpcCall extends Event {
 
+    /// Which balanced peer answered: peer-1 or peer-2.
+    @Label("Peer")
+    public String peer;
+
     @Label("Method")
     public String method;
 
@@ -125,6 +129,9 @@ public final class SoakEvents {
   @Category({"ravina", "soak"})
   @StackTrace(false)
   public static final class RpcOutcome extends Event {
+
+    @Label("Peer")
+    public String peer;
 
     @Label("Method")
     public String method;
@@ -184,9 +191,13 @@ public final class SoakEvents {
     @Label("In Flight RPC")
     public long inFlightRpc;
 
-    /// The RPC item's public capacity reading; negative means an overdraft or a dock.
+    /// Peer 1's public capacity reading; negative means an overdraft or a dock.
     @Label("RPC Capacity")
     public int rpcCapacity;
+
+    /// The lowest reading across peers; the same as above with one peer.
+    @Label("RPC Capacity Min")
+    public int rpcCapacityMin;
 
     /// OPEN, CONNECTING or NONE, from the manager's public accessor.
     @Label("WebSocket")
@@ -209,6 +220,52 @@ public final class SoakEvents {
 
     @Label("Timed Out")
     public long timedOutTotal;
+  }
+
+  /// One fault window of a fault proxy: begun when the window opens, committed when it closes,
+  /// so the report can split transactions and calls by whether they fell inside one.
+  @Name("ravina.soak.FaultWindow")
+  @Label("Soak Fault Window")
+  @Category({"ravina", "soak"})
+  @StackTrace(false)
+  public static final class FaultWindow extends Event {
+
+    @Label("Proxy")
+    public String proxy;
+
+    /// RATE_LIMIT, SERVER_ERROR, LATENCY, STALL, BLACKHOLE.
+    @Label("Kind")
+    public String kind;
+
+    /// The window's ordinal from the schedule's start, from 0; joins `Fault.window`.
+    @Label("Window")
+    public int window;
+  }
+
+  /// One fault injected by a fault proxy in place of forwarding a request.
+  @Name("ravina.soak.Fault")
+  @Label("Soak Fault")
+  @Category({"ravina", "soak"})
+  @StackTrace(false)
+  public static final class Fault extends Event {
+
+    @Label("Proxy")
+    public String proxy;
+
+    @Label("Kind")
+    public String kind;
+
+    @Label("Method")
+    public String method;
+
+    /// The schedule window this fault was injected in, from 0: bucket by this rather than by
+    /// time, since the window event's own start trails the schedule by a few milliseconds.
+    @Label("Window")
+    public int window;
+
+    /// For BLACKHOLE, the swallowed transaction's signature.
+    @Label("Detail")
+    public String detail;
   }
 
   /// The run's identity and end-of-run totals, committed once at start and once at shutdown so

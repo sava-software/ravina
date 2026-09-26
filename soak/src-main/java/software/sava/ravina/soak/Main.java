@@ -127,24 +127,66 @@ public final class Main {
     try {
       final var httpClient = HttpClient.newBuilder().executor(executor).build();
 
-      // The RPC seam: a token bucket small enough that courteous waits occur at the configured
-      // rate, one balanced item, and the recording proxy in front of the real client.
-      final var rpcCapacity = new CapacityConfig(
-          -rpcCapacityPerSecond, rpcCapacityPerSecond, Duration.ofSeconds(1),
-          8, Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1)
-      );
-      final var rpcMonitor = rpcCapacity.createHttpResponseMonitor(rpcUri.getHost());
-      final var rawRpc = SolanaRpcClient.build()
-          .endpoint(rpcUri)
-          .httpClient(httpClient)
-          .testResponse(rpcMonitor.errorTracker())
-          .defaultCommitment(Commitment.CONFIRMED)
-          .createClient();
-      final var rpcClient = RecordingRpcClient.wrap(rawRpc, counters, ledger);
-      final var rpcBackoff = new RecordingBackoff("rpc", Backoff.exponential(MILLISECONDS, 250, 8_000));
-      final var rpcClients = LoadBalancer.createBalancer(BalancedItem.createItem(rpcClient, rpcMonitor, rpcBackoff));
+      // The RPC seam: one balanced peer per SOAK_PEERS, each with a token bucket small enough
+      // that courteous waits occur at the configured rate, the recording proxy in front of
+      // every client, and a fault proxy in front of a peer that has a fault configured (with
+      // two peers both go through a proxy, so their latencies match). A single peer with no
+      // fault goes to the validator directly. The websocket always goes direct.
+      final int peers = Integer.parseInt(setting("SOAK_PEERS", "1"));
+      final var faultSpecs = new String[]{setting("SOAK_FAULT", ""), setting("SOAK_PEER2_FAULT", "")};
+      final int proxyPort = Integer.parseInt(setting("SOAK_PROXY_PORT", "18899"));
+      if (peers < 1 || peers > 2) {
+        throw new IllegalArgumentException("SOAK_PEERS must be 1 or 2, not " + peers);
+      }
+      if (proxyPort < 1024 || proxyPort > 65534) {
+        throw new IllegalArgumentException("SOAK_PROXY_PORT must be 1024..65534 (peer 2 takes the next port), not " + proxyPort);
+      }
+      final var proxyClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+      final var proxies = new java.util.ArrayList<FaultProxy>();
+      final var items = new java.util.ArrayList<BalancedItem<SolanaRpcClient>>(peers);
+      final var capacityStates = new java.util.ArrayList<software.sava.services.core.request_capacity.CapacityState>(peers);
+      for (int peer = 1; peer <= peers; ++peer) {
+        final var peerName = "peer-" + peer;
+        final var faultSpec = faultSpecs[peer - 1];
+        URI peerUri = rpcUri;
+        if (!faultSpec.isEmpty() || peers > 1) {
+          final var proxy = new FaultProxy(
+              peerName, proxyPort + peer - 1, rpcUri,
+              faultSpec.isEmpty() ? null : FaultProxy.Spec.parse(faultSpec),
+              proxyClient, counters
+          );
+          proxies.add(proxy);
+          peerUri = proxy.endpoint();
+        }
+        final var peerCapacity = new CapacityConfig(
+            -rpcCapacityPerSecond, rpcCapacityPerSecond, Duration.ofSeconds(1),
+            8, Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1)
+        );
+        final var peerMonitor = peerCapacity.createHttpResponseMonitor(peerName);
+        final var rawPeer = SolanaRpcClient.build()
+            .endpoint(peerUri)
+            .httpClient(httpClient)
+            .testResponse(peerMonitor.errorTracker())
+            .defaultCommitment(Commitment.CONFIRMED)
+            .createClient();
+        final var peerClient = RecordingRpcClient.wrap(rawPeer, peerName, counters, ledger);
+        final var peerBackoff = new RecordingBackoff("rpc-" + peerName, Backoff.exponential(MILLISECONDS, 250, 8_000));
+        items.add(BalancedItem.createItem(peerClient, peerMonitor, peerBackoff));
+        capacityStates.add(peerMonitor.capacityState());
+      }
+      final LoadBalancer<SolanaRpcClient> rpcClients = items.size() == 1
+          ? LoadBalancer.createBalancer(items.getFirst())
+          : LoadBalancer.createSortedBalancer(items);
       final var callWeights = CallWeights.createDefault();
       final var rpcCaller = new RpcCaller(executor, rpcClients, callWeights);
+      // Funding and its confirmation poll go to the validator directly, and the fault schedule
+      // is armed only when the workload starts: neither the airdrop nor the epoch service's
+      // initialisation ever sees a window.
+      final var rpcClient = SolanaRpcClient.build()
+          .endpoint(rpcUri)
+          .httpClient(httpClient)
+          .defaultCommitment(Commitment.CONFIRMED)
+          .createClient();
 
       final var epochInfoService = EpochInfoService.createService(EpochServiceConfig.createDefault(), rpcCaller);
       executor.execute(epochInfoService);
@@ -206,35 +248,58 @@ public final class Main {
           rpcCaller, transactionProcessor, null, epochInfoService, txMonitorService
       );
 
+      final var proxyDetail = new StringBuilder();
+      for (final var proxy : proxies) {
+        proxyDetail.append(' ').append(proxy.describe());
+        proxy.start();
+      }
       commitRun("START", rpcUri, webSocketEnabled, ratePerSecond, durationSeconds, counters,
-          "payer=" + feePayer + " rpcCapacity=" + rpcCapacityPerSecond + "/s poll=" + pollFloor + " wsTimeout=" + wsTimeout);
-      try (final var gauge = new Gauge(counters, ledger, rpcMonitor.capacityState(), recordingManager, runDir.resolve("gauge.csv"))) {
+          "payer=" + feePayer + " rpcCapacity=" + rpcCapacityPerSecond + "/s poll=" + pollFloor + " wsTimeout=" + wsTimeout
+              + " peers=" + peers + proxyDetail);
+      try (final var gauge = new Gauge(counters, ledger, capacityStates, recordingManager, runDir.resolve("gauge.csv"))) {
         final var workload = new Workload(
             instructionService, feePayer, solanaAccounts, counters, ledger, webSocketEnabled, executor
         );
         workload.run(scheduler, ratePerSecond, durationSeconds, drainSeconds);
       } finally {
+        // The workers stop before the counters are read: a pending worker interrupted after
+        // the END event would still commit its Transaction event, and the recording would hold
+        // more events than submitted minus pending. An interrupted worker settles as
+        // INTERRUPTED; one still stuck after the wait stays pending and commits nothing. The
+        // pipeline's loops share the executor and end here too.
+        executor.shutdownNow();
+        try {
+          executor.awaitTermination(15, TimeUnit.SECONDS);
+        } catch (final InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
         if (ended.compareAndSet(false, true)) {
           commitRun("END", rpcUri, webSocketEnabled, ratePerSecond, durationSeconds, counters,
               "pending=" + counters.pending() + " dropped=" + counters.dropped.get()
                   + " notified=" + counters.notified.get() + " timedOut=" + counters.timedOut.get()
-                  + " threw=" + counters.threw.get());
+                  + " threw=" + counters.threw.get() + " interrupted=" + counters.interrupted.get()
+                  + " faultsInjected=" + counters.faultsInjected.sum());
           logger.log(INFO, finishedLine("Run finished", counters));
         }
         webSocketManager.close();
+        for (final var proxy : proxies) {
+          proxy.close();
+        }
+        proxyClient.shutdownNow();
       }
     } finally {
       scheduler.shutdownNow();
       executor.shutdownNow();
     }
-    return counters.pending() == 0 && counters.threw.get() == 0 ? 0 : 1;
+    return counters.pending() == 0 && counters.threw.get() == 0 && counters.interrupted.get() == 0 ? 0 : 1;
   }
 
   private static String finishedLine(final String what, final Counters counters) {
     return String.format(
-        "%s: submitted=%d settled=%d pending=%d dropped=%d notified=%d timedOut=%d threw=%d",
+        "%s: submitted=%d settled=%d pending=%d dropped=%d notified=%d timedOut=%d threw=%d interrupted=%d faultsInjected=%d",
         what, counters.submitted.get(), counters.settled.get(), counters.pending(), counters.dropped.get(),
-        counters.notified.get(), counters.timedOut.get(), counters.threw.get()
+        counters.notified.get(), counters.timedOut.get(), counters.threw.get(), counters.interrupted.get(),
+        counters.faultsInjected.sum()
     );
   }
 

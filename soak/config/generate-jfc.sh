@@ -108,6 +108,18 @@ harness_events=$(cat <<'EOF'
       <setting name="stackTrace">false</setting>
     </event>
 
+    <event name="ravina.soak.FaultWindow">
+      <setting name="enabled">true</setting>
+      <setting name="stackTrace">false</setting>
+      <setting name="threshold">0 ms</setting>
+    </event>
+
+    <event name="ravina.soak.Fault">
+      <setting name="enabled">true</setting>
+      <setting name="stackTrace">false</setting>
+      <setting name="threshold">0 ms</setting>
+    </event>
+
 EOF
 )
 # Insert before the <control> block (the JVM ignores <control>; the events must sit above it).

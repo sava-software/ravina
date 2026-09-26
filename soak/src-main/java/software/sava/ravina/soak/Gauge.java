@@ -29,7 +29,7 @@ final class Gauge implements AutoCloseable {
 
   private final Counters counters;
   private final SignatureLedger ledger;
-  private final CapacityState rpcCapacity;
+  private final List<CapacityState> rpcCapacities;
   private final RecordingWebSocketManager webSocketManager;
   private final BufferedWriter csv;
   private final ScheduledExecutorService scheduler;
@@ -38,15 +38,15 @@ final class Gauge implements AutoCloseable {
 
   Gauge(final Counters counters,
         final SignatureLedger ledger,
-        final CapacityState rpcCapacity,
+        final List<CapacityState> rpcCapacities,
         final RecordingWebSocketManager webSocketManager,
         final Path csvPath) throws IOException {
     this.counters = counters;
     this.ledger = ledger;
-    this.rpcCapacity = rpcCapacity;
+    this.rpcCapacities = List.copyOf(rpcCapacities);
     this.webSocketManager = webSocketManager;
     this.csv = Files.newBufferedWriter(csvPath, StandardCharsets.UTF_8);
-    this.csv.write("epochMillis,submitted,settled,pending,dropped,inFlightRpc,rpcCapacity,webSocket,liveSubscriptions,notified,timedOut,ledgerSize,heapAfterLastGc,heapUsed,liveThreads\n");
+    this.csv.write("epochMillis,submitted,settled,pending,dropped,inFlightRpc,rpcCapacity,rpcCapacityMin,webSocket,liveSubscriptions,notified,timedOut,ledgerSize,heapAfterLastGc,heapUsed,liveThreads\n");
     this.csv.flush();
     this.heapPools = ManagementFactory.getMemoryPoolMXBeans().stream()
         .filter(pool -> pool.getType() == MemoryType.HEAP && pool.isCollectionUsageThresholdSupported())
@@ -67,6 +67,7 @@ final class Gauge implements AutoCloseable {
                         long dropped,
                         long inFlightRpc,
                         int rpcCapacity,
+                        int rpcCapacityMin,
                         String webSocket,
                         long liveSubscriptions,
                         long notified,
@@ -92,13 +93,18 @@ final class Gauge implements AutoCloseable {
     } catch (final RuntimeException failure) {
       webSocket = "ERROR";
     }
+    int capacityMin = Integer.MAX_VALUE;
+    for (final var capacity : rpcCapacities) {
+      capacityMin = Math.min(capacityMin, capacity.capacity());
+    }
     return new Sample(
         counters.submitted.get(),
         counters.settled.get(),
         counters.pending(),
         counters.dropped.get(),
         counters.inFlightRpc.sum(),
-        rpcCapacity.capacity(),
+        rpcCapacities.getFirst().capacity(),
+        capacityMin,
         webSocket,
         counters.liveSubscriptions.get(),
         counters.notified.get(),
@@ -118,6 +124,7 @@ final class Gauge implements AutoCloseable {
     event.pending = sample.pending;
     event.inFlightRpc = sample.inFlightRpc;
     event.rpcCapacity = sample.rpcCapacity;
+    event.rpcCapacityMin = sample.rpcCapacityMin;
     event.webSocket = sample.webSocket;
     event.liveSubscriptions = sample.liveSubscriptions;
     event.heapAfterLastGc = sample.heapAfterLastGc;
@@ -138,7 +145,7 @@ final class Gauge implements AutoCloseable {
           Long.toString(System.currentTimeMillis()),
           Long.toString(s.submitted), Long.toString(s.settled), Long.toString(s.pending),
           Long.toString(s.dropped), Long.toString(s.inFlightRpc), Integer.toString(s.rpcCapacity),
-          s.webSocket, Long.toString(s.liveSubscriptions), Long.toString(s.notified),
+          Integer.toString(s.rpcCapacityMin), s.webSocket, Long.toString(s.liveSubscriptions), Long.toString(s.notified),
           Long.toString(s.timedOut), Integer.toString(s.ledgerSize),
           Long.toString(s.heapAfterLastGc), Long.toString(s.heapUsed), Integer.toString(s.liveThreads)
       ));

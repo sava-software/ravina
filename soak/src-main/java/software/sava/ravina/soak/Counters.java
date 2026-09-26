@@ -11,11 +11,13 @@ final class Counters {
   final AtomicLong settled = new AtomicLong();
   final AtomicLong dropped = new AtomicLong();
   final AtomicLong threw = new AtomicLong();
+  final AtomicLong interrupted = new AtomicLong();
   final LongAdder inFlightRpc = new LongAdder();
   final AtomicLong notified = new AtomicLong();
   final AtomicLong timedOut = new AtomicLong();
   final AtomicLong liveSubscriptions = new AtomicLong();
   final LongAdder rpcOk = new LongAdder();
+  final LongAdder faultsInjected = new LongAdder();
 
   long pending() {
     return submitted.get() - settled.get();
