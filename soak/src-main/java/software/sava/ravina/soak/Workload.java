@@ -66,24 +66,36 @@ final class Workload {
     final long periodNanos = Math.max(1, Math.round(1e9 / ratePerSecond));
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(durationSeconds);
     final var done = new CountDownLatch(1);
+    // The stop and a submission exclude each other: a tick submits under this lock, and the
+    // stop below sets the flag under it before draining, so a tick that passed its deadline
+    // check finishes its increment first and no tick can enter afterwards. cancel(false) alone
+    // lets a running tick carry on, and the drain would then see nothing pending and return
+    // under a submission.
+    final var stopLock = new Object();
+    final boolean[] stopped = {false};
     final var tick = scheduler.scheduleAtFixedRate(() -> {
-      if (System.nanoTime() >= deadline) {
-        done.countDown();
-        return;
+      synchronized (stopLock) {
+        if (stopped[0] || System.nanoTime() >= deadline) {
+          done.countDown();
+          return;
+        }
+        if (counters.pending() >= MAX_PENDING) {
+          counters.dropped.incrementAndGet();
+          return;
+        }
+        final long seq = sequence.incrementAndGet();
+        counters.submitted.incrementAndGet();
+        workers.execute(() -> transaction(seq));
       }
-      if (counters.pending() >= MAX_PENDING) {
-        counters.dropped.incrementAndGet();
-        return;
-      }
-      final long seq = sequence.incrementAndGet();
-      counters.submitted.incrementAndGet();
-      workers.execute(() -> transaction(seq));
     }, 0, periodNanos, TimeUnit.NANOSECONDS);
     try {
       // The deadline ends submission on its own: the tick only observes it, and at a rate
       // slower than the duration the next tick would come long after the deadline.
       done.await(durationSeconds, TimeUnit.SECONDS);
     } finally {
+      synchronized (stopLock) {
+        stopped[0] = true;
+      }
       tick.cancel(false);
     }
     logger.log(INFO, "Submission finished: " + counters.submitted.get() + " submitted, "
