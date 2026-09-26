@@ -11,6 +11,10 @@ testModuleInfo {
 }
 
 hardening {
+  // The git-ignored Integ.java main lives in the test sources on a dev machine and
+  // nowhere in CI; kept out of the PIT/Jazzer recompile, it cannot make one checkout's
+  // mutant population or tool class path differ from another's.
+  recompileExcludes = listOf("Integ.java")
   mutation.register("googleKms") {
     // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
     // config/pitest/README.md); fluent receiver-typed calls are otherwise

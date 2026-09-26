@@ -526,17 +526,16 @@ confirmation.**
   exclude what their sibling suites own, and a class that some sibling
   actually mutates counts as owned. What still fires is a class that no suite
   mutates, and that is a real gap to act on.
-- **Personal integration mains live outside the source roots.**
+- **Personal integration mains live in the test sources.**
   `software.sava.kms.google.Integ` needs live GCP credentials and is matched
-  by the `Integ.*` rule in `.gitignore`. It sits under
-  `ravina-kms/google/scratch/`, which no source set reads, because since
-  sava-build 21.5.37 a clean certification refuses any git-ignored file in
-  the main or test sources: such a file feeds the receipts' source hash while
-  Git reads clean. So no suite excludes it and no decline names it. Both
-  earlier homes failed on other checkouts: in the main sources its
-  `declineExclusionAudit` went stale and failed `mutationOwnershipAudit`, and
-  in the test sources certification refused it (both moves 2026-09-24). Its
-  correctness rides on running it against real KMS.
+  by the `Integ.*` rule in `.gitignore`. It sits in
+  `ravina-kms/google/src/test/java`, in the package it exercises, so it never
+  reaches the jar or the ownership audit, and `recompileExcludes =
+  listOf("Integ.java")` keeps it out of the PIT/Jazzer recompile, so a checkout
+  with it mutates the same classes as one without. A clean certification or
+  `fuzzAll` still refuses any git-ignored file in the main or test sources, so
+  run both from a clean `git worktree add --detach` of the commit, which has
+  none. Its correctness rides on running it against real KMS.
 - **Fuzz-related exclusions.** The plugin excludes every registered harness
   class and its nested types by itself. The hand-written `*Fuzz*` globs are
   still load-bearing: they keep the generated `<Harness>SeedReplayTest`
