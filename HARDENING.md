@@ -364,6 +364,59 @@ implementation locks the bug in.
   the call now formats with `String.format`, like its neighbour. Log text is not
   asserted here (the `# log-removal` family), so no test pins it.
 
+### Running the JFR soak harness
+
+`soak/` drives the real pipeline against a local validator and records with
+JFR (`soak/README.md`). Its first fault runs found two bugs that no unit test
+had reached, both on a path that a steady two transactions per second never
+makes coincide: any event that releases several workers into the send path in
+the same millisecond, such as a rate-limit dock clearing or a batch of expired
+transactions rebuilding together.
+
+- 2026-09-26: `MemorySigner` handed one sava-core `Signer` to every sending
+  thread. `KeyPairSigner` wraps one `java.security.Signature`, whose `update`
+  then `sign` is not atomic across threads, so two transactions signed in the
+  same instant each got a signature that was not over its own message (over
+  both, over none, at times identical across the threads, at times an
+  exception). Two outcomes were observed. Invalid for both: dropped by the
+  validator's signature verification without a status, so the pipeline resent
+  the same bytes until the block hash expired, and the run's log held one
+  signature `Published` twice at the same millisecond. Valid for exactly one of
+  the two: that transaction landed, and the other worker was reported
+  `CONFIRMED` for instructions that never executed, three times in the
+  blackhole run. The second is the one a consumer would have to audit for. Measured on the installed sava-core: a shared signer
+  under two threads returned an invalid signature for 19,369 of 40,000 calls
+  (one identical pair); under eight threads 80,327 of 160,000, 153 identical
+  and 2 exceptions; a dedicated signer per thread, or a lock, 0. `MemorySigner`
+  now keeps a `ThreadLocal` of `Signer.createDedicatedSigner()`. Pinned by
+  `MemorySignerTests.eachThreadSignsOnItsOwnDedicatedSigner` (a fake shared
+  signer that fails the test if asked to sign) and the real-key
+  `concurrentSignaturesOnARealKeyAllVerify`.
+- 2026-09-26: `TxCommitmentMonitorService.queueResult` ignored the boolean of
+  `pendingTransactions.add`. The set's equality is (block height, signature),
+  so the second of two contexts for one signature was refused and its future
+  never completed, and `BaseInstructionService.processInstructions` joins that
+  future with `CompletableFuture.join`, which no interrupt ends: `jdk.ThreadPark`
+  showed the worker parked there for 643 s, until the process exited. The
+  same-height case had been closed earlier by the signature tie-break
+  (`twoTransactionsSharingABlockHeightAreBothMonitored`); the same-signature
+  case is the residual, reachable through the signer race or through any
+  caller that publishes one transaction twice. The pending set is now a map
+  keyed by the context (the same ordering), entered with `putIfAbsent`: a
+  refused caller is handed the pending future when the pending settings are
+  at least as demanding as its own, and refused with `IllegalArgumentException`
+  on its own thread otherwise, since only the pending settings steer the
+  monitor. The adversarial review of that fix found the resend path was a
+  second writer of the same key (`remove` then `add`, the add's boolean also
+  ignored), so a queue landing between the two would have orphaned the
+  original caller's future; the resend is now one atomic `replace`. Pinned by
+  `aSignatureQueuedTwiceSharesTheFirstQueuesFuture`,
+  `aWeakerOrEqualSecondQueueSharesThePendingFuture`,
+  `aStricterSecondQueueIsRefused` and
+  `aQueueAfterAResendSharesTheResentContextsFuture`; the expiration monitor's
+  own queue got the same treatment
+  (`aSecondContextForAPendingSignatureCompletesWithTheFirstsOutcome`).
+
 ## Equivalence families
 
 The shared doc names the recurring equivalence shapes in "The recurring

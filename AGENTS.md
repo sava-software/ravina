@@ -423,6 +423,29 @@ them, because the list is the argument for the effort.
   slots, then move it to `FINALIZED` ahead of RPC retiring `confirmed`. The
   expiration monitor's 32-block settle buffer is margin for backend lag, not
   finality depth: faster finality is no reason to trim it.
+- **Never share a sava-core `Signer` between threads.** `KeyPairSigner` wraps one
+  `java.security.Signature`; concurrent `sign` calls interleave, and each returns a
+  signature that is not over its own message: a validator drops such a transaction without
+  a status, or, when the signature happens to be valid for one of the two, lands that one
+  and the other caller is reported confirmed for instructions that never executed (measured
+  2026-09-26: about half of 40,000 concurrent signatures invalid, some identical across
+  threads; the soak saw both outcomes). `MemorySigner` keeps a `ThreadLocal` of
+  `Signer.createDedicatedSigner()` for this reason. Do the same in any new in-process
+  signing path, and hand a bare `Signer` only to single-threaded code.
+- **One signature queued twice shares one future.** The commitment monitor's pending map
+  is keyed by (block height, signature), entered with `putIfAbsent`, and `queueResult`
+  hands a second caller the pending future rather than a fresh one nobody would complete,
+  because the caller joins it uninterruptibly; a second caller with stricter settings
+  (`PROCESSED` is below `CONFIRMED`/`FINALIZED`; `verifyExpired` and `retrySend` true
+  are above false) is refused with `IllegalArgumentException` instead of answered below
+  its level. Publishing one transaction twice is therefore safe. Note the second publisher's
+  websocket subscription is refused by the socket and waits out its timeout before it
+  reaches `queueResult`, so it settles by a later poll, not with the first.
+- **Sends are charged, not paced.** `TransactionProcessorRecord.publish` sends first and
+  claims the send weight afterwards; only the block-hash read in front of it waits for
+  capacity. A resend pass therefore claims a send's weight for every pending transaction
+  at once and can drive the bucket into overdraft, and the courteous waits land on the
+  calls that follow. `soak/README.md` measures it; it is a policy raised, not changed.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

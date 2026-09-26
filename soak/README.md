@@ -377,7 +377,10 @@ transaction of a run with the websocket disabled, and `UNSETTLED` when no signat
 millisecond fields count from the first send RPC returning, as the recording RPC proxy stamped it,
 to the result (`sendToResultMillis`), the notification (`sendToNotifyMillis`) and the subscription
 registering (`sendToSubscribeMillis`), each -1 when unobserved. `sendRpcMillis` is the last send
-call's own length, and `retries` counts the sends of the same signature beyond the first.
+call's own length, and `retries` counts the sends of the same signature beyond the first. That is
+the signature the result carries: a transaction that expired and was rebuilt reports the rebuilt
+transaction's sends, and its first incarnation's resends are in the client log (`Resent
+transaction`) and in the `Unjoined at end` lines the client writes before shutdown, not here.
 
 **`ravina.soak.SignatureSubscription`**: one per step in a subscription's life, from the socket
 proxy: `SUBSCRIBE`, `SUBSCRIBE_REFUSED` (the socket returned false), `NOTIFIED` (with `error` set
@@ -702,9 +705,145 @@ exit`; gate 6 failed on the client's exit 1, so the run's `RESULT` is `FAIL`.
   never notified. The monitor gave up on each subscription after the 5-second websocket timeout
   (`SUBSCRIBE` to `UNSUBSCRIBE` 5,002 ms), the polling pass ran (`processTransactions` 16 times,
   1,298 ms on average, 8,653 ms at most), and each was resent eight times, the last resends
-  reporting 16, 9 and 9 blocks remaining. All three were still pending at exit. The run does not
-  show why they never landed: no `sendTransaction` was faulted, so every send and resend was
-  forwarded, `RpcOutcome` recorded no failed send, and the validator runs `--quiet`.
+  reporting 16, 9 and 9 blocks remaining. All three were still pending at exit. No
+  `sendTransaction` was faulted, so every send and resend was forwarded, and `RpcOutcome`
+  recorded no failed send. The ten-minute rate-limit run below explains them: all three were
+  published within seconds after a window closed, when the dock releases a convoy of workers
+  into a shared signer at once, and a signature that is not over its own message is dropped by
+  the validator without a status.
+
+**Rate limit on one peer, 2026-09-26 (`smoke-20260926T215235Z`, ravina at b76ba62, 600 s at
+2 tx/s, websocket on, one peer, `SOAK_FAULT='rate-limit:on=10,off=50'`).** Twelve 10-second
+windows of 429s. Exit 1: 1,200 submitted, 1,199 settled, one pending at exit. The pending one
+is the first of the two bugs below, not the fault.
+
+- 125 faults in 12 windows: 120 `simulateTransaction`, 5 `getSignatureStatuses`, no
+  `sendTransaction`. The simulation precedes the send, and a 429 docks the bucket, so the
+  pipeline waited out each window in front of its sends and no send met one. The run therefore
+  did not exercise the resend policy under a 429; a run with `methods=sendTransaction` does.
+- Inside a window `processInstructions` p50 9.7 s, p90 16.7 s, max 138 s, against 428 ms
+  outside; send to result unchanged (364 against 365 ms). The 125 failures were retried on the
+  backoff (p50 250 ms, max 2,000 ms, error counts up to 4), and the dock showed as courteous
+  waiting: 9,674 sleeps in `CourteousBalancedCall.call`, 2,327 s in total, p50 203 ms, max
+  1,038 ms — the convoy of the pressure run, at a quarter of its rate.
+- Six transactions timed out on the websocket after 5 s, were resent every 6 s until 15 blocks
+  remained (up to 12 resends each), expired and were rebuilt; five rebuilt ones landed, and one
+  worker never returned. All six were published within a few seconds after a window closed,
+  when the dock released a convoy of workers into `signAndSendTx` together, and the one that
+  never returned had been published *twice*: two workers, one signature, the same millisecond
+  (`Published` twice for `5p1A…`, one `SUBSCRIBE_REFUSED`, two websocket timeouts 3 ms apart).
+  That is the shared-signer race recorded under "Bugs the effort has found" in `HARDENING.md`:
+  sava-core's `KeyPairSigner` wraps one `java.security.Signature`, `MemorySigner` shared it
+  across threads, and two signs at once produced signatures that were not over their own
+  messages, which the validator's signature verification drops without a status. The resends
+  were resends of those bytes. The worker that never returned was stranded by the second bug: the monitor's
+  pending set refused the second context for the signature (its equality is block height and
+  signature) and the caller's join on a future no one held is uninterruptible; `jdk.ThreadPark`
+  shows `soak-worker-46` parked at `processInstructions:217` for 643 s, until exit.
+- The `websocket` backoff row (7 delays, max 3,500 ms) is a shutdown artefact, fixed since: the
+  stuck worker made the harness wait its 15 s for the executor, the HTTP client's selector died
+  on the first task the stopped executor rejected, and the open manager retried the transport
+  failure until the wait ended. The manager is now closed right behind `shutdownNow`.
+- `retries` reads 0 for every transaction in section 11, because the column counts the sends of
+  the signature the result carries, and an expired-and-rebuilt transaction's result carries the
+  rebuilt one's.
+
+**Rate limit on the idle peer, 2026-09-26 (`smoke-20260926T220405Z`, two peers, the proxy on
+peer 2 with `rate-limit:on=10,off=50`, peer 1 pass-through).** All gates passed: 1,200 of 1,200
+settled, send to result p50 282 ms, max 713 ms, and 0 faults injected over 11 windows. The
+sorted load balancer orders peers by error count and then median latency and sends every call
+to the head, so peer 2 received nothing, and the run measured only that one healthy peer takes
+all the traffic. The failover measurement needs the fault on the busy peer.
+
+**Blackhole on sends, 2026-09-26 (`smoke-20260926T221423Z`, one peer,
+`blackhole:on=20,off=100,methods=sendTransaction`).** Six 20-second windows in which every
+`sendTransaction` was answered with its own signature and dropped, and, by the proxy's design,
+the resends of a swallowed signature are dropped outside the windows too: a transaction lost
+for good, not a slow network. Exit 1 with 15 pending at exit.
+
+- 2,750 faults: about 40 first sends per window and their resends every 6 s. 263 websocket
+  timeouts, 2,757 resends, 248 expiries and rebuilds; 1,185 settled, all `OK`, three of them
+  by the monitor's poll after the timeout (`TIMEOUT_THEN_POLL`). A swallowed transaction
+  recovered only by expiry: `processInstructions` inside a window p50 95.6 s, p90 183 s, max
+  187 s (a block hash's validity plus the settle buffer, twice for a rebuild that fell into
+  the next window), against 469 ms outside. Send to result, once a send was real, was
+  unchanged (301 against 306 ms).
+- The 15 pending at exit were rebuilds whose second incarnation fell into the next window and
+  were still waiting for their second expiry when the 60-second drain ended; not a bug.
+- Three signatures were published twice (three `SUBSCRIBE_REFUSED`), each resend convoy after
+  a window putting several workers into `signAndSendTx` at once — and here the shared signer
+  showed its other face: each of the three signatures was valid for one of its two memos, that
+  one landed, and both workers were reported `CONFIRMED` (two `Published`, two `CONFIRMED` per
+  signature in the client log). One worker in each pair got `OK` for instructions that never
+  executed. That is the consequence a consumer would have to audit past runs for.
+- The bucket read −279 at its lowest between samples (`gauge.csv`): a resend pass claims a
+  send's weight for every pending transaction at once, and sends are charged after the fact.
+
+**Stall on one peer, 2026-09-26 (`smoke-20260926T222558Z`, one peer,
+`stall:on=10,off=50,ms=30000`).** Eleven 10-second windows in which every request was held for
+30 s. All gates passed: 1,200 of 1,200 settled, 2 websocket timeouts, 17 resends, 2 expiries
+and rebuilds, 0 pending.
+
+- 202 faults, 200 `simulateTransaction` and 2 `getSignatureStatuses`, every one `CANCELLED` at
+  16.0 s: the RPC client's response deadline, twice its request timeout, cancelled the stalled
+  exchange; the balanced call retried after one 250 ms backoff step, and the retry, past the
+  window, succeeded. A stall costs exactly the deadline: `processInstructions` inside a window
+  p50 16.6 s, p90 16.8 s, against 316 ms outside; join parks in `UncheckedBalancedCall.get` p50
+  16,000 ms. No courteous wait at all: a cancellation is not a server error and docks nothing.
+- The two stalled status polls each became a 16 s monitor pass (`processTransactions` max
+  16,259 ms) and a websocket timeout, whose transaction was resent, expired and rebuilt
+  (`processInstructions` max 109 s).
+- Ten of the 202 retry log lines say `because [null]`: the cancellation carries no message.
+  Cosmetic, in ravina's retry log line.
+
+**Rate limit on one peer, repeated on the fixed signer and monitor, 2026-09-26
+(`smoke-20260926T224418Z`, same settings as the first 429 run).** All gates passed: 1,200 of
+1,200 settled, 0 websocket timeouts, 0 resends, 0 expiries, 0 pending, no signature published
+twice, no park in `processInstructions` beyond a websocket timeout, and no `websocket` backoff
+row. The fault profile was the same (118 faults over 11 windows, all `simulateTransaction`,
+retried on the backoff up to error count 6) and so was its cost: `processInstructions` inside a
+window p50 10.0 s, p90 14.9 s, max 21.2 s, against 340 ms outside; 8,077 courteous sleeps,
+2,189 s in total, p50 220 ms, max 1,033 ms. Send to result p50 300 ms, max 881 ms. The six
+transactions the first run lost were the signer race, not the rate limit.
+
+**Rate limit on sends only, 2026-09-26 (`smoke-20260926T225430Z`, one peer,
+`rate-limit:on=10,off=50,methods=sendTransaction`, fixed signer and monitor).** The run the
+first 429 run could not be: eleven windows in which only `sendTransaction` was answered 429.
+Exit 1 on gate 6: 1,200 submitted, 1,200 settled, 1,066 `OK` and 134 `THREW`, 0 pending.
+
+- **A 429 on the send is not retried, not failed over, and not paced: it is thrown.** Every one
+  of the 134 faulted sends surfaced as `JsonRpcException: Too many requests` out of
+  `processInstructions`, unwrapped by `TxCommitmentMonitorService.validateResponse` (the
+  `anUncheckedSendFailurePropagatesUnwrapped` contract), with no backoff sleep at all (the retry
+  backoff row is empty) and no second peer to try. Those 134 transactions never reached the
+  validator, so nothing was lost or duplicated; the caller simply got the exception. The other
+  68 transactions inside the windows sent before their window's first 429 or between them.
+- The dock paces the calls *after* the failure: 1,708 courteous sleeps, 522 s in total, p50
+  220 ms, max 1,025 ms, on the block-hash reads and simulations of the transactions that
+  followed each 429 (`processInstructions` inside a window p50 824 ms, p90 7.3 s, max 11.4 s,
+  against 305 ms outside), while the send that was refused paid nothing and got nothing.
+- This is the measurement the resend-policy question was waiting for. `TransactionProcessorRecord.publish`
+  sends first and charges afterwards; a refused first send has no retry of its own, and a
+  refused resend would not even be noticed, because the monitor never awaits the response of a
+  `retry` (only `validateResponse` reads a send's future): the transaction would wait for its
+  next resend or its expiry. Whether the first send should fail over to a healthier peer and
+  only then throw, and whether a resend should wait for the dock to clear, is a policy decision
+  this run informs and does not make.
+
+**Rate limit on the busy peer, 2026-09-26 (`smoke-20260926T230444Z`, two peers, the proxy on
+peer 1 with `rate-limit:on=10,off=50`, peer 2 pass-through, fixed signer and monitor).** All
+gates passed: 1,200 of 1,200 settled, send to result p50 300 ms, max 872 ms, no courteous wait,
+no retry backoff — and exactly one fault in eleven windows. The first `simulateTransaction` of
+the first window met peer 1's 429, the balanced call failed over to peer 2 for free (`Failed 1
+times because [Too many requests], trying next balanced item`), and that one error moved the
+whole workload: every later block-hash read, simulation and send went to peer 2, and peer 1
+received nothing else for the remaining ten minutes. That is the sorted balancer's contract as
+built: it orders by unsigned error count first, an item's count is forgiven only by its own
+successes (`ItemContext.success`), and an item that is never selected never succeeds, so a
+single error is permanent while a peer with none exists. The array balancer's skip-forgiveness
+(two skips forgive one error) is not part of the sorted one. Good for "prefer the healthy peer",
+and a design fact to know when the other peer is the one you would rather be on; raised, not
+changed.
 
 ### The 60-second shakeout, 2026-09-26
 
