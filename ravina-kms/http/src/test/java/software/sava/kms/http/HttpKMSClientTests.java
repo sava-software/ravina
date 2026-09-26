@@ -9,6 +9,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
 import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Proxy;
 import java.net.Authenticator;
 import java.net.CookieHandler;
 import java.net.ProxySelector;
@@ -21,6 +22,7 @@ import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiPredicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -123,11 +125,18 @@ final class HttpKMSClientTests {
       throw new UnsupportedOperationException();
     }
 
+    /// When set, every exchange stalls: `sendAsync` hands back this pending future instead of a
+    /// completed response, which is how a body that never arrives is stood up without a server.
+    CompletableFuture<HttpResponse<?>> stalled;
+
     @Override
     @SuppressWarnings("unchecked")
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(final HttpRequest request,
                                                             final HttpResponse.BodyHandler<T> responseBodyHandler) {
       this.lastRequest = request;
+      if (stalled != null) {
+        return (CompletableFuture<HttpResponse<T>>) (CompletableFuture<?>) stalled;
+      }
       final Object body = request.uri().getPath().endsWith("publicKey")
           ? publicKeyBody
           : SIGNATURE;
@@ -349,5 +358,167 @@ final class HttpKMSClientTests {
     final var client = createClient(httpClient);
     client.close();
     assertTrue(httpClient.closed);
+  }
+
+  // --- request timeout and exchange deadline ---
+
+  /// Records the one `schedule` call a deadline makes and hands back a `ScheduledFuture` whose
+  /// `cancel` is recorded too; nothing runs unless the test runs it. The same fake ravina-core's
+  /// `ExchangeDeadlineTests` uses; test sources do not cross modules, so it is repeated here.
+  private static final class RecordingScheduler {
+
+    Runnable scheduled;
+    long delayNanos = -1;
+    final AtomicInteger scheduleCalls = new AtomicInteger();
+    final AtomicInteger timerCancels = new AtomicInteger();
+
+    ScheduledExecutorService executor() {
+      return (ScheduledExecutorService) Proxy.newProxyInstance(
+          ScheduledExecutorService.class.getClassLoader(),
+          new Class<?>[]{ScheduledExecutorService.class},
+          (_, method, args) -> {
+            if (!method.getName().equals("schedule") || !(args[0] instanceof Runnable command)) {
+              throw new UnsupportedOperationException(method.getName());
+            }
+            scheduleCalls.incrementAndGet();
+            scheduled = command;
+            delayNanos = ((TimeUnit) args[2]).toNanos((long) args[1]);
+            return Proxy.newProxyInstance(
+                ScheduledFuture.class.getClassLoader(),
+                new Class<?>[]{ScheduledFuture.class},
+                (_, m, _) -> switch (m.getName()) {
+                  case "cancel" -> {
+                    timerCancels.incrementAndGet();
+                    yield Boolean.TRUE;
+                  }
+                  default -> throw new UnsupportedOperationException(m.getName());
+                }
+            );
+          }
+      );
+    }
+  }
+
+  private static HttpKMSClient createClient(final StubHttpClient httpClient,
+                                            final Duration requestTimeout,
+                                            final ScheduledExecutorService deadlineScheduler) {
+    return (HttpKMSClient) HttpKMSClientFactory.createService(
+        null,
+        httpClient,
+        ENDPOINT,
+        Backoff.single(TimeUnit.MILLISECONDS, 1),
+        NO_OP_TRACKER,
+        requestTimeout,
+        deadlineScheduler
+    );
+  }
+
+  /// Neither request used to carry a timeout at all, and the courteous call
+  /// that joins the future has no bound of its own.
+  @Test
+  void bothRequestsCarryTheDefaultRequestTimeout() {
+    final var pubKey = fixedPublicKey(4);
+    final var httpClient = new StubHttpClient(pubKey.toBase58(), null);
+    final var client = createClient(httpClient);
+
+    assertEquals(Duration.ofSeconds(8), HttpKMSClient.DEFAULT_REQUEST_TIMEOUT);
+    assertEquals(Duration.ofSeconds(8), client.requestTimeout);
+    assertSame(ForkJoinPool.commonPool(), client.deadlineScheduler);
+
+    client.publicKey().join();
+    assertEquals(Optional.of(Duration.ofSeconds(8)), httpClient.lastRequest.timeout());
+
+    client.sign(new byte[]{1, 2, 3}).join();
+    assertEquals(Optional.of(Duration.ofSeconds(8)), httpClient.lastRequest.timeout());
+  }
+
+  @Test
+  void aConfiguredRequestTimeoutIsAppliedToBothRequests() {
+    final var pubKey = fixedPublicKey(4);
+    final var httpClient = new StubHttpClient(pubKey.toBase58(), null);
+    final var scheduler = new RecordingScheduler().executor();
+    final var client = createClient(httpClient, Duration.ofSeconds(3), scheduler);
+
+    assertSame(scheduler, client.deadlineScheduler);
+    assertEquals(Duration.ofSeconds(3), client.requestTimeout);
+
+    client.publicKey().join();
+    assertEquals(Optional.of(Duration.ofSeconds(3)), httpClient.lastRequest.timeout());
+    client.sign(new byte[]{1}).join();
+    assertEquals(Optional.of(Duration.ofSeconds(3)), httpClient.lastRequest.timeout());
+  }
+
+  /// On JDK 25 the request timeout ends only the wait for the headers, so a
+  /// body that stalls after them left a sign or key request, and the
+  /// courteous call that joins it, pending for as long as the peer liked.
+  /// The whole exchange is now bounded at twice the request timeout.
+  @Test
+  void eachExchangeArmsADeadlineAtTwiceTheRequestTimeoutAndReleasesItOnCompletion() {
+    final var pubKey = fixedPublicKey(4);
+    final var httpClient = new StubHttpClient(pubKey.toBase58(), null);
+    final var scheduler = new RecordingScheduler();
+    final var client = createClient(httpClient, Duration.ofSeconds(3), scheduler.executor());
+
+    assertEquals(pubKey, client.publicKey().join());
+    assertEquals(1, scheduler.scheduleCalls.get());
+    assertEquals(Duration.ofSeconds(6).toNanos(), scheduler.delayNanos);
+    assertEquals(1, scheduler.timerCancels.get(), "a completed exchange releases its timer");
+
+    assertArrayEquals(SIGNATURE, client.sign(new byte[]{1, 2}).join());
+    assertEquals(2, scheduler.scheduleCalls.get(), "one timer per exchange");
+    assertEquals(Duration.ofSeconds(6).toNanos(), scheduler.delayNanos);
+    assertEquals(2, scheduler.timerCancels.get());
+  }
+
+  @Test
+  void theDeadlineCancelsASignRequestWhoseBodyStalls() {
+    final var httpClient = new StubHttpClient("", null);
+    final var stalled = new CompletableFuture<HttpResponse<?>>();
+    httpClient.stalled = stalled;
+    final var scheduler = new RecordingScheduler();
+    final var client = createClient(httpClient, Duration.ofSeconds(3), scheduler.executor());
+
+    final var future = client.sign(new byte[]{1, 2, 3});
+    assertFalse(future.isDone(), "the stalled body keeps the signature pending");
+
+    scheduler.scheduled.run();
+
+    assertTrue(stalled.isCancelled(), "the deadline cancels the exchange itself, so the JDK closes it");
+    final var failure = assertThrows(CompletionException.class, future::join);
+    assertInstanceOf(CancellationException.class, failure.getCause());
+  }
+
+  @Test
+  void theDeadlineCancelsAPublicKeyRequestWhoseBodyStalls() {
+    final var httpClient = new StubHttpClient("", null);
+    final var stalled = new CompletableFuture<HttpResponse<?>>();
+    httpClient.stalled = stalled;
+    final var scheduler = new RecordingScheduler();
+    final var client = createClient(httpClient, Duration.ofSeconds(3), scheduler.executor());
+
+    final var future = client.publicKey();
+    assertFalse(future.isDone());
+
+    scheduler.scheduled.run();
+
+    assertTrue(stalled.isCancelled());
+    assertInstanceOf(CancellationException.class, assertThrows(CompletionException.class, future::join).getCause());
+  }
+
+  @Test
+  void theCapacityMonitorFactoryTakesTheTimeoutAndSchedulerToo() {
+    final var config = new software.sava.services.core.request_capacity.CapacityConfig(
+        0, 100, Duration.ofSeconds(1), 8,
+        Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofMillis(500), Duration.ofSeconds(1)
+    );
+    final var monitor = config.<Throwable, Void>createMonitor("kms", HttpKMSErrorTrackerFactory.INSTANCE);
+    final var scheduler = new RecordingScheduler().executor();
+    final var client = (HttpKMSClient) HttpKMSClientFactory.createService(
+        null, new StubHttpClient("", null), ENDPOINT, Backoff.single(TimeUnit.MILLISECONDS, 1),
+        monitor, Duration.ofSeconds(2), scheduler
+    );
+    assertSame(monitor, client.capacityMonitor());
+    assertEquals(Duration.ofSeconds(2), client.requestTimeout);
+    assertSame(scheduler, client.deadlineScheduler);
   }
 }

@@ -47,6 +47,13 @@ class ComposedCall<T> implements Call<T> {
       var callFuture = call();
       for (long errorCount = 0; ; ) {
         try {
+          // An unbounded join on purpose: every future ravina builds for a
+          // Call is bounded at its source. sava-rpc's default routes carry a
+          // whole-exchange deadline from 25.11.2 on (the BOM pins 25.11.2),
+          // and ravina's own HTTP clients (WebHookClientImpl, HttpKMSClient)
+          // bound theirs through ExchangeDeadline. A caller-built future is
+          // the caller's to bound; a second timeout here would only race the
+          // source's.
           return callFuture == null ? null : callFuture.get();
         } catch (final ExecutionException e) {
           final var cause = e.getCause();

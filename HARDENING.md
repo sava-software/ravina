@@ -259,12 +259,29 @@ that the first one had been hiding.
   skipped the increment, so a claim that kept losing to competing threads
   (`hasCapacity` true, `tryClaimRequest` false, the state a release between
   the two reads produces) looped without sleeping and without ever reaching
-  `CallContext.maxTryClaim()`. The 2026-08-06 widening above bounded the
+  `CallContext.maxTryClaim()`. The 2026-08-06 widening below bounded the
   counter's range, not this path, which never touched the counter. Pinned by
   `BalancedCallTests.aFreeFailoverRetryCountsTowardTheTryBudget`, whose
   capacity stub fails as an assertion once the claims exceed the budget, so
   the old code fails fast instead of timing out. The search still runs
   before the budget check, so a forced call lands on the peer it found.
+- 2026-09-26: the futures `ComposedCall.get` and `UncheckedBalancedCall.get`
+  join were unbounded at two of their sources. On JDK 25
+  `HttpRequest.Builder.timeout` ends only the wait for the response headers,
+  so a body that stalled after them left `WebHookClientImpl.postMsg` pending
+  for as long as the peer liked, and `HttpKMSClient` built both of its
+  requests with **no timeout at all**; the courteous call that joins either
+  parked for good (sava-rpc's default routes have carried a whole-exchange
+  deadline since 25.11.2, which the BOM pins; its caller-body-handler routes
+  have none, by its own documentation). Both clients now send through
+  `ExchangeDeadline`, sava's recipe: a scheduled cancellation at twice the
+  built request's timeout, released when the response completes. Pinned by
+  `ExchangeDeadlineTests`, the deadline tests in `WebHookClientImplTests`
+  and the deadline tests in `HttpKMSClientTests`, driven by a recording
+  scheduler rather than a stalling server, because a real stall is a real
+  wait; the tests that only read the requests' timeouts run on the default
+  common-pool scheduler, whose timers a completed stub response cancels at
+  once. The join sites carry the argument for staying unbounded.
 - 2026-07-21: `EpochInfoServiceImpl.logEpoch` called `millisRemaining()`
   twice, so the logged delta carried whatever the clock did between the two
   reads. Found when the method's twelve-row cluster was refactored (see "A

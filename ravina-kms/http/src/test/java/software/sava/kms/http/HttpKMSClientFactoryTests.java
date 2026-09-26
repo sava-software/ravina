@@ -92,7 +92,69 @@ final class HttpKMSClientFactoryTests {
     }
   }
 
+  @Test
+  void testParseJsonRequestTimeout() throws Exception {
+    final var json = """
+        {
+          "endpoint": "https://kms.example.com/api",
+          "requestTimeout": "PT3S",
+          "capacity": {
+            "minCapacity": 1,
+            "maxCapacity": 10,
+            "resetDuration": "PT5S",
+            "rateLimitedBackOffDuration": "PT1S"
+          }
+        }""";
+    final var factory = new HttpKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var ji = JsonIterator.parse(json.getBytes(StandardCharsets.UTF_8));
+      final var service = factory.createService(executor, Backoff.single(1), ji);
+      assertEquals(java.time.Duration.ofSeconds(3), ((HttpKMSClient) service).requestTimeout);
+      service.close();
+    }
+  }
+
+  @Test
+  void testRequestTimeoutDefaultsToEightSeconds() throws Exception {
+    final var json = """
+        {
+          "endpoint": "https://kms.example.com/api",
+          "capacity": {
+            "minCapacity": 1,
+            "maxCapacity": 10,
+            "resetDuration": "PT5S",
+            "rateLimitedBackOffDuration": "PT1S"
+          }
+        }""";
+    final var factory = new HttpKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var ji = JsonIterator.parse(json.getBytes(StandardCharsets.UTF_8));
+      final var service = factory.createService(executor, Backoff.single(1), ji);
+      final var client = (HttpKMSClient) service;
+      assertEquals(java.time.Duration.ofSeconds(8), client.requestTimeout);
+      assertSame(java.util.concurrent.ForkJoinPool.commonPool(), client.deadlineScheduler);
+      service.close();
+    }
+  }
+
   // --- Properties tests ---
+
+  @Test
+  void testParsePropertiesRequestTimeout() throws Exception {
+    final var props = new Properties();
+    props.setProperty("kms.endpoint", "https://kms.example.com/api");
+    props.setProperty("kms.requestTimeout", "2S");
+    props.setProperty("kms.capacity.maxCapacity", "30");
+    props.setProperty("kms.capacity.minCapacity", "1");
+    props.setProperty("kms.capacity.resetDuration", "PT5S");
+    props.setProperty("kms.capacity.rateLimitedBackOffDuration", "PT1S");
+    final var factory = new HttpKMSClientFactory();
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      final var service = factory.createService(executor, Backoff.single(1), "kms", props);
+      assertEquals(java.time.Duration.ofSeconds(2), ((HttpKMSClient) service).requestTimeout);
+      service.close();
+    }
+  }
 
   @Test
   void testParsePropertiesAllFields() throws Exception {
@@ -213,16 +275,19 @@ final class HttpKMSClientFactoryTests {
 
       final var props = new Properties();
       props.setProperty("endpoint", "https://kms.example.com/api");
+      props.setProperty("requestTimeout", "PT4S");
       props.setProperty("capacity.maxCapacity", "50");
       props.setProperty("capacity.minCapacity", "5");
       props.setProperty("capacity.resetDuration", "PT10S");
       props.setProperty("capacity.rateLimitedBackOffDuration", "PT2S");
       final var first = factory.createService(executor, backoff, "", props);
       assertNotNull(first);
+      assertEquals(java.time.Duration.ofSeconds(4), ((HttpKMSClient) first).requestTimeout);
       first.close();
 
-      // No endpoint and no capacity properties: the previously parsed values
-      // must be reused rather than re-parsed from the (empty) properties.
+      // No endpoint, capacity or timeout properties: the previously parsed
+      // values must be reused rather than re-parsed from the (empty)
+      // properties, and an absent timeout must not reset a parsed one.
       final var reuseProps = new Properties();
       reuseProps.setProperty("unrelated", "value");
       final var second = factory.createService(executor, backoff, "", reuseProps);
@@ -230,6 +295,7 @@ final class HttpKMSClientFactoryTests {
       final var capacityMonitor = second.capacityMonitor();
       assertNotNull(capacityMonitor);
       assertEquals(50, capacityMonitor.capacityState().capacity());
+      assertEquals(java.time.Duration.ofSeconds(4), ((HttpKMSClient) second).requestTimeout);
       second.close();
     }
   }

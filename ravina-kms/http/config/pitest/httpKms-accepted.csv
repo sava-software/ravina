@@ -1,5 +1,5 @@
 !sava-hardening-baseline-schema,1
-software.sava.kms.http.HttpKMSClient,<init>,NakedReceiverMutator,SURVIVED # restating-default # line 49
-software.sava.kms.http.HttpKMSClient,sign,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy # line 73
-software.sava.kms.http.HttpKMSClient,sign,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy # line 73
+software.sava.kms.http.HttpKMSClient,<init>,NakedReceiverMutator,SURVIVED # restating-default # line 76
+software.sava.kms.http.HttpKMSClient,sign,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy # line 106
+software.sava.kms.http.HttpKMSClient,sign,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # alloc-only-copy # line 106
 software.sava.kms.http.HttpKMSErrorTracker,logResponse,VoidMethodCallMutator,SURVIVED # log-removal # line 38

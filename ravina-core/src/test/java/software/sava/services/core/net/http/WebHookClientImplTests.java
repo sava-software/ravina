@@ -20,10 +20,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiPredicate;
 import java.util.function.UnaryOperator;
@@ -35,13 +38,19 @@ final class WebHookClientImplTests {
 
   private static final URI ENDPOINT = URI.create("https://hooks.example.com/services/abc");
 
-  /// Captures the request and completes with a canned response. Never opens a connection.
-  private static final class CapturingHttpClient extends HttpClient {
+  /// Captures the request and answers with a canned response, or with whatever future the test
+  /// hands it, which is how a stalled exchange is stood up without a connection. Shared with
+  /// `ExchangeDeadlineTests`, which is why it is neither private nor final.
+  static class CapturingHttpClient extends HttpClient {
 
-    private final HttpResponse<byte[]> response;
-    private HttpRequest lastRequest;
+    private final CompletableFuture<HttpResponse<byte[]>> response;
+    HttpRequest lastRequest;
 
     CapturingHttpClient(final HttpResponse<byte[]> response) {
+      this(CompletableFuture.completedFuture(response));
+    }
+
+    CapturingHttpClient(final CompletableFuture<HttpResponse<byte[]>> response) {
       this.response = response;
     }
 
@@ -50,7 +59,7 @@ final class WebHookClientImplTests {
     public <T> CompletableFuture<HttpResponse<T>> sendAsync(final HttpRequest request,
                                                             final HttpResponse.BodyHandler<T> responseBodyHandler) {
       this.lastRequest = request;
-      return CompletableFuture.completedFuture((HttpResponse<T>) response);
+      return (CompletableFuture<HttpResponse<T>>) (CompletableFuture<?>) response;
     }
 
     @Override
@@ -276,6 +285,77 @@ final class WebHookClientImplTests {
         ENDPOINT, httpClient, WebHookClientImpl.DEFAULT_TIMEOUT, null, null, "%s"
     );
     assertEquals("", client.postMsg("hello").join());
+  }
+
+  // ------------------------------------------------------ exchange deadline --
+
+  /// On JDK 25 the request timeout ends only the wait for the headers, so a
+  /// body that stalls after them left the post, and the courteous call that
+  /// joins it, pending for as long as the peer liked. The whole exchange is
+  /// now bounded at twice the request timeout, on the injected scheduler.
+  @Test
+  void postMsgArmsTheExchangeDeadlineAtTwiceTheRequestTimeout() {
+    final var httpClient = new CapturingHttpClient(new StubResponse(200, "ok".getBytes(UTF_8)));
+    final var scheduler = new ExchangeDeadlineTests.RecordingScheduler();
+    final var client = new WebHookClientImpl(
+        ENDPOINT, httpClient, Duration.ofSeconds(3), null, null, "%s", scheduler.executor()
+    );
+
+    assertEquals("ok", client.postMsg("hello").join());
+
+    assertEquals(1, scheduler.scheduleCalls.get(), "one timer per post");
+    assertEquals(Duration.ofSeconds(6).toNanos(), scheduler.delayNanos);
+    assertEquals(1, scheduler.timerCancels.get(), "a completed exchange releases its timer");
+  }
+
+  @Test
+  void theDeadlineCancelsAnExchangeWhoseBodyStalls() {
+    final var stalled = new CompletableFuture<HttpResponse<byte[]>>();
+    final var httpClient = new CapturingHttpClient(stalled);
+    final var scheduler = new ExchangeDeadlineTests.RecordingScheduler();
+    final var client = new WebHookClientImpl(
+        ENDPOINT, httpClient, Duration.ofSeconds(3), null, null, "%s", scheduler.executor()
+    );
+
+    final var future = client.postMsg("hello");
+    assertFalse(future.isDone(), "the stalled body keeps the post pending");
+
+    scheduler.scheduled.run();
+
+    assertTrue(stalled.isCancelled(), "the deadline cancels the exchange itself, so the JDK closes it");
+    final var failure = assertThrows(CompletionException.class, future::join);
+    assertInstanceOf(CancellationException.class, failure.getCause());
+  }
+
+  @Test
+  void anExtenderThatReplacesTheTimeoutMovesTheDeadline() {
+    final var httpClient = new CapturingHttpClient(new StubResponse(200, "ok".getBytes(UTF_8)));
+    final var scheduler = new ExchangeDeadlineTests.RecordingScheduler();
+    final UnaryOperator<HttpRequest.Builder> extendRequest = builder -> builder.timeout(Duration.ofSeconds(1));
+    final var client = new WebHookClientImpl(
+        ENDPOINT, httpClient, Duration.ofSeconds(3), extendRequest, null, "%s", scheduler.executor()
+    );
+
+    client.postMsg("hello").join();
+
+    assertEquals(Optional.of(Duration.ofSeconds(1)), httpClient.lastRequest.timeout());
+    assertEquals(Duration.ofSeconds(2).toNanos(), scheduler.delayNanos, "the deadline follows the built request");
+  }
+
+  @Test
+  void factoriesDefaultTheDeadlineSchedulerToTheCommonPool() {
+    final var httpClient = new CapturingHttpClient(new StubResponse(200, "ok".getBytes(UTF_8)));
+    final var fromFactory = (WebHookClientImpl) WebHookClient.createClient(ENDPOINT, httpClient, null, "%s");
+    assertSame(ForkJoinPool.commonPool(), fromFactory.deadlineScheduler);
+
+    final var fromConstructor = new WebHookClientImpl(
+        ENDPOINT, httpClient, WebHookClientImpl.DEFAULT_TIMEOUT, null, null, "%s"
+    );
+    assertSame(ForkJoinPool.commonPool(), fromConstructor.deadlineScheduler);
+
+    final var scheduler = new ExchangeDeadlineTests.RecordingScheduler().executor();
+    final var explicit = (WebHookClientImpl) WebHookClient.createClient(ENDPOINT, httpClient, null, "%s", scheduler);
+    assertSame(scheduler, explicit.deadlineScheduler);
   }
 
   @Test

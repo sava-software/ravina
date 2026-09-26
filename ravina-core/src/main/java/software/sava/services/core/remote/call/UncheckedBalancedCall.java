@@ -54,6 +54,10 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
       final int numItems = loadBalancer.size();
       for (long errorCount = 0, retry = 0; ; ) {
         try {
+          // An unbounded join on purpose; see ComposedCall.get: every future
+          // ravina builds for a Call is bounded at its source (sava-rpc's
+          // exchange deadline from 25.11.2, ExchangeDeadline for ravina's own
+          // HTTP clients), and a caller-built future is the caller's to bound.
           final var result = callFuture.get();
           if (measureCallTime) {
             this.next.sample((clock.nanoTime() - start) / 1_000_000);

@@ -1,9 +1,9 @@
 !sava-hardening-baseline-schema,1
-software.sava.services.core.remote.call.ComposedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 58
+software.sava.services.core.remote.call.ComposedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 65
 software.sava.services.core.remote.call.CourteousBalancedCall,call,ConditionalsBoundaryMutator,SURVIVED # single-item-pool # line 36
 software.sava.services.core.remote.call.CourteousBalancedCall,call,RemoveConditionalMutator_ORDER_IF,SURVIVED # single-item-pool # line 31
-software.sava.services.core.remote.call.CourteousBalancedCall,call,VoidMethodCallMutator,SURVIVED # no-op-sort # line 68
+software.sava.services.core.remote.call.CourteousBalancedCall,call,VoidMethodCallMutator,SURVIVED # no-op-sort # line 79
 software.sava.services.core.remote.call.UncheckedBalancedCall,get,RemoveConditionalMutator_EQUAL_IF,SURVIVED # timer-unobservable # line 53
-software.sava.services.core.remote.call.UncheckedBalancedCall,get,RemoveConditionalMutator_EQUAL_IF,SURVIVED # timer-unobservable # line 92
-software.sava.services.core.remote.call.UncheckedBalancedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 76
-software.sava.services.core.remote.call.UncheckedBalancedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 82
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,RemoveConditionalMutator_EQUAL_IF,SURVIVED # timer-unobservable # line 96
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 80
+software.sava.services.core.remote.call.UncheckedBalancedCall,get,VoidMethodCallMutator,SURVIVED # log-removal # line 86

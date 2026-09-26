@@ -2,6 +2,7 @@ package software.sava.kms.http;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.kms.core.signing.BaseKMSClient;
+import software.sava.services.core.net.http.ExchangeDeadline;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
 
@@ -9,11 +10,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 import java.util.function.BiPredicate;
 
@@ -21,6 +24,12 @@ import static java.net.http.HttpResponse.BodyHandlers.ofByteArray;
 import static java.net.http.HttpResponse.BodyHandlers.ofString;
 
 final class HttpKMSClient extends BaseKMSClient {
+
+  /// The JDK request timeout for both requests when none is configured. On JDK 25 it bounds only
+  /// the wait for the response headers; the whole exchange is bounded at twice it by
+  /// [ExchangeDeadline], so a signing service whose body stalls cannot park the call that joins
+  /// the future for good.
+  static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(8);
 
   private static final String ENCODING_HEADER = "X-ENCODING";
   private static final Function<HttpResponse<String>, PublicKey> PUBLIC_KEY_PARSER = response -> {
@@ -35,6 +44,8 @@ final class HttpKMSClient extends BaseKMSClient {
 
   // package-private so same-package tests can assert the factory's wiring
   final HttpClient httpClient;
+  final Duration requestTimeout;
+  final ScheduledExecutorService deadlineScheduler;
   private final HttpRequest getPublicKey;
   private final URI postMsg;
 
@@ -44,16 +55,35 @@ final class HttpKMSClient extends BaseKMSClient {
                        final BiPredicate<Throwable, Void> errorTracker,
                        final HttpClient httpClient,
                        final URI endpoint) {
+    this(executorService, backoff, capacityMonitor, errorTracker, httpClient, endpoint, DEFAULT_REQUEST_TIMEOUT, null);
+  }
+
+  /// `deadlineScheduler` null selects the common pool: see [ExchangeDeadline].
+  public HttpKMSClient(final ExecutorService executorService,
+                       final Backoff backoff,
+                       final ErrorTrackedCapacityMonitor<Throwable, Void> capacityMonitor,
+                       final BiPredicate<Throwable, Void> errorTracker,
+                       final HttpClient httpClient,
+                       final URI endpoint,
+                       final Duration requestTimeout,
+                       final ScheduledExecutorService deadlineScheduler) {
     super(executorService, backoff, capacityMonitor, errorTracker);
     this.httpClient = httpClient;
-    this.getPublicKey = HttpRequest.newBuilder(endpoint.resolve("v0/publicKey")).GET().build();
+    this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+    this.deadlineScheduler = deadlineScheduler == null ? ExchangeDeadline.defaultScheduler() : deadlineScheduler;
+    this.getPublicKey = HttpRequest.newBuilder(endpoint.resolve("v0/publicKey"))
+        .timeout(requestTimeout)
+        .GET()
+        .build();
     this.postMsg = endpoint.resolve("v0/sign");
   }
 
 
   @Override
   public CompletableFuture<PublicKey> publicKey() {
-    return httpClient.sendAsync(getPublicKey, ofString()).thenApply(PUBLIC_KEY_PARSER);
+    return ExchangeDeadline
+        .send(httpClient, getPublicKey, ofString(), deadlineScheduler, requestTimeout)
+        .thenApply(PUBLIC_KEY_PARSER);
   }
 
   @Override
@@ -61,9 +91,12 @@ final class HttpKMSClient extends BaseKMSClient {
     final byte[] base64Encoded = Base64.getEncoder().encode(msg);
     final var request = HttpRequest.newBuilder(postMsg)
         .setHeader(ENCODING_HEADER, "base64")
+        .timeout(requestTimeout)
         .POST(HttpRequest.BodyPublishers.ofByteArray(base64Encoded))
         .build();
-    return httpClient.sendAsync(request, ofByteArray()).thenApply(HttpResponse::body);
+    return ExchangeDeadline
+        .send(httpClient, request, ofByteArray(), deadlineScheduler, requestTimeout)
+        .thenApply(HttpResponse::body);
   }
 
   @Override

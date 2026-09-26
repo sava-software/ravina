@@ -6,12 +6,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Function;
 import java.util.function.BiPredicate;
 import java.util.function.UnaryOperator;
 
 final class WebHookClientImpl implements WebHookClient {
 
+  /// The JDK request timeout, which on JDK 25 bounds only the wait for the response headers; the
+  /// whole exchange is bounded at twice it by [ExchangeDeadline].
   static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(8);
 
   private static final Function<HttpResponse<byte[]>, String> RESPONSE_PARSER = httpResponse -> {
@@ -25,6 +28,8 @@ final class WebHookClientImpl implements WebHookClient {
   private final UnaryOperator<HttpRequest.Builder> extendRequest;
   private final BiPredicate<HttpResponse<?>, byte[]> applyResponse;
   private final String bodyFormat;
+  // package-private so same-package tests can assert the factory's wiring
+  final ScheduledExecutorService deadlineScheduler;
 
   WebHookClientImpl(final URI endpoint,
                     final HttpClient httpClient,
@@ -32,12 +37,24 @@ final class WebHookClientImpl implements WebHookClient {
                     final UnaryOperator<HttpRequest.Builder> extendRequest,
                     final BiPredicate<HttpResponse<?>, byte[]> applyResponse,
                     final String bodyFormat) {
+    this(endpoint, httpClient, requestTimeout, extendRequest, applyResponse, bodyFormat, null);
+  }
+
+  /// `deadlineScheduler` null selects the common pool: see [ExchangeDeadline].
+  WebHookClientImpl(final URI endpoint,
+                    final HttpClient httpClient,
+                    final Duration requestTimeout,
+                    final UnaryOperator<HttpRequest.Builder> extendRequest,
+                    final BiPredicate<HttpResponse<?>, byte[]> applyResponse,
+                    final String bodyFormat,
+                    final ScheduledExecutorService deadlineScheduler) {
     this.endpoint = endpoint;
     this.httpClient = httpClient;
     this.requestTimeout = requestTimeout;
     this.extendRequest = extendRequest == null ? UnaryOperator.identity() : extendRequest;
     this.applyResponse = applyResponse;
     this.bodyFormat = bodyFormat;
+    this.deadlineScheduler = deadlineScheduler == null ? ExchangeDeadline.defaultScheduler() : deadlineScheduler;
   }
 
   @Override
@@ -64,8 +81,11 @@ final class WebHookClientImpl implements WebHookClient {
             .method("POST", HttpRequest.BodyPublishers.ofString(body))
     ).build();
 
-    return this.httpClient
-        .sendAsync(request, HttpResponse.BodyHandlers.ofByteArray())
+    // The built request's timeout, which the extender may have replaced, bounds the headers; the
+    // deadline bounds the rest of the exchange, so a body that stalls after them cannot leave
+    // the courteous call that joins this future parked for good.
+    return ExchangeDeadline
+        .send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray(), deadlineScheduler, requestTimeout)
         .thenApply(this.wrapParser(parser));
   }
 
