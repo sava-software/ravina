@@ -1,5 +1,26 @@
 # Changelog
 
+## [25.6.4](https://github.com/sava-software/ravina/compare/25.6.3...25.6.4) (2026-09-26)
+
+
+### Features
+
+* **soak:** add a JFR soak harness for the transaction pipeline ([7b9243b](https://github.com/sava-software/ravina/commit/7b9243b30d5e5e0efb07386ca85be865b5ceb0c6))
+
+
+### Bug Fixes
+
+* **core,kms:** bound every HTTP exchange with a whole-exchange deadline ([ad98988](https://github.com/sava-software/ravina/commit/ad98988d67f72fd9945457716ef568bf5308f54b))
+* **core:** claim the peer a courteous wait was for ([21237c7](https://github.com/sava-software/ravina/commit/21237c7cc79b776be94cd4bebb135355b511e8d9))
+* **core:** count a free failover retry toward the try budget ([a24a21d](https://github.com/sava-software/ravina/commit/a24a21dba0916b7da5f7b44dcd5dda0b95649fa4))
+* **core:** make a courteous wait exact beyond two seconds ([078b327](https://github.com/sava-software/ravina/commit/078b327fea5352a7365ea51267e6dae8cd949876))
+* **core:** subtract the refill time already accrued from a courteous wait ([e08be05](https://github.com/sava-software/ravina/commit/e08be056d04b8badf9c294ea551bcc04b7093d60))
+* **core:** treat a 500 as a server error ([ec4d763](https://github.com/sava-software/ravina/commit/ec4d763bf903126aac143ef39ca9af1447f70178))
+* **core:** wait for the peer that refills first ([e921cc2](https://github.com/sava-software/ravina/commit/e921cc2ffe68328ef2b62283bac084a8c2b31b95))
+* **core:** wait one refill period past a deep overdraft ([3af1a43](https://github.com/sava-software/ravina/commit/3af1a438212ef68e6520567d10ec3751efcdd605))
+* **soak:** let no submission slip past the stop ([e0ef9f9](https://github.com/sava-software/ravina/commit/e0ef9f9eaf8febd220be8de3c6bcc808564deee6))
+* **soak:** record a send before its caller can see the result ([450d950](https://github.com/sava-software/ravina/commit/450d95087ecf7a6b315b73cfb99250b03990fe0c))
+
 ## [25.6.3](https://github.com/sava-software/ravina/compare/25.6.2...25.6.3) (2026-09-25)
 
 
