@@ -643,6 +643,157 @@ final class BalancedCallTests {
     }
   }
 
+  /// A capacity state that always reports capacity and never grants a claim:
+  /// the steady state a claim race produces when a competing thread wins every
+  /// time. Claims are counted against a budget shared by every item, so a loop
+  /// that re-claims without counting fails as an assertion instead of spinning
+  /// until a watchdog. Everything else throws, `durationUntil` included: the
+  /// free retry must never fall into the wait branch.
+  private static final class UnclaimableCapacityState implements CapacityState {
+
+    private final int[] sharedClaims;
+    private final int claimBudget;
+    private int tryClaimCalls;
+    private int hasCapacityCalls;
+
+    private UnclaimableCapacityState(final int[] sharedClaims, final int claimBudget) {
+      this.sharedClaims = sharedClaims;
+      this.claimBudget = claimBudget;
+    }
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext) {
+      if (++sharedClaims[0] > claimBudget) {
+        throw new AssertionError("claim " + sharedClaims[0] + " exceeds the try budget of " + claimBudget
+            + ": a failed claim was retried without counting");
+      }
+      ++tryClaimCalls;
+      return false;
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext) {
+      ++hasCapacityCalls;
+      return true;
+    }
+
+    @Override
+    public CapacityConfig capacityConfig() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public NanoClock clock() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int capacity() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void addCapacity(final int delta) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public long durationUntil(final CallContext callContext, final int runtimeCallWeight, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void claimRequest(final int callWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void claimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
+  /// A failover to a peer that reports capacity is retried at once, without a
+  /// wait. The retry is free of the wait, not of the try budget: a claim that
+  /// keeps losing to competing threads must still run out of tries, or the
+  /// loop never sleeps, never counts and never ends.
+  @Test
+  void aFreeFailoverRetryCountsTowardTheTryBudget() {
+    final var clock = new TestClock(true);
+    final int maxTry = 5;
+    final int[] claims = new int[1];
+    final var stateA = new UnclaimableCapacityState(claims, maxTry);
+    final var stateB = new UnclaimableCapacityState(claims, maxTry);
+    final var stateC = new UnclaimableCapacityState(claims, maxTry);
+    final var a = BalancedItem.createItem("a", () -> stateA, Backoff.single(MILLISECONDS, 1));
+    final var b = BalancedItem.createItem("b", () -> stateB, Backoff.single(MILLISECONDS, 1));
+    final var c = BalancedItem.createItem("c", () -> stateC, Backoff.single(MILLISECONDS, 1));
+    final var calls = new AtomicInteger();
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(a, b, c)),
+        item -> {
+          calls.incrementAndGet();
+          return CompletableFuture.completedFuture(item);
+        },
+        CallContext.createContext(1, 0, maxTry, false, Long.MAX_VALUE, false),
+        clock,
+        "test::countedFreeRetry"
+    );
+    assertNull(call.get());
+    assertEquals(0, calls.get());
+    assertEquals(maxTry, claims[0], "exactly the try budget of claims, free retries included");
+    // Every sort re-picks the head, so the failover alternates between the
+    // scan's first peer with capacity and the head: a, b, a, b, a. The scan
+    // stops at b, so c is never claimed and never even consulted.
+    assertEquals(3, stateA.tryClaimCalls);
+    assertEquals(2, stateB.tryClaimCalls);
+    assertEquals(0, stateC.tryClaimCalls);
+    assertEquals(2, stateA.hasCapacityCalls);
+    assertEquals(3, stateB.hasCapacityCalls);
+    assertEquals(0, stateC.hasCapacityCalls);
+    assertTrue(clock.sleeps.isEmpty());
+  }
+
   @Test
   void aFailedClaimIsFinalUnlessTheFailoverItemIsADifferentOne() {
     final var clock = new TestClock(true);

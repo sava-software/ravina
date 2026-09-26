@@ -23,42 +23,50 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
   public CompletableFuture<R> call() {
     this.next = loadBalancer.withContext();
     final long maxTry = callContext.maxTryClaim();
-    TRY_NEXT:
     for (long i = 0; ; ) {
       if (this.next.capacityState().tryClaimRequest(callContext)) {
         return call.apply(this.next.item());
-      } else {
-        if (loadBalancer.size() > 1) {
-          loadBalancer.sort();
-          final var previous = this.next;
-          this.next = loadBalancer.withContext();
-          if (previous != this.next && this.next.capacityState().hasCapacity(callContext)) {
-            continue;
-          }
+      }
+      // A peer that reports capacity is retried at once, without a wait. The
+      // retry is free of the wait, not of the try budget: a claim that keeps
+      // losing to competing threads must still run out of tries, and the
+      // search runs before the budget check so a forced call lands on the
+      // peer it found.
+      boolean retryNow = false;
+      if (loadBalancer.size() > 1) {
+        loadBalancer.sort();
+        final var previous = this.next;
+        this.next = loadBalancer.withContext();
+        if (previous != this.next && this.next.capacityState().hasCapacity(callContext)) {
+          retryNow = true;
+        } else {
           for (final var item : loadBalancer.items()) {
             if (previous != item && item.capacityState().hasCapacity(callContext)) {
               this.next = item;
-              continue TRY_NEXT;
+              retryNow = true;
+              break;
             }
           }
         }
-        if (++i >= maxTry) {
-          break;
-        }
-        final long delayMillis = this.next.capacityState().durationUntil(callContext, MILLISECONDS);
-        if (delayMillis <= 0) {
-          this.next.capacityState().claimRequest(callContext);
-          return call.apply(this.next.item());
-        } else {
-          try {
-            clock.sleep(delayMillis);
-          } catch (final InterruptedException e) {
-            throw new RuntimeException(e);
-          }
-          loadBalancer.sort();
-          this.next = loadBalancer.withContext();
-        }
       }
+      if (++i >= maxTry) {
+        break;
+      }
+      if (retryNow) {
+        continue;
+      }
+      final long delayMillis = this.next.capacityState().durationUntil(callContext, MILLISECONDS);
+      if (delayMillis <= 0) {
+        this.next.capacityState().claimRequest(callContext);
+        return call.apply(this.next.item());
+      }
+      try {
+        clock.sleep(delayMillis);
+      } catch (final InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+      loadBalancer.sort();
+      this.next = loadBalancer.withContext();
     }
     if (callContext.forceCall()) {
       this.next.capacityState().claimRequest(callContext);

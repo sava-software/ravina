@@ -235,6 +235,17 @@ production code, not only the test. So is a plan to instrument it: the two
   `durationUntilKeepsNanosecondPrecision`; the product is now exact, and
   saturates at `Long.MAX_VALUE` where a deep overdraft at a slow refill would
   have wrapped negative (`durationUntilSaturatesInsteadOfWrapping`).
+- 2026-09-26: `CourteousBalancedCall.call` retried a failed claim on a peer
+  that reported capacity without counting the try: both failover `continue`s
+  skipped the increment, so a claim that kept losing to competing threads
+  (`hasCapacity` true, `tryClaimRequest` false, the state a release between
+  the two reads produces) looped without sleeping and without ever reaching
+  `CallContext.maxTryClaim()`. The 2026-08-06 widening above bounded the
+  counter's range, not this path, which never touched the counter. Pinned by
+  `BalancedCallTests.aFreeFailoverRetryCountsTowardTheTryBudget`, whose
+  capacity stub fails as an assertion once the claims exceed the budget, so
+  the old code fails fast instead of timing out. The search still runs
+  before the budget check, so a forced call lands on the peer it found.
 - 2026-07-21: `EpochInfoServiceImpl.logEpoch` called `millisRemaining()`
   twice, so the logged delta carried whatever the clock did between the two
   reads. Found when the method's twelve-row cluster was refactored (see "A
