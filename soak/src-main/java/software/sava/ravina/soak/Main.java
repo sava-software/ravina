@@ -35,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 /// Entry point. Every setting is a `SOAK_*` environment variable, resolved by `soak.sh` and
@@ -262,12 +263,23 @@ public final class Main {
         );
         workload.run(scheduler, ratePerSecond, durationSeconds, drainSeconds);
       } finally {
+        // The validator is asked about the unjoined signatures first: the direct client shares
+        // the executor, and the HTTP client's selector shuts itself down on the first rejected
+        // task after shutdownNow (the lookup then fails with "selector manager closed").
+        diagnoseUnjoined(rpcClient, ledger, counters.pending());
         // The workers stop before the counters are read: a pending worker interrupted after
         // the END event would still commit its Transaction event, and the recording would hold
         // more events than submitted minus pending. An interrupted worker settles as
         // INTERRUPTED; one still stuck after the wait stays pending and commits nothing. The
         // pipeline's loops share the executor and end here too.
         executor.shutdownNow();
+        // Closed right behind the executor, before the wait: the websocket's transport fails
+        // once its executor rejects a task, a few seconds in, and an open manager would count
+        // that as a connection failure and retry it until the wait ended (a seven-delay
+        // `websocket` backoff row on every run that had a stuck worker). A closed manager
+        // ignores the failure; a worker that reaches it meanwhile gets no websocket, and is
+        // being interrupted with the executor it shares with the poller anyway.
+        webSocketManager.close();
         try {
           executor.awaitTermination(15, TimeUnit.SECONDS);
         } catch (final InterruptedException interrupted) {
@@ -281,7 +293,6 @@ public final class Main {
                   + " faultsInjected=" + counters.faultsInjected.sum());
           logger.log(INFO, finishedLine("Run finished", counters));
         }
-        webSocketManager.close();
         for (final var proxy : proxies) {
           proxy.close();
         }
@@ -301,6 +312,54 @@ public final class Main {
         counters.notified.get(), counters.timedOut.get(), counters.threw.get(), counters.interrupted.get(),
         counters.faultsInjected.sum()
     );
+  }
+
+  /// For every signature still in the ledger at the end, the seams' timeline and the validator's
+  /// own answer, with transaction history searched, through the direct client: whether a
+  /// transaction the pipeline gave up on ever landed at all, logged one line per signature so
+  /// the client log can say why a run ended with work pending. The ledger holds more than the
+  /// pending workers' signatures: a transaction that expired and was rebuilt left its first
+  /// incarnation here too (the workload joins only the signature its result carries), so the
+  /// header gives both counts, and an expired incarnation reads as timed out on the websocket,
+  /// never notified, and never seen by the validator.
+  private static void diagnoseUnjoined(final SolanaRpcClient direct,
+                                       final SignatureLedger ledger,
+                                       final long pendingWorkers) {
+    final var unjoined = ledger.unjoined();
+    if (unjoined.isEmpty()) {
+      return;
+    }
+    final var signatures = java.util.List.copyOf(unjoined.keySet());
+    logger.log(INFO, "Unjoined signatures at end: " + signatures.size() + " in the ledger, " + pendingWorkers
+        + " worker(s) still pending; the rest were never joined by a result: expired incarnations of"
+        + " rebuilt transactions, or sends whose worker threw.");
+    java.util.List<software.sava.rpc.json.http.response.TxStatus> statuses = null;
+    try {
+      // getSignatureStatuses takes at most 256 signatures per request; a blackhole run left 222.
+      final var all = new java.util.ArrayList<software.sava.rpc.json.http.response.TxStatus>(signatures.size());
+      for (int from = 0; from < signatures.size(); from += 256) {
+        final var chunk = signatures.subList(from, Math.min(from + 256, signatures.size()));
+        all.addAll(direct.getSigStatusList(chunk, true).get(10, TimeUnit.SECONDS));
+      }
+      statuses = all;
+    } catch (final Exception failure) {
+      logger.log(WARNING, "Unjoined-signature status lookup failed", failure);
+    }
+    for (int i = 0; i < signatures.size(); ++i) {
+      final var signature = signatures.get(i);
+      final var timeline = unjoined.get(signature);
+      final var status = statuses == null ? null : statuses.get(i);
+      logger.log(INFO, String.format(
+          "Unjoined at end: %s sends=%d sendToSubscribe=%dms sendToNotify=%dms sendToUnsubscribe=%dms ageMs=%d status=%s",
+          signature, timeline.sends,
+          timeline.millisFromSend(timeline.subscribedAtNanos),
+          timeline.millisFromSend(timeline.notifiedAtNanos),
+          timeline.millisFromSend(timeline.unsubscribedAtNanos),
+          (System.nanoTime() - timeline.createdAtNanos) / 1_000_000L,
+          status == null ? "lookup failed" : status.nil() ? "never seen by the validator (history searched)"
+              : status.confirmationStatus() + " slot=" + status.slot() + " error=" + status.error()
+      ));
+    }
   }
 
   private static void fund(final SolanaRpcClient rpcClient, final PublicKey payer, final long lamports) throws Exception {

@@ -137,9 +137,10 @@ final class Gauge implements AutoCloseable {
 
   private void writeRow() {
     final var s = sample();
-    // Entries the workload never joined (a throw before the signature was known) are dropped
-    // after ten minutes, well past any transaction's life.
-    ledger.sweep(TimeUnit.MINUTES.toNanos(10));
+    // Nothing is swept from the ledger during a run: an entry the workload never joins is what
+    // the end-of-run diagnostic exists to explain (a ten-minute age sweep once dropped the
+    // stuck worker's own signature 40 s before exit), and the ledger is bounded by the
+    // submission count.
     try {
       csv.write(String.join(",",
           Long.toString(System.currentTimeMillis()),

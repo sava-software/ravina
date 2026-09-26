@@ -1,6 +1,5 @@
 package software.sava.ravina.soak;
 
-import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -8,8 +7,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /// What the harness observed about each signature at the public seams, keyed by the base58
 /// signature so the workload can join it to the result `processInstructions` hands back. The
 /// RPC proxy records each send; the wrapping websocket records the subscription's life. The
-/// workload removes the entry when its transaction settles; a sweep drops what it never came
-/// back for.
+/// workload removes the entry when its transaction settles; what it never comes back for stays
+/// for the end-of-run diagnostic, bounded by the number of submissions.
 final class SignatureLedger {
 
   /// Nanosecond stamps from `System.nanoTime()`, 0 while unobserved. Volatile because the
@@ -98,21 +97,14 @@ final class SignatureLedger {
     return signature == null ? null : timelines.remove(signature);
   }
 
-  int size() {
-    return timelines.size();
+  /// The signatures the workload never joined: those of the workers still pending, and the
+  /// first incarnations of transactions that expired and were rebuilt under a new signature,
+  /// until the sweep drops them.
+  Map<String, Timeline> unjoined() {
+    return Map.copyOf(timelines);
   }
 
-  /// Drops entries older than `maxAgeNanos`: signatures whose transaction the workload never
-  /// joined, because it threw before the signature was known.
-  int sweep(final long maxAgeNanos) {
-    final long now = System.nanoTime();
-    int swept = 0;
-    for (final Iterator<Timeline> it = timelines.values().iterator(); it.hasNext(); ) {
-      if (now - it.next().createdAtNanos > maxAgeNanos) {
-        it.remove();
-        ++swept;
-      }
-    }
-    return swept;
+  int size() {
+    return timelines.size();
   }
 }
