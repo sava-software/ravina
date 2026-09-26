@@ -53,6 +53,21 @@ parsing, and KMS-backed signing.
     unreferenced and deliberately left behind.
 - `ravina-kms/core|http|google` — signing-service abstraction, HTTP-backed and
   Google Cloud KMS implementations.
+- `soak/` — an opt-in JFR soak harness for the transaction pipeline, a
+  **standalone** Gradle build (`includeBuild("..")`) with its sources under
+  `soak/src-main/java`, never `soak/src/`: the root `settings.gradle.kts`
+  auto-includes any direct subdirectory holding `src/*/java/module-info.java`
+  as a subproject and then fails to configure. It is not published and not
+  part of `check`, PIT or fuzzing; `soak/README.md` is how to run it.
+  **Ravina never `requires jdk.jfr` and defines no JFR event** (owner
+  decision, 2026-09-26): waits are observed with the JDK's built-in events and
+  JEP 520 method timing, and every domain fact is an event the harness
+  commits at a public seam (wrappers around `WebSocketManager`, `Backoff` and
+  the RPC client, the workload's own call boundary, public capacity readings).
+  If a question ever needs state no public seam exposes, the answer is an
+  additive observer hook in ravina with the event still committed outside,
+  never an event inside ravina. Only the harness's own module requires
+  `jdk.jfr`.
 
 ## Build & test
 
@@ -359,6 +374,18 @@ them, because the list is the argument for the effort.
   and an ordinal — not an event stream, and not the typed exception, which cannot cover post-open
   retirement), and the rejected alternatives are recorded in
   https://github.com/sava-software/sava/issues/52.
+- **A signature subscription registered after the transaction confirmed is still notified,
+  on the next commitment pass.** Do not add a `getSignatureStatuses` check after
+  `signatureSubscribe` in `TxCommitmentMonitorService` to "close the race": there is none worth
+  an RPC per transaction. Agave runs every live signature subscription through
+  `Bank::get_signature_status_processed_since_parent` on each commitment update
+  (`rpc/src/rpc_subscriptions.rs`, `notify_watchers`), and that reads the status cache across
+  the bank's ancestors, so a signature that landed before the subscription registered is found
+  on the next update. Measured on a local Agave 4.2.2 test validator on 2026-09-26: six
+  subscriptions made only after `getSignatureStatuses` already reported `confirmed` were each
+  notified about one slot later, no slower than subscriptions made right after the send
+  (`soak/README.md` has the table). The websocket timeout in `TxMonitorConfig` is therefore
+  margin for a dead connection, not for this ordering.
 - **Give the websocket manager a positive reconnect delay.** A constant zero backoff
   (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
   unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
