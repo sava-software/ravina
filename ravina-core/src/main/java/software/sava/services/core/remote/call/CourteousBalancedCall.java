@@ -55,7 +55,18 @@ final class CourteousBalancedCall<I, R> extends GreedyBalancedCall<I, R> {
       if (retryNow) {
         continue;
       }
-      final long delayMillis = this.next.capacityState().durationUntil(callContext, MILLISECONDS);
+      // Wait for whichever peer refills first, not for the one the balancer
+      // happened to pick: an item its error tracker docked can owe far longer
+      // than its peers, and the wait is exact now, no longer capped near two
+      // seconds by accident.
+      long delayMillis = Long.MAX_VALUE;
+      for (final var item : loadBalancer.items()) {
+        final long itemDelay = item.capacityState().durationUntil(callContext, MILLISECONDS);
+        if (itemDelay < delayMillis) {
+          delayMillis = itemDelay;
+          this.next = item;
+        }
+      }
       if (delayMillis <= 0) {
         this.next.capacityState().claimRequest(callContext);
         return call.apply(this.next.item());

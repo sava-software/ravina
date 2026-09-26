@@ -244,6 +244,16 @@ that the first one had been hiding.
   the refill. The 2,147 ms cap had hidden it: the caller re-polled every two
   seconds and claimed on time. Found by the review of the cap's removal.
   Pinned by `durationUntilCountsTheTimeAlreadyAccruedTowardTheNextWeight`.
+- 2026-09-26: with the wait exact, `CourteousBalancedCall.call` slept on
+  whichever peer the balancer had picked after a failed claim, the round-robin
+  next item or the sorted head, for that item's whole overdraft, while another
+  peer refilled within a tenth of a second; before, the cap turned that into a
+  two-second poll. An item docked by its error tracker owes far longer than
+  its peers, and `ArrayLoadBalancer`'s skip-forgiveness hands it back while
+  the dock is outstanding. Found by the same review. The call now waits for
+  the shortest wait any peer owes, ties to the first in balancer order. Pinned
+  by `BalancedCallTests.courteousBalancedCallWaitsForThePeerThatRefillsFirst`,
+  its sorted-head variant and `aZeroWaitTieGoesToTheFirstPeer`.
 - 2026-09-26: `CourteousBalancedCall.call` retried a failed claim on a peer
   that reported capacity without counting the try: both failover `continue`s
   skipped the increment, so a claim that kept losing to competing threads

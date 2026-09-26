@@ -375,8 +375,8 @@ under load, union it with this paragraph as the reason.
 at `errorCount == 1` both branches resolve to `sequence[0]`. Covered by the
 same sweep: zero differences over the domain above.
 
-**Degenerate single-item pool** `# single-item-pool` (`calls`) — `CourteousBalancedCall.call`
-line 31 `size() > 1` → `>= 1` and the forced-true variant. At size 1 the
+**Degenerate single-item pool** `# single-item-pool` (`calls`) — `CourteousBalancedCall.call`,
+the failover guard `size() > 1` → `>= 1` and the forced-true variant. At size 1 the
 balancer is a `SingletonLoadBalancer`: `sort()` is a no-op, `withContext()`
 re-returns `previous`, and the `items()` scan skips its only element, so
 control falls through identically.
@@ -384,10 +384,11 @@ control falls through identically.
 **No-op sort** `# no-op-sort` (`calls`) — `sort()` call removals inside
 `CourteousBalancedCall`. Two cases: on an `ArrayLoadBalancer` the comparator
 ignores capacity, so item order cannot change mid-call; and the *post-sleep*
-`sort()` at line 58 is unreachable without the line-32 `sort()` having run
-earlier in the same iteration, with nothing in between mutating the comparator
-keys (`errorCount`, `sampleMedian`) — so the re-sort cannot reorder. The
-line-32 `sort()` itself is **not** accepted: it is killed by
+`sort()` (the one after `clock.sleep`) is unreachable without the failover
+search's `sort()` having run earlier in the same iteration, with nothing in
+between mutating the comparator keys (`errorCount`, `sampleMedian`) — so the
+re-sort cannot reorder. The failover search's `sort()` itself is **not**
+accepted: it is killed by
 `courteousBalancedCallReSortsBeforeSelectingTheFailoverItem`.
 
 **Discarded `exceptionally` handler** `# discarded-handler` (`catchAll`) —

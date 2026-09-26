@@ -102,8 +102,13 @@ final class BalancedCallTests {
 
   // maxCapacity 10 over PT1S replenishes 1 weight per 100ms.
   private static ErrorTrackedCapacityMonitor<Long, byte[]> createMonitor(final NanoClock clock) {
-    final var resetDuration = Duration.ofSeconds(1);
-    final var config = new CapacityConfig(0, 10, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
+    return createMonitor(clock, 10, Duration.ofSeconds(1));
+  }
+
+  private static ErrorTrackedCapacityMonitor<Long, byte[]> createMonitor(final NanoClock clock,
+                                                                        final int maxCapacity,
+                                                                        final Duration resetDuration) {
+    final var config = new CapacityConfig(0, maxCapacity, resetDuration, 8, resetDuration, resetDuration, resetDuration, resetDuration);
     return config.createMonitor("test", NoopTracker::new, clock);
   }
 
@@ -496,6 +501,178 @@ final class BalancedCallTests {
     assertEquals(0, monitorA.capacityState().capacity());
     assertEquals(10, monitorB.capacityState().capacity());
     assertEquals(9, monitorC.capacityState().capacity());
+  }
+
+  /// The wait is exact now, no longer capped near two seconds by accident, so
+  /// a call that slept on whichever peer the balancer happened to pick would
+  /// sleep an item's whole overdraft while another peer refilled in a tenth
+  /// of a second. The wait is the shortest any peer owes. Declaration order
+  /// puts the fast item first so the round-robin pick after the failed claim
+  /// is the slow one, the case the old single-item wait got wrong.
+  @Test
+  void courteousBalancedCallWaitsForThePeerThatRefillsFirst() {
+    final var clock = new TestClock(false);
+    // Ten per second, drained: back in a tenth of a second.
+    final var fastMonitor = createMonitor(clock);
+    fastMonitor.capacityState().claimRequest(10);
+    // One per hour, drained: a docked peer that owes a full hour.
+    final var slowMonitor = createMonitor(clock, 1, Duration.ofHours(1));
+    slowMonitor.capacityState().claimRequest(1);
+    final var fast = BalancedItem.createItem("fast", fastMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var slow = BalancedItem.createItem("slow", slowMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var call = Call.createCourteousCall(
+        createBalancer(fast, slow),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, false),
+        clock,
+        "test::courteousShortestWait"
+    );
+    assertEquals("fast", call.get());
+    assertEquals(List.of(100L), clock.sleeps);
+    assertEquals(0, fastMonitor.capacityState().capacity(), "the refilled weight was claimed");
+    assertEquals(0, slowMonitor.capacityState().capacity(), "the slow peer was never overdrawn");
+  }
+
+  /// The same rule on a sorted balancer whose head is the slow item: the head
+  /// is re-picked after every sort, so the old wait was always the head's.
+  @Test
+  void courteousBalancedCallWaitsForThePeerThatRefillsFirstEvenWhenTheSortedHeadOwesTheMost() {
+    final var clock = new TestClock(false);
+    final var slowMonitor = createMonitor(clock, 1, Duration.ofHours(1));
+    slowMonitor.capacityState().claimRequest(1);
+    final var fastMonitor = createMonitor(clock);
+    fastMonitor.capacityState().claimRequest(10);
+    final var slow = BalancedItem.createItem("slow", slowMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var fast = BalancedItem.createItem("fast", fastMonitor, Backoff.linear(MILLISECONDS, 10, 30));
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(slow, fast)),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, false),
+        clock,
+        "test::courteousShortestWaitSorted"
+    );
+    assertEquals("fast", call.get());
+    assertEquals(List.of(100L), clock.sleeps);
+    assertEquals(0, slowMonitor.capacityState().capacity());
+  }
+
+  /// A capacity state that refuses every claim, reports no capacity, and owes
+  /// no wait at all: the state a competing release leaves between a failed
+  /// claim and the wait computation. Only `claimRequest` is scripted beyond
+  /// that, and it counts.
+  private static final class ZeroWaitCapacityState implements CapacityState {
+
+    int claimRequests;
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext) {
+      return false;
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext) {
+      return false;
+    }
+
+    @Override
+    public long durationUntil(final CallContext callContext, final int runtimeCallWeight, final java.util.concurrent.TimeUnit timeUnit) {
+      return 0;
+    }
+
+    @Override
+    public void claimRequest(final int callWeight) {
+      ++claimRequests;
+    }
+
+    @Override
+    public CapacityConfig capacityConfig() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public NanoClock clock() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int capacity() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void addCapacity(final int delta) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final java.time.Duration duration) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public double capacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void reduceCapacityFor(final long duration, final java.util.concurrent.TimeUnit timeUnit) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void claimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean tryClaimRequest(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final int callWeight, final int minCapacity) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean hasCapacity(final CallContext callContext, final int runtimeCallWeight) {
+      throw new UnsupportedOperationException();
+    }
+  }
+
+  /// When every peer owes the same (here, nothing), the balancer's order
+  /// decides: the first peer takes the claim, so ties do not drift toward the
+  /// last item scanned.
+  @Test
+  void aZeroWaitTieGoesToTheFirstPeer() {
+    final var clock = new TestClock(true);
+    final var stateA = new ZeroWaitCapacityState();
+    final var stateB = new ZeroWaitCapacityState();
+    final var a = BalancedItem.createItem("a", () -> stateA, Backoff.single(MILLISECONDS, 1));
+    final var b = BalancedItem.createItem("b", () -> stateB, Backoff.single(MILLISECONDS, 1));
+    // A finite try budget: these stubs never read the clock, so a loop that
+    // stops waiting must run out of tries rather than spin past a watchdog.
+    final var call = Call.createCourteousCall(
+        LoadBalancer.createSortedBalancer(List.of(a, b)),
+        CompletableFuture::completedFuture,
+        CallContext.createContext(1, 0, 3, false, Long.MAX_VALUE, false),
+        clock,
+        "test::zeroWaitTie"
+    );
+    assertEquals("a", call.get());
+    assertEquals(1, stateA.claimRequests);
+    assertEquals(0, stateB.claimRequests);
+    assertTrue(clock.sleeps.isEmpty());
   }
 
   @Test
