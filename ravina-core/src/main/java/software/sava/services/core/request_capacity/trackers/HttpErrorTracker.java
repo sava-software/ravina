@@ -17,7 +17,7 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>, byte[]> 
 
   @Override
   protected boolean isServerError(final HttpResponse<?> response) {
-    return response.statusCode() > 500;
+    return response.statusCode() >= 500;
   }
 
   @Override

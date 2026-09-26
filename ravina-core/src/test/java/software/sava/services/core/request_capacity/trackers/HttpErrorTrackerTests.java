@@ -118,24 +118,26 @@ final class HttpErrorTrackerTests {
     return config.createMonitor("test", HttpErrorTracker::new, FIXED_CLOCK);
   }
 
+  /// Every 5xx is a server error, 500 itself first of all: the most common
+  /// server error must dock capacity like the rest. Until 2026-09-26 the
+  /// boundary was `> 500` and this test pinned 500 as inert, which is the
+  /// restating-the-implementation failure the PIT README warns about.
   @Test
-  void serverErrorsRequireAStatusAbove500() {
+  void serverErrorsStartAt500() {
     final var monitor = createMonitor();
     final var tracker = monitor.errorTracker();
     final var capacityState = monitor.capacityState();
     assertEquals(100, capacityState.capacity());
 
-    // 500 itself is above no boundary here: not a server error, and outside the
-    // 400..499 request-error range, so it is inert.
     assertTrue(tracker.test(response(500, "/rpc"), null));
-    assertEquals(100, capacityState.capacity());
+    assertEquals(50, capacityState.capacity(), "500 is the inclusive lower bound");
     assertEquals(0, tracker.maxGroupedErrorCount());
 
     assertTrue(tracker.test(response(501, "/rpc"), null));
-    assertEquals(50, capacityState.capacity());
+    assertEquals(0, capacityState.capacity());
 
     assertTrue(tracker.test(response(599, "/rpc"), null));
-    assertEquals(0, capacityState.capacity());
+    assertEquals(-50, capacityState.capacity());
     assertEquals(0, tracker.maxGroupedErrorCount(), "server errors are never grouped");
   }
 
@@ -166,11 +168,19 @@ final class HttpErrorTrackerTests {
 
     assertTrue(tracker.test(response(499, "/b"), null));
     assertEquals(1, tracker.maxGroupedErrorCount(), "499 is the inclusive upper bound, in its own group");
+    assertEquals(100, monitor.capacityState().capacity(), "no group reached the threshold of 3");
 
     assertTrue(tracker.test(response(500, "/a"), null));
-    assertEquals(1, tracker.maxGroupedErrorCount(), "500 is above the request-error range");
+    assertEquals(1, tracker.maxGroupedErrorCount(), "500 is above the request-error range: a server error, never grouped");
+    assertEquals(50, monitor.capacityState().capacity(), "and docked as one");
 
-    assertEquals(100, monitor.capacityState().capacity(), "no group reached the threshold of 3");
+    // The server-error check runs first, so the range's upper bound is pinned
+    // on the classifier itself: it is the method's contract, not an accident
+    // of precedence.
+    final var httpTracker = (HttpErrorTracker) tracker;
+    assertTrue(httpTracker.isRequestError(response(499, "/a")));
+    assertFalse(httpTracker.isRequestError(response(500, "/a")));
+    assertFalse(httpTracker.isRequestError(response(399, "/a")));
   }
 
   @Test

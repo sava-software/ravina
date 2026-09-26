@@ -338,6 +338,14 @@ implementation locks the bug in.
   await with any status. Found while making confirmation the settled level.
   Pinned by `TxCommitmentMonitorServiceTests.awaitingProcessedStopsAtTheProcessedSubscription`,
   which failed against the old code; the method now makes one subscription.
+- 2026-09-26: `HttpErrorTracker.isServerError` was `statusCode() > 500`, so a
+  plain 500, the most common server error, docked nothing, and
+  `HttpErrorTrackerTests.serverErrorsRequireAStatusAbove500` pinned 500 as
+  inert with a comment calling that deliberate. The contract is HTTP's: every
+  5xx is a server error. Raised by the JFR handoff as "say whether this is
+  deliberate"; it was not. The boundary is now `>= 500`, pinned by
+  `serverErrorsStartAt500`, and the request-error range test asserts that a
+  500 is docked as a server error rather than grouped.
 - 2026-09-24: `BaseTxMonitorService.completeFutures` logged its "erred at
   commitment level" warning through
   `System.Logger.log(Level, String, Object...)` with `%s` placeholders. That

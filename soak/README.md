@@ -537,6 +537,6 @@ more facts from it shape the runs above:
 ## Later, not in the first cut
 
 A small fault proxy between ravina and the validator's RPC, injecting 429, 503, added latency and a
-body that stalls after its headers, to exercise capacity docking and retries. If it ever injects a
-plain 500, note that `HttpErrorTracker.isServerError` is `statusCode() > 500`, so a 500 does not
-dock capacity; nothing yet says whether that is deliberate.
+body that stalls after its headers, to exercise capacity docking and retries. A plain 500 docks
+capacity like any other 5xx since 2026-09-26 (`HttpErrorTracker.isServerError` was `> 500`
+before, and its test had pinned that as deliberate; it was not).
