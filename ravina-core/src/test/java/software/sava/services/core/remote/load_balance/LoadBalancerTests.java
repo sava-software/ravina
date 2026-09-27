@@ -247,6 +247,38 @@ final class LoadBalancerTests {
     assertEquals(1, b.skipped());
   }
 
+  /// The sort reads each item's keys once. Counts that move while a sort is
+  /// under way (another thread's selections) do not change the order that
+  /// sort produces, and cannot make its comparator contradict itself.
+  @Test
+  void sortedBalancerSortsOnASnapshotOfTheKeys() {
+    final var items = createItems("a", "b");
+    final var a = items[0];
+    final var b = items[1];
+    a.sample(10);
+    b.sample(20);
+    a.failed();
+    final var balancer = new SortedLoadBalancer<>(items) {
+      @Override
+      Ranked<String> rank(final BalancedItem<String> item) {
+        final var ranked = super.rank(item);
+        // Another thread selects b twice while this sort runs: live, a is forgiven and due.
+        if (item == a) {
+          a.skip();
+          a.skip();
+        }
+        return ranked;
+      }
+    };
+
+    balancer.sort();
+
+    assertEquals("b", balancer.peek().item(), "the sort follows its snapshot, in which a still carries its error");
+    assertTrue(SortedLoadBalancer.probeDue(a), "live, a is due");
+    balancer.sort();
+    assertEquals("a", balancer.peek().item(), "the next sort's snapshot sees it");
+  }
+
   @Test
   void sortedBalancerKeepsANegativeErrorCountLast() {
     final var items = createItems("a", "b");

@@ -14,23 +14,35 @@ import static java.lang.invoke.MethodHandles.arrayElementVarHandle;
 // Non-final so tests can override the wrap-CAS interleaving seam.
 class SortedLoadBalancer<T> implements LoadBalancer<T> {
 
-  private static final Comparator<BalancedItem<?>> MEDIAN_COMPARATOR = (a, b) -> {
+  /// An item's ordering keys, read once per sort. The comparator reads only these: the live
+  /// counts change under a sort (every `withContext()` on another thread moves a skip count,
+  /// and a completing call moves an error count or a median), and a comparator whose answers
+  /// change mid-sort violates its contract, which `Arrays.sort` detects and throws on.
+  record Ranked<T>(long errors, boolean probe, long median, BalancedItem<T> item) {
+  }
+
+  private static final Comparator<Ranked<?>> RANKED_COMPARATOR = (a, b) -> {
     if (a == null) {
       return b == null ? 0 : 1;
     } else if (b == null) {
       return -1;
     }
-    final int compare = Long.compareUnsigned(effectiveErrors(a), effectiveErrors(b));
+    final int compare = Long.compareUnsigned(a.errors, b.errors);
     if (compare != 0) {
       return compare;
     }
-    final boolean probeA = probeDue(a);
-    final boolean probeB = probeDue(b);
-    if (probeA != probeB) {
-      return probeA ? -1 : 1;
+    if (a.probe != b.probe) {
+      return a.probe ? -1 : 1;
     }
-    return Long.compare(a.sampleMedian(), b.sampleMedian());
+    return Long.compare(a.median, b.median);
   };
+
+  /// The snapshot of one item's keys. Package-private so a test can move the item's counts
+  /// after the snapshot, as another thread would, and see the sort follow the snapshot; an
+  /// override must let this method's own return value through.
+  Ranked<T> rank(final BalancedItem<T> item) {
+    return new Ranked<>(effectiveErrors(item), probeDue(item), item.sampleMedian(), item);
+  }
 
   /// A demoted item whose errors the skips have forgiven: its turn, ahead of the latency
   /// order. Forgiveness in the count alone was measured not to return any traffic: a peer
@@ -107,11 +119,22 @@ class SortedLoadBalancer<T> implements LoadBalancer<T> {
     return withContext().item();
   }
 
+  /// Ranks every item once, sorts the ranks, and writes the items back in that order into the
+  /// same array, which `peek` and `withContext` read without the lock as before.
   @Override
+  @SuppressWarnings("unchecked")
   public void sort() {
     sortItems.lock();
     try {
-      Arrays.sort(this.items, MEDIAN_COMPARATOR);
+      final Ranked<?>[] ranked = new Ranked<?>[items.length];
+      for (int i = 0; i < items.length; ++i) {
+        final var item = items[i];
+        ranked[i] = item == null ? null : rank(item);
+      }
+      Arrays.sort(ranked, RANKED_COMPARATOR);
+      for (int i = 0; i < items.length; ++i) {
+        items[i] = ranked[i] == null ? null : (BalancedItem<T>) ranked[i].item;
+      }
     } finally {
       sortItems.unlock();
     }
