@@ -7,6 +7,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class LoadBalancerTests {
 
@@ -110,6 +112,186 @@ final class LoadBalancerTests {
     balancer.sort();
     assertEquals("c", balancer.peek().item());
     assertEquals(List.of("c", "a", "b"), itemValues(balancer));
+  }
+
+  /// The array balancer's forgiveness, in the sorted one: an item demoted by
+  /// an error gets its turn after two selections of others, ahead of the
+  /// latency order it would otherwise lose (here a is the slower item), and
+  /// is probed with real traffic instead of staying demoted for as long as a
+  /// healthier item exists.
+  @Test
+  void sortedBalancerForgivesOneErrorPerTwoSkipsAndProbesTheItemAgain() {
+    final var items = createItems("a", "b");
+    final var a = items[0];
+    final var b = items[1];
+    a.sample(20);
+    b.sample(10);
+    final var balancer = LoadBalancer.createSortedBalancer(items);
+    a.failed();
+
+    balancer.sort();
+    assertEquals("b", balancer.withContext().item(), "one error demotes a");
+    balancer.sort();
+    assertEquals("b", balancer.withContext().item(), "one skip forgives nothing yet");
+    balancer.sort();
+    assertEquals("a", balancer.peek().item(), "two skips forgive the error: a's turn, despite its slower median");
+    assertEquals(1, a.errorCount(), "forgiveness is in the ordering, not in the count");
+    assertEquals(2, a.skipped());
+    assertTrue(SortedLoadBalancer.probeDue(a));
+    assertFalse(SortedLoadBalancer.probeDue(b));
+
+    assertEquals("a", balancer.withContext().item(), "the probe");
+    assertEquals(0, a.skipped(), "a selection resets the skips");
+    assertEquals(1, b.skipped());
+    balancer.sort();
+    assertEquals("b", balancer.withContext().item(), "one probe, then demoted again until the next two skips");
+
+    a.success();
+    assertEquals(0, a.errorCount());
+    balancer.sort();
+    assertEquals("b", balancer.withContext().item(), "healthy again, a competes on latency and is slower");
+    balancer.sort();
+    balancer.withContext();
+    balancer.sort();
+    assertEquals("b", balancer.withContext().item(), "an item with no errors is never probed");
+  }
+
+  @Test
+  void sortedBalancerProbesAFailedProbeAgainOnlyAfterMoreSkips() {
+    final var items = createItems("a", "b");
+    final var a = items[0];
+    a.sample(20);
+    items[1].sample(10);
+    final var balancer = LoadBalancer.createSortedBalancer(items);
+    a.failed();
+    for (int i = 0; i < 2; ++i) {
+      balancer.sort();
+      balancer.withContext();
+    }
+    balancer.sort();
+    assertEquals("a", balancer.withContext().item(), "the probe");
+    a.failed();
+
+    for (int i = 0; i < 4; ++i) {
+      balancer.sort();
+      assertEquals("b", balancer.withContext().item(), "two errors need four skips");
+    }
+    balancer.sort();
+    assertEquals("a", balancer.withContext().item(), "the fourth skip forgives the second error: the next probe");
+  }
+
+  /// The probe holds whichever side of a comparison the due item is on: with
+  /// the due item in the middle of the array at sort time, the sort compares
+  /// a healthy item against it as the second argument.
+  @Test
+  void sortedBalancerProbesADueItemWhereverItSitsInTheArray() {
+    final var items = createItems("b", "a", "c");
+    final var b = items[0];
+    final var a = items[1];
+    final var c = items[2];
+    b.sample(10);
+    a.sample(30);
+    c.sample(5);
+    final var balancer = LoadBalancer.createSortedBalancer(items);
+    a.failed();
+    a.skip();
+    a.skip();
+    assertTrue(SortedLoadBalancer.probeDue(a));
+
+    balancer.sort();
+
+    assertEquals(List.of("a", "c", "b"), itemValues(balancer), "the due item first, then the healthy ones by median");
+  }
+
+  /// Skips banked before a failure do not forgive it: a peer that was skipped
+  /// while its own request was in flight, and then failed, is demoted, not
+  /// probed straight back to the head (which would also cost the balanced
+  /// call its free failover, since the head would still be the failed peer).
+  @Test
+  void skipsBankedBeforeAFailureDoNotForgiveIt() {
+    final var items = createItems("a", "b");
+    final var a = items[0];
+    final var b = items[1];
+    a.sample(10);
+    b.sample(20);
+    final var balancer = LoadBalancer.createSortedBalancer(items);
+    // a is the head; b is skipped four times, and then fails on its own request.
+    for (int i = 0; i < 4; ++i) {
+      balancer.sort();
+      assertEquals("a", balancer.withContext().item());
+    }
+    assertEquals(4, b.skipped());
+
+    b.failed();
+
+    assertEquals(0, b.skipped(), "the failure restarted the skip clock");
+    assertFalse(SortedLoadBalancer.probeDue(b));
+    balancer.sort();
+    assertEquals("a", balancer.peek().item(), "the failed peer is demoted, not probed");
+  }
+
+  @Test
+  void sortedBalancerItemsLeaveOutNullSlots() {
+    @SuppressWarnings("unchecked") final BalancedItem<String>[] withLeadingNull = new BalancedItem[3];
+    final var a = BalancedItem.createItem("a", null, null);
+    final var b = BalancedItem.createItem("b", null, null);
+    withLeadingNull[1] = a;
+    withLeadingNull[2] = b;
+    final var balancer = LoadBalancer.createSortedBalancer(withLeadingNull);
+
+    assertEquals(List.of(a, b), balancer.items());
+    assertEquals(2, balancer.streamItems().count());
+    balancer.sort();
+    assertEquals(List.of(a, b), balancer.items(), "nulls sort last and are left out");
+    assertSame(a, balancer.withContext(), "withContext steps over the null slot when skipping");
+    assertEquals(1, b.skipped());
+  }
+
+  @Test
+  void sortedBalancerKeepsANegativeErrorCountLast() {
+    final var items = createItems("a", "b");
+    final var a = items[0];
+    final var b = items[1];
+    a.sample(10);
+    b.sample(20);
+    final var balancer = LoadBalancer.createSortedBalancer(items);
+    a.failed(-1);
+    b.failed(3);
+
+    for (int i = 0; i < 8; ++i) {
+      balancer.sort();
+      assertEquals("b", balancer.withContext().item(), "a negative count reads unsigned and is never forgiven");
+    }
+    assertEquals(3, SortedLoadBalancer.effectiveErrors(b), "b is selected every time, so it is never skipped and never forgiven");
+    assertEquals(8, a.skipped());
+    assertEquals(-1, SortedLoadBalancer.effectiveErrors(a), "eight skips forgive nothing on a negative count");
+  }
+
+  @Test
+  void effectiveErrorsForgiveOnePerTwoSkipsAndFloorAtZero() {
+    final var items = createItems("a");
+    final var a = items[0];
+    assertEquals(0, SortedLoadBalancer.effectiveErrors(a));
+    assertFalse(SortedLoadBalancer.probeDue(a), "no errors, nothing to probe");
+    a.failed(3);
+    assertEquals(3, SortedLoadBalancer.effectiveErrors(a));
+    a.skip();
+    assertEquals(3, SortedLoadBalancer.effectiveErrors(a), "one skip forgives nothing");
+    a.skip();
+    assertEquals(2, SortedLoadBalancer.effectiveErrors(a));
+    a.skip();
+    a.skip();
+    a.skip();
+    a.skip();
+    assertEquals(0, SortedLoadBalancer.effectiveErrors(a));
+    a.skip();
+    a.skip();
+    assertEquals(0, SortedLoadBalancer.effectiveErrors(a), "floored at zero");
+    assertEquals(3, a.errorCount());
+    assertTrue(SortedLoadBalancer.probeDue(a));
+    a.failed(-4);
+    assertEquals(-1, SortedLoadBalancer.effectiveErrors(a));
+    assertFalse(SortedLoadBalancer.probeDue(a), "a negative count is never probed");
   }
 
   @Test

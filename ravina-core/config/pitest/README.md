@@ -436,7 +436,10 @@ is indistinguishable.
 
 **Fall-through to an equal result** `# equal-fallthrough` (`loadBalance`) — `ArrayLoadBalancer.peek`
 and `.withContext` zero-error fast paths: falling through evaluates
-`errorCount - (skipped >> 1) <= 0`, which selects the same item.
+`errorCount - (skipped >> 1) <= 0`, which selects the same item. Also the two
+boundaries of `SortedLoadBalancer.effectiveErrors`: `errors <= 0` flipped to
+`< 0` sends a zero count through the forgiveness arithmetic, which floors it
+back to zero, and `forgiven < 0` flipped to `<= 0` maps zero to zero.
 
 **Empty-collection fast paths** `# empty-fast-path` (`capacity`, `errorTracking`) — guards whose
 forced branch iterates an empty collection and reaches the same return:

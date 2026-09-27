@@ -32,6 +32,26 @@ final class ItemContextTests {
     assertEquals(0, item.errorCount());
   }
 
+  /// Skips banked while the request that failed was in flight must not
+  /// forgive that failure the instant it lands.
+  @Test
+  void aFailureResetsTheSkips() {
+    final var item = BalancedItem.createItem("a", null, null);
+    item.skip();
+    item.skip();
+    item.skip();
+    assertEquals(3, item.skipped());
+
+    item.failed();
+    assertEquals(0, item.skipped());
+    assertEquals(1, item.errorCount());
+
+    item.skip();
+    item.failed(2);
+    assertEquals(0, item.skipped());
+    assertEquals(3, item.errorCount());
+  }
+
   @Test
   void skippedCountResetsOnSelection() {
     final var item = createItem();

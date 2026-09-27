@@ -76,14 +76,19 @@ final class ItemContext<T> implements BalancedItem<T> {
     return item;
   }
 
+  /// A failure also restarts the skip forgiveness: skips banked while the request that failed
+  /// was in flight must not forgive that failure the instant it lands, or the sorted balancer
+  /// would put the peer straight back at the head as a probe.
   @Override
   public void failed() {
     failureCount.incrementAndGet();
+    skipped = 0L;
   }
 
   @Override
   public void failed(final int weight) {
     failureCount.addAndGet(weight);
+    skipped = 0L;
   }
 
   @Override
