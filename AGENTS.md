@@ -36,8 +36,13 @@ parsing, and KMS-backed signing.
     starts at the fibonacci number *nearest* the requested initial delay
     (100 → 89, 130 → 144) — this is intentional.
   - `remote/load_balance/` — `ArrayLoadBalancer` (round-robin with error-skip:
-    2 skips forgive 1 error), `SortedLoadBalancer` (orders by unsigned error
-    count, then rolling median latency), `ItemContext` (5-sample median ring).
+    2 skips forgive 1 error), `SortedLoadBalancer` (orders by the error count
+    less the same skip forgiveness, then rolling median latency; an erred
+    peer whose errors the skips have forgiven gets one probe call ahead of
+    the latency order, because a peer that is not called never refreshes its
+    median and a peer whose only call failed has none, so forgiveness in the
+    count alone returned no traffic when measured), `ItemContext` (5-sample
+    median ring).
   - `config/` — JSON (json-iterator) + properties config parsing.
 - `ravina-solana/` — epoch tracking and skip-rate estimation (`epoch/`),
   transaction build/send/monitor/priority-fee (`transactions/`), RPC
@@ -438,14 +443,22 @@ them, because the list is the argument for the effort.
   because the caller joins it uninterruptibly; a second caller with stricter settings
   (`PROCESSED` is below `CONFIRMED`/`FINALIZED`; `verifyExpired` and `retrySend` true
   are above false) is refused with `IllegalArgumentException` instead of answered below
-  its level. Publishing one transaction twice is therefore safe. Note the second publisher's
-  websocket subscription is refused by the socket and waits out its timeout before it
-  reaches `queueResult`, so it settles by a later poll, not with the first.
-- **Sends are charged, not paced.** `TransactionProcessorRecord.publish` sends first and
-  claims the send weight afterwards; only the block-hash read in front of it waits for
-  capacity. A resend pass therefore claims a send's weight for every pending transaction
-  at once and can drive the bucket into overdraft, and the courteous waits land on the
-  calls that follow. `soak/README.md` measures it; it is a policy raised, not changed.
+  its level. Publishing one transaction twice is therefore safe. The second publisher's
+  websocket subscription is refused by the socket (already subscribed), and a refused
+  subscription polls at once rather than waiting out the websocket timeout, so it settles
+  by the next poll.
+- **Sends are charged, not paced; a failed first send fails over once; resends decline
+  while docked.** `TransactionProcessorRecord.publish` sends first and claims the send
+  weight afterwards, so a block hash's validity is spent on the wire and not in a queue;
+  only the block-hash read in front of it waits for capacity. A send whose response is a
+  failure other than a preflight rejection (a 429, a 5xx, a connection failure, the
+  response deadline) is sent once more with the same bytes on the peer that ranks first
+  once the failure is marked, when that is a different peer, and the failure is thrown
+  after that (`validateResponse` and `TxPublisher.failOver`); the monitor's resends go to
+  the first peer, in the balancer's order, with capacity for the send weight (a full
+  bucket, where the bucket is smaller than the weight), and are deferred a pass when none
+  has it (`TxPublisher.retry` returns null). The same signed bytes land at most once,
+  which is what makes both safe. `soak/README.md` measures the before and after.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

@@ -827,8 +827,10 @@ Exit 1 on gate 6: 1,200 submitted, 1,200 settled, 1,066 `OK` and 134 `THREW`, 0 
   refused resend would not even be noticed, because the monitor never awaits the response of a
   `retry` (only `validateResponse` reads a send's future): the transaction would wait for its
   next resend or its expiry. Whether the first send should fail over to a healthier peer and
-  only then throw, and whether a resend should wait for the dock to clear, is a policy decision
-  this run informs and does not make.
+  only then throw, and whether a resend should wait for the dock to clear, was a policy
+  decision this run informed; both were then decided and built, and the two-peer and
+  blackhole runs below measure them. With one peer a refused first send is still thrown:
+  there is nowhere else to send it.
 
 **Rate limit on the busy peer, 2026-09-26 (`smoke-20260926T230444Z`, two peers, the proxy on
 peer 1 with `rate-limit:on=10,off=50`, peer 2 pass-through, fixed signer and monitor).** All
@@ -842,8 +844,67 @@ built: it orders by unsigned error count first, an item's count is forgiven only
 successes (`ItemContext.success`), and an item that is never selected never succeeds, so a
 single error is permanent while a peer with none exists. The array balancer's skip-forgiveness
 (two skips forgive one error) is not part of the sorted one. Good for "prefer the healthy peer",
-and a design fact to know when the other peer is the one you would rather be on; raised, not
-changed.
+and a design fact to know when the other peer is the one you would rather be on; raised there,
+changed afterwards (the two runs below).
+
+**Rate limit on the busy peer, forgiveness in the count only, 2026-09-27
+(`smoke-20260927T001938Z`, same settings, the sorted balancer ordering by the error count less
+one per two skips).** All gates passed, 1,200 of 1,200, send to result p50 287 ms — and again
+exactly one fault: peer 1 received nothing after its first 429. Forgiveness in the count brought
+peer 1 to a tie on errors after two selections of peer 2, but the tie-break is median latency,
+a sample is taken only on a successful call, and peer 1's only call had failed: no median at
+all, so it lost every tie and was never called again to earn one. Hence the probe rule now in
+the balancer: a demoted item whose errors the skips have forgiven gets one call ahead of the
+latency order (an item with no errors is never probed, so a healthy slower peer keeps its place).
+
+**Rate limit on the busy peer, with the probe rule, 2026-09-27 (`smoke-20260927T005045Z`, same
+settings, the sorted balancer forgiving one error per two skips and probing a forgiven peer
+ahead of the latency order; send failover on).** All gates passed: 1,200 of 1,200 `OK`, 0
+thrown, 0 timeouts, no courteous wait, send to result p50 309 ms, max 791 ms, inside a window
+304 ms against 312 ms outside. This time peer 1 came back: 32 faults in five of the eleven
+windows (7, 7, 7, 7 and 4), 28 of them sends that were each sent once more on peer 2 (`Send of …
+failed, sent again on another peer`) and 4 simulations that failed over for free (`trying next
+balanced item`), and between the windows peer 1 served block-hash reads, simulations and sends
+again (its successes are in the sampled outcomes). Each burst of errors demoted it for two
+skips per error, which is why some windows saw no probe at all, and every probe that landed in
+a window cost one quiet second send. That is the failover measurement the first two-peer runs
+could not make.
+
+Repeated on the committed tree (`smoke-20260927T010330Z`, after the review's fixes: a failure
+now resets the skips, the failover send is charged either way), the same settings settled 1,200
+of 1,200 with 27 faults in the first four windows (7, 7, 6 and 7: 24 quiet second sends and 3
+free simulation failovers), send to result p50 295 ms, no courteous wait. Peer 1 kept serving
+calls between those windows, and after the fourth it stayed demoted for the rest of the run: a
+count in the twenties needs twice that many skips per probe, and each successful probe forgives
+one, so a peer that keeps failing its probes comes back slowly, which is the intended shape.
+
+**Rate limit on sends only, two peers, with send failover, 2026-09-27
+(`smoke-20260927T002953Z`, two peers, `rate-limit:on=10,off=50,methods=sendTransaction` on
+peer 1, peer 2 pass-through; the balancer before the probe rule, and the failover before the
+review's fixes, which do not touch what this run measures).** All gates passed: 1,200 of
+1,200 `OK`, 0 thrown, 0 timeouts, 0 resends; send to result p50 298 ms, max 737 ms, and inside
+a window p50 292 ms against 302 ms outside. Nine sends met peer 1's 429 over eleven windows and
+each was sent once more on peer 2 (`Send of … failed, sent again on another peer`, nine lines;
+nine `RPC_ERROR` outcomes on peer 1, all `sendTransaction`), where the one-peer run had thrown
+134 of 134. Peer 1 kept being chosen for sends between its failures because its sends outside
+the windows succeed and refresh its median, so with fresh samples the count forgiveness alone
+already returns traffic; the dock on peer 1 showed only in the gauge (−252 at its lowest) and
+cost no courteous wait, because the calls in front of the send went to peer 2.
+
+**Blackhole on sends, with declining resends, 2026-09-27 (`smoke-20260927T004007Z`, one peer,
+`blackhole:on=20,off=100,methods=sendTransaction`, resends deferred while no peer has capacity
+for the send weight; before the review's fixes, which change nothing for one peer with a
+bucket above the send weight).** All gates passed: 1,200 of 1,200 `OK`, 0 pending, 200 websocket
+timeouts, 200 expiries and rebuilds, and every one of the 200 expired incarnations reported by
+the end-of-run diagnostic as never seen by the validator, which is what a swallowed send is.
+Against the first blackhole run: 897 faults instead of 2,750 and 697 resends instead of 2,757,
+because 3,068 resends were deferred (`Resend deferred, every send peer is docked`) while the
+bucket was in overdraft from the sends themselves; the bucket's lowest reading was −50 against
+−279; and where that run ended with 15 pending and three signatures published twice, this one
+had none of either. A swallowed transaction still recovers only by expiry (`processInstructions`
+inside a window p50 91.6 s, max 98.6 s), by the proxy's design; send to result for a real send
+was unchanged (297 ms). The 58 courteous sleeps (8.8 s in total, max 720 ms) are the block-hash
+reads of rebuilds waiting out the overdraft the resend bursts had left.
 
 ### The 60-second shakeout, 2026-09-26
 
