@@ -878,6 +878,13 @@ calls between those windows, and after the fourth it stayed demoted for the rest
 count in the twenties needs twice that many skips per probe, and each successful probe forgives
 one, so a peer that keeps failing its probes comes back slowly, which is the intended shape.
 
+And once more on the final tree (`smoke-20260927T142515Z`, after the review's expiration-stage
+join, the snapshot sort and the fault-event fix): 1,200 of 1,200, 21 faults in three windows
+(the first, the eighth and the tenth, 7 each: 18 quiet second sends and 3 free simulation
+failovers), send to result p50 287 ms, no courteous wait. Peer 1's seven errors in the first
+window demoted it for about seven minutes of successful probes, after which it was back in
+rotation and met two more windows.
+
 **Rate limit on sends only, two peers, with send failover, 2026-09-27
 (`smoke-20260927T002953Z`, two peers, `rate-limit:on=10,off=50,methods=sendTransaction` on
 peer 1, peer 2 pass-through; the balancer before the probe rule, and the failover before the
