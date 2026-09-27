@@ -321,6 +321,19 @@ final class FaultProxy implements AutoCloseable {
     // Begun here, so a stall or a latency fault is stamped at injection, inside its window,
     // not at the end of its delay.
     event.begin();
+    // Committed whatever the delivery does: a client that resets the connection during a
+    // latency fault, or gives up on a stall, throws out of the response write, and the fault
+    // was injected all the same.
+    try {
+      injectAs(exchange, id, text, now, event);
+    } finally {
+      event.end();
+      event.commit();
+    }
+  }
+
+  private void injectAs(final HttpExchange exchange, final String id, final String text, final long now,
+                        final SoakEvents.Fault event) throws IOException {
     switch (spec.kind) {
       case RATE_LIMIT -> {
         final long retryAfterSeconds = Math.max(1, TimeUnit.NANOSECONDS.toSeconds(windowRemainingNanos(now) + 999_999_999L));
@@ -348,8 +361,6 @@ final class FaultProxy implements AutoCloseable {
         }
       }
     }
-    event.end();
-    event.commit();
   }
 
   /// Headers and one byte, then nothing for `ms` milliseconds: the exchange stays open with an
