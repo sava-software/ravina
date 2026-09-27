@@ -269,7 +269,12 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         ? PROCESSED
         : Settlement.COMMITMENT;
     final var txResultFuture = new CompletableFuture<TxResult>();
-    webSocket.signatureSubscribe(subscribeAt, false, txSig, txResultFuture::complete);
+    if (!webSocket.signatureSubscribe(subscribeAt, false, txSig, txResultFuture::complete)) {
+      // Refused: the signature is already subscribed (the same transaction published twice)
+      // or the socket is closed. Either way no notification will reach this consumer, so
+      // polling starts now rather than after the timeout.
+      return NO_RESULT;
+    }
     return txResultFuture
         .orTimeout(confirmedTimeout, timeUnit)
         .exceptionally(_ -> {

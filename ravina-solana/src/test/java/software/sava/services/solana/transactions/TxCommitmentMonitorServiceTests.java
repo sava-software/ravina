@@ -92,6 +92,9 @@ final class TxCommitmentMonitorServiceTests {
     /// A commitment present in this map delivers its (possibly null) value to
     /// the subscriber synchronously; an absent commitment never notifies.
     final Map<Commitment, TxResult> notifications = new EnumMap<>(Commitment.class);
+    /// When set, every subscription is refused (already subscribed, or closed), as sava's
+    /// socket answers with false.
+    boolean refuse;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -102,6 +105,9 @@ final class TxCommitmentMonitorServiceTests {
           final var commitment = (Commitment) args[0];
           final var sig = (String) args[2];
           subscriptions.add(new Subscription(commitment, sig));
+          if (refuse) {
+            return Boolean.FALSE;
+          }
           if (notifications.containsKey(commitment)) {
             ((Consumer<TxResult>) args[args.length - 1]).accept(notifications.get(commitment));
           }
@@ -577,6 +583,21 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   // ------------------------------------------------------- web socket wait --
+
+  /// A refused subscription (already subscribed, or closed) can never notify
+  /// this consumer, so polling starts at once instead of after the timeout.
+  @Test
+  void aRefusedSubscriptionPollsAtOnceInsteadOfWaitingOutTheTimeout() {
+    final var service = service();
+    webSocket.refuse = true;
+
+    final var future = service.tryAwaitCommitmentViaWebSocket(CONFIRMED, PROCESSED, "sig");
+
+    assertTrue(future.isDone(), "no notification can come: the caller must not wait for the timeout");
+    assertNull(future.join());
+    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions, "the subscription was asked for");
+    assertTrue(webSocket.unsubscribes.isEmpty(), "nothing to unsubscribe");
+  }
 
   @Test
   void withoutAWebSocketThereIsNoResultToWaitFor() {
