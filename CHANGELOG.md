@@ -1,5 +1,25 @@
 # Changelog
 
+## [25.6.5](https://github.com/sava-software/ravina/compare/25.6.4...25.6.5) (2026-09-27)
+
+
+### Features
+
+* **soak:** inject faults through a proxy, and balance across two peers ([154c788](https://github.com/sava-software/ravina/commit/154c788a5e9899b964157759edeb07c9f7e528d2))
+* **solana:** fail a first send over once, and decline resends while docked ([b2ca194](https://github.com/sava-software/ravina/commit/b2ca19467f7bd926b59c999da6881c878e346256))
+
+
+### Bug Fixes
+
+* **core:** forgive and probe an erred peer in the sorted balancer ([667cea7](https://github.com/sava-software/ravina/commit/667cea7e1c5e1a27e282ddf95e6dfacfa3d949e7))
+* **core:** sort the balancer on a snapshot of each item's keys ([cf9bb3f](https://github.com/sava-software/ravina/commit/cf9bb3fe11eabdcec97e4776e73303183012e99e))
+* **kms:** sign on a dedicated signer per thread ([9f66fb5](https://github.com/sava-software/ravina/commit/9f66fb5d31d3dc4528d87ee682e2bcaa2439aa0c))
+* **soak:** close the websocket before the wait, and ask about unjoined signatures first ([1e3f315](https://github.com/sava-software/ravina/commit/1e3f315d34a7fbfd6f11ae9e7a1c8d0825000153))
+* **soak:** commit a fault event even when its response fails ([de3aac1](https://github.com/sava-software/ravina/commit/de3aac12894ed279327dcc8508c10a889d48bb7b))
+* **solana:** a refused websocket subscription polls at once ([d42b1d4](https://github.com/sava-software/ravina/commit/d42b1d4fe7873b3b7a58687ef155db572443f712))
+* **solana:** hand a duplicate queue the pending future ([96aa38c](https://github.com/sava-software/ravina/commit/96aa38ca105e518c5f10709ce3c4cd24c1c67771))
+* **solana:** keep expiration-stage duplicates honest about level and failure ([6171806](https://github.com/sava-software/ravina/commit/6171806b825e00847c706d5dedab6eb6e2b31264))
+
 ## [25.6.4](https://github.com/sava-software/ravina/compare/25.6.3...25.6.4) (2026-09-26)
 
 
