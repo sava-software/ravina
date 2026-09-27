@@ -11,6 +11,7 @@ import software.sava.services.solana.websocket.WebSocketManager;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -72,36 +73,75 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
 
   @Override
   public TxResult validateResponse(final SendTxContext sendTxContext, final String sig) throws InterruptedException {
+    final Throwable failure;
     try {
-      final var sendFuture = sendTxContext.sendFuture();
-      final var response = sendFuture.get();
-      if (!sig.equals(response)) {
-        throw new IllegalStateException(String.format("""                
-                Expected transaction signature does not match response from RPC %s
-                  - %s
-                  - %s
-                """,
-            sendTxContext.rpcClient().item().endpoint(),
-            sig,
-            response
-        ));
-      }
+      checkResponse(sendTxContext, sendTxContext.sendFuture().get(), sig);
       return null;
     } catch (final ExecutionException executionException) {
-      final var cause = executionException.getCause();
-      if (cause instanceof JsonRpcException rpcException) {
-        if (rpcException.customError() instanceof RpcCustomError.SendTransactionPreflightFailure(
-            final TxSimulation simulation
-        )) {
-          return new TxResult(simulation.context(), null, simulation.error());
-        }
-      }
-      if (cause instanceof RuntimeException runtimeException) {
-        throw runtimeException;
-      } else {
-        throw new RuntimeException(cause);
-      }
+      failure = executionException.getCause();
+    } catch (final CancellationException cancelled) {
+      // The client's response deadline cancels an exchange that did not answer in time; the
+      // send may or may not have reached the cluster, and either way the same bytes can go
+      // out again.
+      failure = cancelled;
     }
+    final var preflight = preflightResult(failure);
+    if (preflight != null) {
+      return preflight;
+    }
+    // One failover, then the failure is the caller's: the same signed bytes on another peer
+    // land at most once, so nothing is risked by trying, and a rate limit or an outage on one
+    // peer is what the other peer is for. The publisher declines when the failed peer still
+    // ranks first once its failure is marked (no other peer, or none ranked better), and the
+    // first failure is then thrown as before.
+    final var failedOver = transactionPublisher == null ? null : transactionPublisher.failOver(sendTxContext);
+    if (failedOver == null) {
+      throw unwrapped(failure);
+    }
+    logger.log(WARNING, String.format("Send of %s failed, sent again on another peer.", sig), failure);
+    try {
+      checkResponse(failedOver, failedOver.sendFuture().get(), sig);
+      return null;
+    } catch (final ExecutionException executionException) {
+      final var second = preflightResult(executionException.getCause());
+      if (second != null) {
+        return second;
+      }
+      throw unwrapped(executionException.getCause());
+    }
+  }
+
+  /// A send's answer is the signature it was given; anything else is a wrong response.
+  private static void checkResponse(final SendTxContext sendTxContext, final String response, final String sig) {
+    if (!sig.equals(response)) {
+      throw new IllegalStateException(String.format("""
+              Expected transaction signature does not match response from RPC %s
+                - %s
+                - %s
+              """,
+          sendTxContext.rpcClient().item().endpoint(),
+          sig,
+          response
+      ));
+    }
+  }
+
+  /// A preflight rejection is a result, not a failure to retry: the cluster looked at the
+  /// transaction and refused it.
+  private static TxResult preflightResult(final Throwable failure) {
+    if (failure instanceof JsonRpcException rpcException
+        && rpcException.customError() instanceof RpcCustomError.SendTransactionPreflightFailure(
+        final TxSimulation simulation
+    )) {
+      return new TxResult(simulation.context(), null, simulation.error());
+    }
+    return null;
+  }
+
+  private static RuntimeException unwrapped(final Throwable failure) {
+    return failure instanceof RuntimeException runtimeException
+        ? runtimeException
+        : new RuntimeException(failure);
   }
 
   @Override
@@ -170,23 +210,39 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 final var previousSendContext = txContext.sendTxContext();
                 if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
                   final var sendContext = transactionPublisher.retry(previousSendContext);
-                  final var nexContext = txContext.resent(sendContext);
-                  // One atomic write, never a remove and an add: between those two a
-                  // queueResult of the same signature could take the key with a fresh
-                  // future, the add of the resent context would be refused, and the future
-                  // this transaction's caller holds would never be completed. This thread
-                  // is the only writer of an existing entry, so the replace holds.
-                  pendingTransactions.replace(txContext, txContext, nexContext);
-                  logger.log(INFO, String.format("""
-                          Resent transaction:
-                           * retry: %d
-                           * blocksRemaining: %d
-                           * sig: %s
-                          """,
-                      nexContext.retryCount(),
-                      blocksRemaining,
-                      sendContext.sig()
-                  ));
+                  if (sendContext == null) {
+                    // Declined: every send peer is docked. The context is left as it is, so
+                    // the next pass asks again once the delay has elapsed from the last send.
+                    logger.log(INFO, String.format("""
+                            Resend deferred, every send peer is docked:
+                             * retries so far: %d
+                             * blocksRemaining: %d
+                             * sig: %s
+                            """,
+                        txContext.retryCount(),
+                        blocksRemaining,
+                        txContext.sig()
+                    ));
+                  } else {
+                    final var nexContext = txContext.resent(sendContext);
+                    // One atomic write, never a remove and an add: between those two a
+                    // queueResult of the same signature could take the key with a fresh
+                    // future, the add of the resent context would be refused, and the
+                    // future this transaction's caller holds would never be completed.
+                    // This thread is the only writer of an existing entry, so the replace
+                    // holds.
+                    pendingTransactions.replace(txContext, txContext, nexContext);
+                    logger.log(INFO, String.format("""
+                            Resent transaction:
+                             * retry: %d
+                             * blocksRemaining: %d
+                             * sig: %s
+                            """,
+                        nexContext.retryCount(),
+                        blocksRemaining,
+                        sendContext.sig()
+                    ));
+                  }
                 }
               }
             }

@@ -157,6 +157,11 @@ final class TxCommitmentMonitorServiceTests {
   static final class RecordingPublisher implements TxPublisher {
 
     final List<SendTxContext> retried = new ArrayList<>();
+    final List<SendTxContext> failedOver = new ArrayList<>();
+    /// What failOver answers: null, the default, is "no other peer".
+    SendTxContext failOverResult;
+    /// When set, retry declines every resend, as the processor does while every peer is docked.
+    boolean declineResends;
     int publishCount;
 
     @Override
@@ -169,7 +174,13 @@ final class TxCommitmentMonitorServiceTests {
     @Override
     public SendTxContext retry(final SendTxContext sendTxContext) {
       retried.add(sendTxContext);
-      return TxPublisher.super.retry(sendTxContext);
+      return declineResends ? null : TxPublisher.super.retry(sendTxContext);
+    }
+
+    @Override
+    public SendTxContext failOver(final SendTxContext failed) {
+      failedOver.add(failed);
+      return failOverResult;
     }
   }
 
@@ -475,6 +486,30 @@ final class TxCommitmentMonitorServiceTests {
     assertTrue(context.verifyExpired(), "the mask must only touch the resend flag");
   }
 
+  /// Without a publisher there is nothing to send again with: the first
+  /// failure is the caller's, as before.
+  @Test
+  void withoutAPublisherAFailedSendIsThrown() {
+    this.rpcClient = new FakeRpcClient();
+    this.epochInfoService = new FakeEpochInfoService();
+    final var service = new TxCommitmentMonitorService(
+        ChainItemFormatter.createDefault(),
+        rpcCaller(rpcClient),
+        epochInfoService,
+        new FakeWebSocketManager(),
+        Duration.ofMillis(MIN_SLEEP_MILLIS),
+        WEB_SOCKET_TIMEOUT,
+        null,
+        Duration.ofSeconds(1),
+        0,
+        NanoClock.SYSTEM
+    );
+    final var rpcException = internalRpcError();
+    final var context = new SendTxContext(null, CompletableFuture.failedFuture(rpcException), null, null, 1, 0);
+
+    assertSame(rpcException, assertThrows(JsonRpcException.class, () -> service.validateResponse(context, "sig")));
+  }
+
   // --------------------------------------------------- response validation --
 
   @Test
@@ -548,6 +583,125 @@ final class TxCommitmentMonitorServiceTests {
     final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(context, "sig"));
     assertSame(cause, thrown.getCause());
   }
+
+  /// A send whose response is a failure other than a preflight rejection is
+  /// sent once more, on another peer, with the same bytes; the second
+  /// response settles the send.
+  @Test
+  void aFailedSendIsSentOnceMoreOnAnotherPeer() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"), "the second response settled the send");
+    assertEquals(List.of(first), publisher.failedOver);
+  }
+
+  /// The client's response deadline cancels an exchange that did not answer;
+  /// the same bytes can go out again, on another peer.
+  @Test
+  void aCancelledSendIsSentOnceMoreOnAnotherPeer() throws InterruptedException {
+    final var service = service();
+    final var cancelled = new CompletableFuture<String>();
+    cancelled.cancel(true);
+    final var first = new SendTxContext(null, cancelled, null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"));
+    assertEquals(List.of(first), publisher.failedOver);
+  }
+
+  @Test
+  void withoutAnotherPeerTheFirstFailureIsThrown() {
+    final var service = service();
+    final var rpcException = internalRpcError();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(rpcException), null, null, 1, 0);
+
+    assertSame(rpcException, assertThrows(JsonRpcException.class, () -> service.validateResponse(first, "sig")));
+    assertEquals(List.of(first), publisher.failedOver, "the publisher was asked, once");
+  }
+
+  @Test
+  void theSecondSendsFailureIsThrownAndThereIsNoThirdAttempt() {
+    final var service = service();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    final var secondFailure = new IllegalStateException("second");
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
+
+    assertSame(secondFailure, assertThrows(IllegalStateException.class, () -> service.validateResponse(first, "sig")));
+    assertEquals(1, publisher.failedOver.size(), "one failover, never a chain of them");
+  }
+
+  @Test
+  void theSecondSendsCheckedFailureIsWrapped() {
+    final var service = service();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    final var secondFailure = new IOException("io");
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    assertSame(secondFailure, thrown.getCause());
+  }
+
+  @Test
+  void theSecondSendsPreflightRejectionIsAResult() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(preflightFailure()), null, null, 1, 0);
+
+    final var result = service.validateResponse(first, "sig");
+
+    assertNotNull(result);
+    assertInstanceOf(TransactionError.BlockhashNotFound.class, result.error());
+  }
+
+  /// The second response is checked like the first: the signature it was
+  /// given, or a wrong response.
+  @Test
+  void aMismatchedSecondResponseIsRejected() {
+    final var service = service();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(
+        balancedItem(rpcClient), CompletableFuture.completedFuture("other"), null, null, 1, 0);
+
+    final var thrown = assertThrows(IllegalStateException.class, () -> service.validateResponse(first, "sig"));
+    final var message = thrown.getMessage();
+    assertTrue(message.contains("sig"), message);
+    assertTrue(message.contains("other"), message);
+    assertTrue(message.contains("fake.rpc.invalid"), "the offending endpoint must be named: " + message);
+  }
+
+  /// The cluster looked at the transaction and refused it: a result, and
+  /// nothing to send again.
+  @Test
+  void aPreflightRejectionIsNeverSentAgain() throws InterruptedException {
+    final var service = service();
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
+    final var context = new SendTxContext(null, CompletableFuture.failedFuture(preflightFailure()), null, null, 1, 0);
+
+    assertNotNull(service.validateResponse(context, "sig"));
+    assertTrue(publisher.failedOver.isEmpty());
+  }
+
+  /// A resend the publisher declines (every peer docked) leaves the context
+  /// exactly as it was, so the next pass asks again.
+  @Test
+  void aDeclinedResendLeavesTheContextForTheNextPass() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var original = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, original, true, true);
+    service.pendingTransactions.put(context, context);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    publisher.declineResends = true;
+
+    service.processTransactions(contextMap(context));
+
+    assertEquals(List.of(original), publisher.retried, "the resend was asked for");
+    assertSame(context, service.pendingTransactions.firstEntry().getValue(), "declined: the context is untouched");
+    assertEquals(0, context.retryCount());
+    assertFalse(context.sigStatusFuture().isDone());
+  }
+
 
   @Test
   void aRejectedTransactionIsNotAwaitedOverTheWebSocket() throws InterruptedException {

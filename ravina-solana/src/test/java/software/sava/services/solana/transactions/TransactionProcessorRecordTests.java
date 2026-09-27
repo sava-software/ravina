@@ -179,6 +179,8 @@ final class TransactionProcessorRecordTests {
 
     private final TxSimulation simulation;
     private final String sendResult;
+    /// When set, every send answers with this failure instead of `sendResult`.
+    private Throwable sendFailure;
 
     private Commitment simulateCommitment;
     private String simulateBase64;
@@ -202,7 +204,9 @@ final class TransactionProcessorRecordTests {
         ++this.numSends;
         this.sendCommitment = (Commitment) args[0];
         this.sendBase64 = (String) args[1];
-        return CompletableFuture.completedFuture(sendResult);
+        return sendFailure == null
+            ? CompletableFuture.completedFuture(sendResult)
+            : CompletableFuture.failedFuture(sendFailure);
       } else if (name.equals("toString")) {
         return "FakeRpcClient";
       } else if (name.equals("hashCode")) {
@@ -269,8 +273,12 @@ final class TransactionProcessorRecordTests {
   }
 
   private static ErrorTrackedCapacityMonitor<Object, byte[]> monitor() {
+    return monitor(100_000);
+  }
+
+  private static ErrorTrackedCapacityMonitor<Object, byte[]> monitor(final int maxCapacity) {
     final var second = Duration.ofSeconds(1);
-    final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
+    final var config = new CapacityConfig(0, maxCapacity, second, 8, second, second, second, second);
     return config.createMonitor("test", NoopTracker::new, new FrozenClock());
   }
 
@@ -1001,6 +1009,228 @@ final class TransactionProcessorRecordTests {
         healthyCapacity - CallWeights.createDefault().sendTransaction(),
         healthyMonitor.capacityState().capacity()
     );
+  }
+
+  /// A first send that answers marks its peer successful, which is what
+  /// forgives an earlier error on it.
+  @Test
+  void aFirstSendThatAnswersMarksItsPeerSuccessful() {
+    final var handler = new FakeRpcClient(null, "SENT-SIG");
+    final var peer = item(rpcClient(handler), monitor());
+    peer.failed(2);
+    final var processor = processor(null, null, LoadBalancer.createBalancer(peer), null);
+
+    final var context = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+
+    assertEquals("SENT-SIG", context.sendFuture().join());
+    assertEquals(1, peer.errorCount(), "one success forgives one error");
+  }
+
+  /// A failed send is sent once more on the other peer, with the same
+  /// bytes, after the failed peer was marked: the sort in between must
+  /// already see the failure.
+  @Test
+  void aFailedSendIsSentAgainOnTheOtherPeerWithTheSameBytes() {
+    final var failingHandler = new FakeRpcClient(null, "FAILING-SIG");
+    failingHandler.sendFailure = new IllegalStateException("too many requests");
+    final var otherHandler = new FakeRpcClient(null, "OTHER-SIG");
+    final var otherMonitor = monitor();
+    final var failing = item(rpcClient(failingHandler), monitor());
+    final var other = item(rpcClient(otherHandler), otherMonitor);
+    // One error each: the lower median puts the failing peer first, one more error on it
+    // puts the other first, and the other's answer then forgives its one error.
+    failing.failed();
+    other.failed();
+    failing.sample(10);
+    other.sample(20);
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{failing, other});
+    final var processor = processor(null, null, sendClients, null);
+    final var transaction = smallTransaction();
+    final var first = processor.publish(transaction, "BASE64-TX", Commitment.FINALIZED, 8_642L);
+    assertSame(failing, first.rpcClient());
+    assertTrue(first.sendFuture().isCompletedExceptionally());
+    final int otherCapacity = otherMonitor.capacityState().capacity();
+
+    final var second = processor.failOver(first);
+
+    assertNotNull(second);
+    assertSame(other, second.rpcClient());
+    assertEquals("OTHER-SIG", second.sendFuture().join());
+    assertEquals("BASE64-TX", otherHandler.sendBase64, "the same bytes");
+    assertSame(transaction, second.transaction());
+    assertEquals(8_642L, second.blockHeight());
+    assertEquals(1, failingHandler.numSends);
+    assertEquals(1, otherHandler.numSends);
+    assertEquals(2, failing.errorCount(), "the failed peer is marked before the sort");
+    assertEquals(0, other.errorCount(), "the answering peer is marked successful");
+    assertEquals(otherCapacity - CallWeights.createDefault().sendTransaction(), otherMonitor.capacityState().capacity(),
+        "the second send is charged to the peer that served it");
+  }
+
+  @Test
+  void withoutAnotherPeerAFailedSendIsNotSentAgain() {
+    final var handler = new FakeRpcClient(null, "FAILING-SIG");
+    handler.sendFailure = new IllegalStateException("too many requests");
+    final var peer = item(rpcClient(handler), monitor());
+    final var processor = processor(null, null, LoadBalancer.createBalancer(peer), null);
+    final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+
+    assertNull(processor.failOver(first));
+    assertEquals(1, handler.numSends, "the only peer is not asked twice");
+    assertEquals(1, peer.errorCount(), "the failure is still marked");
+  }
+
+  /// Skips the failed peer banked while its own send was in flight must not
+  /// put it back at the head as a probe when the failure lands: the failover
+  /// then goes to the healthy peer.
+  @Test
+  void aFailedSendFailsOverEvenAfterTheFailedPeerBankedSkips() {
+    final var failingHandler = new FakeRpcClient(null, "FAILING-SIG");
+    failingHandler.sendFailure = new IllegalStateException("too many requests");
+    final var otherHandler = new FakeRpcClient(null, "OTHER-SIG");
+    final var failing = item(rpcClient(failingHandler), monitor());
+    final var other = item(rpcClient(otherHandler), monitor());
+    failing.sample(10);
+    other.sample(20);
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{failing, other});
+    final var processor = processor(null, null, sendClients, null);
+    final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+    assertSame(failing, first.rpcClient());
+    // Meanwhile the failing peer is passed over four times by other callers.
+    for (int i = 0; i < 4; ++i) {
+      failing.skip();
+    }
+
+    final var second = processor.failOver(first);
+
+    assertNotNull(second, "the banked skips must not have forgiven the failure");
+    assertSame(other, second.rpcClient());
+    assertEquals(1, failing.skipped(), "the failure reset the four banked skips; the failover's own selection of the other peer is one new skip");
+  }
+
+  /// A failover send that fails is charged to its peer too: the monitor
+  /// rethrows it without marking, and a cancelled one never reaches a catch.
+  @Test
+  void aFailedFailoverSendIsChargedToItsPeer() {
+    final var failingHandler = new FakeRpcClient(null, "FAILING-SIG");
+    failingHandler.sendFailure = new IllegalStateException("too many requests");
+    final var alsoFailingHandler = new FakeRpcClient(null, "ALSO-FAILING-SIG");
+    alsoFailingHandler.sendFailure = new IllegalStateException("outage");
+    final var failing = item(rpcClient(failingHandler), monitor());
+    final var alsoFailing = item(rpcClient(alsoFailingHandler), monitor());
+    failing.sample(10);
+    alsoFailing.sample(20);
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{failing, alsoFailing});
+    final var processor = processor(null, null, sendClients, null);
+    final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+
+    final var second = processor.failOver(first);
+
+    assertNotNull(second);
+    assertSame(alsoFailing, second.rpcClient());
+    assertTrue(second.sendFuture().isCompletedExceptionally());
+    assertEquals(1, failing.errorCount());
+    assertEquals(1, alsoFailing.errorCount(), "the failover's failure is charged too");
+  }
+
+  /// A bucket smaller than the send weight can never hold it; there a full
+  /// bucket is the gate, so resends are not declined forever.
+  @Test
+  void aResendOnABucketSmallerThanTheSendWeightNeedsAFullBucket() {
+    final var handler = new FakeRpcClient(null, "SIG");
+    final var smallMonitor = monitor(4);
+    final var peer = item(rpcClient(handler), smallMonitor);
+    final var processor = processor(null, null, LoadBalancer.createBalancer(peer), null);
+    final var previous = new SendTxContext(peer, CompletableFuture.completedFuture("SIG"), smallTransaction(), "BASE64-TX", 8_642L, 1L);
+    assertTrue(CallWeights.createDefault().sendTransaction() > 4, "the fixture must be below the send weight");
+
+    assertNotNull(processor.retry(previous), "a full bucket below the send weight still sends");
+    assertEquals(1, handler.numSends);
+
+    // The send charged its full weight, so the small bucket is now in overdraft.
+    assertNull(processor.retry(previous), "an overdrawn bucket declines");
+    assertEquals(1, handler.numSends);
+  }
+
+  /// A resend goes to the first peer, in the balancer's order, with capacity
+  /// for the send weight, and is declined when none has it.
+  @Test
+  void aResendGoesToTheFirstPeerWithCapacityAndIsDeclinedWhenNoneHasIt() {
+    final var dockedHandler = new FakeRpcClient(null, "DOCKED-SIG");
+    final var otherHandler = new FakeRpcClient(null, "OTHER-SIG");
+    final var dockedMonitor = monitor();
+    final var otherMonitor = monitor();
+    final var docked = item(rpcClient(dockedHandler), dockedMonitor);
+    final var other = item(rpcClient(otherHandler), otherMonitor);
+    docked.sample(10);
+    other.sample(20);
+    // The frozen clock never refills, so what is claimed here stays claimed.
+    dockedMonitor.capacityState().claimRequest(dockedMonitor.capacityState().capacity());
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{docked, other});
+    final var processor = processor(null, null, sendClients, null);
+    final var transaction = smallTransaction();
+    final var previous = new SendTxContext(docked, CompletableFuture.completedFuture("SIG"), transaction, "BASE64-TX", 8_642L, 1L);
+
+    final var resend = processor.retry(previous);
+
+    assertNotNull(resend);
+    assertSame(other, resend.rpcClient(), "the docked head is passed over");
+    assertEquals("BASE64-TX", otherHandler.sendBase64);
+    assertEquals(8_642L, resend.blockHeight());
+    assertEquals(0, dockedHandler.numSends);
+    assertEquals(1, otherHandler.numSends);
+
+    otherMonitor.capacityState().claimRequest(otherMonitor.capacityState().capacity());
+
+    assertNull(processor.retry(previous), "every peer docked: declined");
+    assertEquals(0, dockedHandler.numSends);
+    assertEquals(1, otherHandler.numSends);
+  }
+
+  /// The scan for capacity runs over the balancer's sorted order, so a resend
+  /// prefers the healthier peer, not the first in the array.
+  @Test
+  void aResendSortsThePeersBeforeChoosing() {
+    final var erredHandler = new FakeRpcClient(null, "ERRED-SIG");
+    final var healthyHandler = new FakeRpcClient(null, "HEALTHY-SIG");
+    final var erred = item(rpcClient(erredHandler), monitor());
+    final var healthy = item(rpcClient(healthyHandler), monitor());
+    erred.failed();
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{erred, healthy});
+    final var processor = processor(null, null, sendClients, null);
+    final var previous = new SendTxContext(erred, CompletableFuture.completedFuture("SIG"), smallTransaction(), "BASE64-TX", 8_642L, 1L);
+
+    final var resend = processor.retry(previous);
+
+    assertSame(healthy, resend.rpcClient());
+    assertEquals(0, erredHandler.numSends);
+    assertEquals(1, healthyHandler.numSends);
+  }
+
+  /// The monitor never reads a resend's response, so its outcome is
+  /// accounted on the peer by the publisher.
+  @Test
+  void aResendsOutcomeIsAccountedOnItsPeer() {
+    final var answering = new FakeRpcClient(null, "SIG");
+    final var answeringPeer = item(rpcClient(answering), monitor());
+    answeringPeer.failed();
+    final var transaction = smallTransaction();
+    final var previous = new SendTxContext(answeringPeer, CompletableFuture.completedFuture("SIG"), transaction, "BASE64-TX", 8_642L, 1L);
+
+    processor(null, null, LoadBalancer.createBalancer(answeringPeer), null).retry(previous);
+    assertEquals(0, answeringPeer.errorCount(), "a resend that answers forgives an error");
+
+    final var failing = new FakeRpcClient(null, "SIG");
+    failing.sendFailure = new IllegalStateException("too many requests");
+    final var failingPeer = item(rpcClient(failing), monitor());
+
+    processor(null, null, LoadBalancer.createBalancer(failingPeer), null).retry(previous);
+    assertEquals(1, failingPeer.errorCount(), "a resend that fails is marked");
   }
 
   @Test

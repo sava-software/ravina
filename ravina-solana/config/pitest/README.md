@@ -252,7 +252,12 @@ warnings emitted when retry-policy calculation or the optional automatic schedul
 wake-up, and the connection-open `INFO` in `markOpen`. The transactions entries include the
 warning `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` logs when a signature
 notification times out: the await then yields `null` and the polling monitor carries the
-outcome, so the line is diagnostic only.
+outcome, so the line is diagnostic only. Two more in the same class: the `INFO`
+`processTransactions` logs when a resend is deferred because every send peer is docked (the
+context left untouched for the next pass is the observable behaviour, asserted by
+`aDeclinedResendLeavesTheContextForTheNextPass`), and the warning `validateResponse` logs
+when a failed send is sent again on another peer (the second response, or its failure, is
+the outcome the failover tests assert).
 
 One websocket log is deliberately **not** in this family and is killed by an assertion instead:
 the failure of a scheduled wake, reported inside `scheduleRetry`'s completion action. That path

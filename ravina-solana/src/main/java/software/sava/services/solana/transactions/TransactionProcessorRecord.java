@@ -8,6 +8,7 @@ import software.sava.core.tx.Transaction;
 import software.sava.kms.core.signing.SigningService;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
+import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Call;
@@ -205,6 +206,19 @@ record TransactionProcessorRecord(ExecutorService executor,
     return transaction;
   }
 
+  /// Sends on `rpcClient` and charges it the send weight afterwards: a send is not paced, it
+  /// is charged, so that the block hash's validity is spent on the wire and not in a queue.
+  private SendTxContext publishOn(final BalancedItem<SolanaRpcClient> rpcClient,
+                                  final Transaction transaction,
+                                  final String base64Encoded,
+                                  final Commitment preflightCommitment,
+                                  final long blockHeight) {
+    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
+    final long publishedAt = clock.currentTimeMillis();
+    rpcClient.capacityState().claimRequest(callWeights.sendTransaction());
+    return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
+  }
+
   @Override
   public SendTxContext publish(final Transaction transaction,
                                final String base64Encoded,
@@ -212,10 +226,62 @@ record TransactionProcessorRecord(ExecutorService executor,
                                final long blockHeight) {
     sendClients.sort();
     final var rpcClient = sendClients.withContext();
-    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
-    final long publishedAt = clock.currentTimeMillis();
-    rpcClient.capacityState().claimRequest(callWeights.sendTransaction());
-    return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
+    final var context = publishOn(rpcClient, transaction, base64Encoded, preflightCommitment, blockHeight);
+    // A send that answers marks its peer successful here. A failed first send is marked by
+    // failOver, on the thread that read the failure, so that the sort there already sees it;
+    // a completion callback could still be pending when that thread wakes.
+    context.sendFuture().thenRun(rpcClient::success);
+    return context;
+  }
+
+  @Override
+  public SendTxContext failOver(final SendTxContext failed) {
+    final var failedPeer = failed.rpcClient();
+    failedPeer.failed();
+    sendClients.sort();
+    final var next = sendClients.withContext();
+    if (next == failedPeer) {
+      return null;
+    }
+    final var context = publishOn(next, failed.transaction(), failed.base64Encoded(), Settlement.COMMITMENT, failed.blockHeight());
+    // Both outcomes are accounted here: the monitor rethrows a failed failover without marking
+    // it, and a cancelled one never reaches its catch.
+    context.sendFuture().whenComplete((_, failure) -> {
+      if (failure == null) {
+        next.success();
+      } else {
+        next.failed();
+      }
+    });
+    return context;
+  }
+
+  /// The resend goes to the first peer, in the balancer's order, with capacity for the send
+  /// weight, and is declined when none has it: a resend is for a transaction that has not
+  /// landed yet, so it can wait a pass rather than deepen a dock. The monitor never reads a
+  /// resend's response, so the peer's outcome is accounted here.
+  @Override
+  public SendTxContext retry(final SendTxContext previous) {
+    sendClients.sort();
+    final int sendWeight = callWeights.sendTransaction();
+    for (final var peer : sendClients.items()) {
+      final var capacityState = peer.capacityState();
+      // A bucket smaller than the send weight can never hold it, so there the gate is a full
+      // bucket; a bucket of exactly the send weight must be full too.
+      final int gate = Math.min(sendWeight, capacityState.capacityConfig().maxCapacity());
+      if (capacityState.hasCapacity(gate)) {
+        final var context = publishOn(peer, previous.transaction(), previous.base64Encoded(), Settlement.COMMITMENT, previous.blockHeight());
+        context.sendFuture().whenComplete((_, failure) -> {
+          if (failure == null) {
+            peer.success();
+          } else {
+            peer.failed();
+          }
+        });
+        return context;
+      }
+    }
+    return null;
   }
 
   @Override

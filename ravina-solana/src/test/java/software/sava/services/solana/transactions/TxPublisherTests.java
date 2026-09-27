@@ -102,6 +102,16 @@ final class TxPublisherTests {
     assertTrue(publisher.published.isEmpty());
   }
 
+  /// A publisher without peers has nowhere to fail over to.
+  @Test
+  void failOverHasNoOtherPeerByDefault() {
+    final var publisher = new RecordingPublisher();
+    final var context = publisher.publish(tx(0), "BASE64", 8_642L);
+
+    assertNull(publisher.failOver(context));
+    assertEquals(1, publisher.published.size(), "nothing was sent again");
+  }
+
   @Test
   void retryRepublishesTheEncodedTransactionAtItsOriginalBlockHeight() {
     final var publisher = new RecordingPublisher();
