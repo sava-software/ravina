@@ -356,6 +356,14 @@ caller-visible reference identity distinguishes them. (The same guard in the
 instruction-list overload *is* killed — there a caller-supplied list makes
 `assertSame` meaningful.)
 
+**Forwarding a future to itself is a no-op** `# self-forward-noop` (`catchAll`) —
+`TxExpirationMonitorService.addTxContext` forwards the entry's outcome to the newcomer only
+when the entry is a join of the two waiters (`successor != txContext`); when the newcomer
+itself took the entry, forcing that condition true chains the newcomer's future to itself, and
+`whenComplete` on a completed future followed by `complete` on the same future changes nothing.
+The tests assert the waiters' outcomes, which are identical either way; the condition saves
+one dead callback, not a behaviour.
+
 **Single-element join is the identity** `# single-join-identity` (`catchAll`) —
 `PriorityFeeRequest` lines 13 and 69 `_ELSE`, i.e. forcing the `String.join`
 branch: joining a one-element list returns that element, exactly what the

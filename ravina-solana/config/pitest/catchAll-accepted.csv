@@ -12,11 +12,11 @@ software.sava.services.solana.transactions.BaseInstructionService,processInstruc
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 245
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 263
 software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,VoidMethodCallMutator,SURVIVED # log-removal # line 94
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 151
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 166
-software.sava.services.solana.transactions.BaseTxMonitorService,run,VoidMethodCallMutator,SURVIVED # log-removal # line 91
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 158
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 173
+software.sava.services.solana.transactions.BaseTxMonitorService,run,VoidMethodCallMutator,SURVIVED # log-removal # line 95
 software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 216
-software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 75
+software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 119
 software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 62
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 551
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 560
@@ -55,3 +55,4 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$installConne
 software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$0,VoidMethodCallMutator,SURVIVED # log-removal # line 337
 software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 235
 software.sava.services.solana.transactions.TxCommitmentMonitorService,validateResponse,VoidMethodCallMutator,SURVIVED # log-removal # line 101
+software.sava.services.solana.transactions.TxExpirationMonitorService,addTxContext,RemoveConditionalMutator_EQUAL_IF,SURVIVED # self-forward-noop # line 83

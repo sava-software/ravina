@@ -41,6 +41,60 @@ final class TxContextTests {
     assertFalse(context.sigStatusFuture().isDone());
   }
 
+  /// The join of two waiters demands the stricter of each setting, taken
+  /// from whichever side has it, and keeps this context's identity: send
+  /// context, heights, retry count, and a future of its own.
+  @Test
+  void joinedWithTakesTheStricterOfEachSettingFromEitherSide() {
+    final var sendTxContext = sendTxContext(4_242L);
+    final var confirmedNoResend = TxContext.createContext(
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext, false, false);
+    final var processedResend = TxContext.createContext(
+        Commitment.PROCESSED, Commitment.CONFIRMED, "sig", sendTxContext(9_999L), true, true);
+
+    final var joined = confirmedNoResend.joinedWith(processedResend);
+
+    assertEquals(Commitment.CONFIRMED, joined.awaitCommitment(), "this side's await is the stricter");
+    assertEquals(Commitment.CONFIRMED, joined.awaitCommitmentOnError(), "the other side's on-error await is the stricter");
+    assertTrue(joined.verifyExpired(), "true on the other side suffices");
+    assertTrue(joined.retrySend(), "true on the other side suffices");
+    assertEquals("sig", joined.sig());
+    assertSame(sendTxContext, joined.sendTxContext());
+    assertEquals(4_242L, joined.blockHeight());
+    assertEquals(BigInteger.valueOf(4_242L), joined.bigBlockHeight());
+    assertEquals(0, joined.retryCount());
+    assertNotSame(confirmedNoResend.sigStatusFuture(), joined.sigStatusFuture());
+    assertNotSame(processedResend.sigStatusFuture(), joined.sigStatusFuture());
+    assertFalse(joined.sigStatusFuture().isDone());
+
+    final var joinedTheOtherWay = processedResend.joinedWith(confirmedNoResend);
+    assertEquals(Commitment.CONFIRMED, joinedTheOtherWay.awaitCommitment(), "the other side's await is the stricter");
+    assertEquals(Commitment.CONFIRMED, joinedTheOtherWay.awaitCommitmentOnError(), "this side's on-error await is the stricter");
+    assertTrue(joinedTheOtherWay.verifyExpired(), "true on this side suffices");
+    assertTrue(joinedTheOtherWay.retrySend(), "true on this side suffices");
+    assertEquals(9_999L, joinedTheOtherWay.blockHeight());
+  }
+
+  /// `CONFIRMED` and `FINALIZED` are one level, so on a tie this context's
+  /// word is kept; a flag false on both sides stays false.
+  @Test
+  void joinedWithKeepsThisContextsWordOnAnEqualLevel() {
+    final var finalized = TxContext.createContext(
+        Commitment.FINALIZED, Commitment.FINALIZED, "sig", sendTxContext(1L), false, false);
+    final var confirmed = TxContext.createContext(
+        Commitment.CONFIRMED, Commitment.CONFIRMED, "sig", sendTxContext(1L), false, false);
+
+    final var joined = finalized.joinedWith(confirmed);
+    assertEquals(Commitment.FINALIZED, joined.awaitCommitment());
+    assertEquals(Commitment.FINALIZED, joined.awaitCommitmentOnError());
+    assertFalse(joined.verifyExpired());
+    assertFalse(joined.retrySend());
+
+    final var joinedTheOtherWay = confirmed.joinedWith(finalized);
+    assertEquals(Commitment.CONFIRMED, joinedTheOtherWay.awaitCommitment());
+    assertEquals(Commitment.CONFIRMED, joinedTheOtherWay.awaitCommitmentOnError());
+  }
+
   @Test
   void theBigBlockHeightIsUnsigned() {
     // -1 as an unsigned 64 bit block height is 2^64 - 1, not -1.

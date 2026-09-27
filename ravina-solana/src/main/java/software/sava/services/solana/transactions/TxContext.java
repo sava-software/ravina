@@ -77,6 +77,24 @@ record TxContext(Commitment awaitCommitment,
     return commitment == Commitment.PROCESSED ? 0 : 1;
   }
 
+  /// A context demanding the stricter of each setting of this one and `other`, for two
+  /// waiters on one signature that neither dominates: whatever settles it settles both. It
+  /// keeps this context's send context and retry count, and gets a future of its own.
+  TxContext joinedWith(final TxContext other) {
+    return new TxContext(
+        level(awaitCommitment) >= level(other.awaitCommitment) ? awaitCommitment : other.awaitCommitment,
+        level(awaitCommitmentOnError) >= level(other.awaitCommitmentOnError) ? awaitCommitmentOnError : other.awaitCommitmentOnError,
+        sig,
+        sendTxContext,
+        blockHeight,
+        bigBlockHeight,
+        verifyExpired || other.verifyExpired,
+        retrySend || other.retrySend,
+        retryCount,
+        new CompletableFuture<>()
+    );
+  }
+
   String settings() {
     return "[await=" + awaitCommitment + ", onError=" + awaitCommitmentOnError
         + ", verifyExpired=" + verifyExpired + ", retrySend=" + retrySend + "]";

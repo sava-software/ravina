@@ -29,9 +29,13 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   private final EpochInfoService epochInfoService;
   private final long minSleepMillisBetweenPolling;
   /// Keyed by the context itself: equality is (block height, signature), so one signature
-  /// has one entry, and the value is the context currently monitoring it (a resend replaces
-  /// the value, never the key). Callers enter with `putIfAbsent`; a refused caller shares the
-  /// entry's future. The monitor thread is the only writer of an existing entry.
+  /// has one entry, and the value is the context currently monitoring it. Entries are entered
+  /// with `putIfAbsent` and settled by key and value. In the commitment monitor's map the
+  /// monitor thread is the only writer of an existing entry (a resend replaces the value,
+  /// never the key) and a refused caller shares the entry's future. In the expiration
+  /// monitor's map the commitment thread adds and replaces entries (a dominating newcomer,
+  /// or the join of two incomparable waiters, whose outcome the replaced context follows)
+  /// and the expiration thread only removes them, which is why the removes take the value.
   protected final ConcurrentSkipListMap<TxContext, TxContext> pendingTransactions;
   final ReentrantLock workLock; // package-private: tests assert the loop never leaks it
   // package-private: tests observe the waiter queue via workLock.hasWaiters.
@@ -116,14 +120,17 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     return SafeMath.toUnsignedBigInteger(confirmedBlockHeight.height());
   }
 
+  // Removed by key and value, never by key alone: the expiration monitor's entries are
+  // replaced by the commitment thread when a stricter waiter takes over a signature, and a
+  // remove by key racing that swap would take the newcomer's entry with the settled one.
   protected final void completeFuture(final TxContext txContext) {
     txContext.completeFuture();
-    pendingTransactions.remove(txContext);
+    pendingTransactions.remove(txContext, txContext);
   }
 
   private void completeFuture(final TxContext txContext, final TxStatus sigStatus) {
     txContext.completeFuture(sigStatus);
-    pendingTransactions.remove(txContext);
+    pendingTransactions.remove(txContext, txContext);
   }
 
   protected final void completeFutures(final Map<String, TxContext> contextMap,

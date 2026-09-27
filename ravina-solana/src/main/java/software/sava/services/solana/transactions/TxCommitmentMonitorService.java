@@ -201,7 +201,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
           final var bigBlockHeight = txContext.bigBlockHeight();
           if (bigBlockHeight.compareTo(confirmedBlockHeight) < 0) {
             expirationMonitorService.addTxContext(txContext);
-            pendingTransactions.remove(txContext);
+            pendingTransactions.remove(txContext, txContext);
             ++numExpired;
           } else {
             final long blocksRemaining = bigBlockHeight.subtract(confirmedBlockHeight).longValue();

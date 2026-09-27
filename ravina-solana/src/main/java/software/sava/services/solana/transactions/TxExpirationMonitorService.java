@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.Map;
 
 
-final class TxExpirationMonitorService extends BaseTxMonitorService {
+/// Deliberately non-final: `takeOver` is a package-private interleaving seam.
+class TxExpirationMonitorService extends BaseTxMonitorService {
 
   /// A missing signature settles as "never landed" only once the confirmed
   /// block height is this far past the transaction's `lastValidBlockHeight`. A
@@ -55,14 +56,57 @@ final class TxExpirationMonitorService extends BaseTxMonitorService {
     );
   }
 
+  /// Queues a context whose block hash the commitment monitor has seen expire. The commitment
+  /// monitor holds one entry per signature, so the key is expected to be free; a second
+  /// context for a pending signature can still arrive (a waiter that queued after the first
+  /// had already moved here). The commitment stage refuses a second caller that the pending
+  /// one does not dominate, on the caller's thread; this stage runs on the monitor thread,
+  /// where a throw would end the loop, so it settles the two the only way that is right for
+  /// both: one context at least as strict as either holds the entry, and its outcome answers
+  /// both, exceptions included, because a settlement that meets the stricter await meets the
+  /// weaker and an expiry verdict is the same for both. That context is the pending one when
+  /// it dominates, the newcomer when it dominates, and otherwise a join demanding the stricter
+  /// of each setting, since the settings are a partial order (stricter on the commitment but
+  /// weaker on resending, say) and neither of two incomparable waiters may answer the other.
   void addTxContext(final TxContext txContext) {
-    // The commitment monitor holds one entry per signature, so the key is expected to be
-    // free; should a second context for a pending signature arrive, the first's outcome
-    // answers it too, rather than the second's future being dropped or the first's replaced.
     final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
-    if (pending != null) {
-      pending.sigStatusFuture().whenComplete((status, _) -> txContext.completeFuture(status));
+    if (pending == null) {
+      return;
     }
+    if (pending.atLeastAsStrictAs(txContext)) {
+      forward(pending, txContext);
+      return;
+    }
+    final var successor = txContext.atLeastAsStrictAs(pending) ? txContext : pending.joinedWith(txContext);
+    if (takeOver(pending, successor)) {
+      forward(successor, pending);
+      if (successor != txContext) {
+        forward(successor, txContext);
+      }
+    } else {
+      // The pending entry settled and left between the two calls, so its waiter is answered;
+      // this thread is the only one that adds here, so the key is free now.
+      pendingTransactions.put(txContext, txContext);
+    }
+  }
+
+  /// Installs `newcomer`, a context at least as strict as `pending`, in its place.
+  /// Package-private so a test can wedge the pending entry's settlement between the refused
+  /// add and this swap; an override must let this method's own return value through.
+  boolean takeOver(final TxContext pending, final TxContext newcomer) {
+    return pendingTransactions.replace(pending, pending, newcomer);
+  }
+
+  /// `to` settles however `from` settles: the same status, or the same failure. A cancelled
+  /// or timed-out waiter must not read as an expiry verdict, which a null would.
+  private static void forward(final TxContext from, final TxContext to) {
+    from.sigStatusFuture().whenComplete((status, failure) -> {
+      if (failure == null) {
+        to.completeFuture(status);
+      } else {
+        to.sigStatusFuture().completeExceptionally(failure);
+      }
+    });
   }
 
   @Override

@@ -443,7 +443,11 @@ them, because the list is the argument for the effort.
   because the caller joins it uninterruptibly; a second caller with stricter settings
   (`PROCESSED` is below `CONFIRMED`/`FINALIZED`; `verifyExpired` and `retrySend` true
   are above false) is refused with `IllegalArgumentException` instead of answered below
-  its level. Publishing one transaction twice is therefore safe. The second publisher's
+  its level. In the expiration stage, which runs on the monitor thread and cannot throw, the
+  entry goes to whichever waiter dominates, or to a join demanding the stricter of each
+  setting when neither does (the settings are a partial order), and the others follow its
+  outcome, exceptions included; the monitors settle entries by key and value for that
+  reason. Publishing one transaction twice is therefore safe. The second publisher's
   websocket subscription is refused by the socket (already subscribed), and a refused
   subscription polls at once rather than waiting out the websocket timeout, so it settles
   by the next poll.
