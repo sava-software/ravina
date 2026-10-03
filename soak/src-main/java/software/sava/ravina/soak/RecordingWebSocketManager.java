@@ -50,10 +50,18 @@ final class RecordingWebSocketManager implements WebSocketManager {
   }
 
   /// The gauge's reading: OPEN when the manager hands out a socket that has not closed, NONE
-  /// while it hands out nothing (creating, backing off, or closed).
+  /// while it hands out nothing (creating or backing off), CLOSED once the manager is terminal.
   String state() {
+    if (delegate.closed()) {
+      return "CLOSED";
+    }
     final var raw = delegate.webSocket();
     return raw == null ? "NONE" : raw.closed() ? "CLOSED" : "OPEN";
+  }
+
+  @Override
+  public boolean closed() {
+    return delegate.closed();
   }
 
   @Override

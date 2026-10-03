@@ -84,6 +84,14 @@ dependencies {
   // it ':ravina-core' and ':ravina-kms-core'; sava-core, sava-rpc and the spl idl client come
   // from the platform at the versions the parent pins.
   implementation("software.sava:ravina-solana")
+  // The gates' own tests (src-test/java, on the classpath against the module's classes). The
+  // platform pins junit-jupiter; the launcher it does not, so its version is kept in step here.
+  testImplementation("org.junit.jupiter:junit-jupiter")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.3")
+}
+
+tasks.test {
+  useJUnitPlatform()
 }
 
 application {

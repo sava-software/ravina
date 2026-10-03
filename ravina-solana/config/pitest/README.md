@@ -247,9 +247,8 @@ A fluent call returning its receiver type is an expression, invisible to
 
 **Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals:
 log output is not part of any behavioral contract. The websocket entries include the warning for
-a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, the
-warnings emitted when retry-policy calculation or the optional automatic scheduler rejects a
-wake-up, and the connection-open `INFO` in `markOpen`. The transactions entries include the
+a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, and the
+connection-open `INFO` in `markOpen`. The transactions entries include the
 warning `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` logs when a signature
 notification times out: the await then yields `null` and the polling monitor carries the
 outcome, so the line is diagnostic only. Two more in the same class: the `INFO`
@@ -259,22 +258,40 @@ context left untouched for the next pass is the observable behaviour, asserted b
 when a failed send is sent again on another peer (the second response, or its failure, is
 the outcome the failover tests assert).
 
-One websocket log is deliberately **not** in this family and is killed by an assertion instead:
-the failure of a scheduled wake, reported inside `scheduleRetry`'s completion action. That path
-has no caller — `CompletableFuture` records the action's throwable on a stage the manager
-discards — so the record is the only externally observable evidence that reconnection has stopped
-for good. There the log *is* the contract, which is why
-`aFailedScheduledWakeIsReportedRatherThanSwallowed` asserts it. Asserting a log anywhere the
+Six websocket logs are deliberately **not** in this family and are killed by assertions instead.
+What separates them from the connection-attempt and transport warnings that stay accepted: each
+reports a failure that reached a caller by a throw before 2026-10-02, or that has no caller at
+all, and now reaches nothing but the record, while a connection failure never reached a caller
+and its handling is asserted through the backoff it claims and the retry it installs. The failure
+of a scheduled wake, reported inside `scheduleRetry`'s completion action, has no caller:
+`CompletableFuture` records the action's throwable on a stage the manager discards
+(`aWakeFailedByItsBackoffReportsTheManagerClosed`, `aWakeFailedByItsClockReportsThatOnlyAPollReconnects`).
+Since 2026-10-02 a failed creation (the builder or the `onNewWebSocket` consumer threw) and an
+`Error` out of `connect()` are handled and never rethrown, so their one WARNING, with the
+throwable and the disposition (the retry delay, or that the manager is closed, or that a
+reconnect was already pending), is the only place the throwable goes
+(`aRefusedCandidateIsClosedAndReplacedAfterTheBackoff`, `anErrorFromAReconnectAttemptReplacesTheWrapperRatherThanStrandingIt`
+and the close-race tests); the same holds for the warning a condemned wrapper's failing `close()`
+gets (`aCandidateWhoseCloseThrowsCannotWedgeTheClaim`), for the retry-policy warning once a
+collaborator closed the manager with nothing thrown to the caller
+(`aCreationFailureWhosePolicyFailsClosesTheManagerAndSaysSo`), and for the scheduler-rejection
+warning, which now also covers an `Error` from the scheduler
+(`anErrorFromTheSchedulerIsLoggedAndAPollStillReconnects`). Asserting a log anywhere the
 behaviour is observable by other means would contradict this family's argument rather than harden
 anything.
 
 **Websocket diagnostics-only branches** `# ws-log-only` (`catchAll`) — the boundary and
 `ORDER_IF` mutants around `delay >= 0` in `accept`, `connect`, and
 `connectionAttemptFailed` only suppress a zero-delay warning or emit one for a stale `-1` result.
-The six `beginFailure` return mutants likewise change only that gate or the delay printed in the
-message. On those return paths either no failure claim was accepted, terminal close invalidated
-the claim, or retry timing and wake ownership were already installed; changing the returned
-number cannot alter manager state or schedule another attempt.
+The one `beginFailure` return mutant, on the method's single return, likewise changes only that
+gate or the delay printed in the message, on both of its paths: where no failure claim was
+accepted the returned number cannot alter manager state or schedule another attempt, and where
+one was, retry timing and wake ownership were already installed before the return. The same
+returns inside `applyRetryPolicy`,
+which `beginFailure` shares with a failed creation and a connect `Error` since 2026-10-02, are
+**not** in this family: a handled creation failure's one WARNING states its disposition from
+that number (a retry delay, or that the manager is closed), so each of those returns is killed
+by an assertion on the record.
 
 **Exact-zero retry deadline** `# retry-deadline-zero` (`catchAll`) — changing the
 `remainingNanos <= 0` boundary at exactly zero reaches the rounding expression instead of its
@@ -305,10 +322,6 @@ manager `close`, every captured resource field is cleared, so forcing a later cl
 same snapshot-and-clear block still produces four null resources. While creation is live,
 `creatingWebSocket` and `webSocket` are mutually exclusive under the same lock, so the comparison
 which prevents closing one object through both slots cannot distinguish a reachable state.
-
-**Retry-sequence direction** `# retry-sequence-direction` (`catchAll`) — the retry sequence is an
-equality token, not an ordered counter. Replacing its increment with a decrement still gives every
-successive failure a distinct value and rejects the same stale scheduler completions.
 
 **Detached-state normalization only** `# state-normalization-only` (`catchAll`) — after a terminal
 wrapper is detached, `webSocket` is null. The same accessor immediately takes the creation path

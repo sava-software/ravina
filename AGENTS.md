@@ -365,7 +365,10 @@ them, because the list is the argument for the effort.
   synchronously failing first-pass Ping — *and* a retry that is already due in the gap between
   the two deliveries. It is detectable rather than silent: the two routes log distinct messages
   (`"Websocket connection attempt failed…"` vs `"Websocket failure…"` / `"Websocket closed…"`),
-  so that pairing for one transport failure is the fingerprint to look for.
+  so that pairing for one transport failure is the fingerprint to look for. Since 2026-10-02 an
+  `Error` out of `connect()` is a third same-wrapper claimant that can land on a successor attempt
+  installed on the same wrapper by a wake in the window; it condemns that wrapper, whose attempt
+  could never complete, where it used to close the manager, and converges the same way.
   Do **not** "fix" it by suppressing the cancellation claim: an implementation that reports a real
   failure only by cancelling would then stall in `CONNECTING` forever. The manager cannot fence it
   locally, because it installs one handler set on the reused wrapper at construction. Reordering
@@ -396,7 +399,12 @@ them, because the list is the argument for the effort.
   unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
   and keeps it open. A zero *initial* delay that escalates (`linear(MILLISECONDS, 0, …)`) enters
   that state once and then grows out of it. The distinction is the escalation, not the first
-  value.
+  value. Since 2026-10-02 the same delay also paces a failed *creation* (a builder or
+  `onNewWebSocket` consumer that throws, a `connect()` that fails with an `Error`): the manager
+  no longer closes itself on those, it backs off and builds a fresh wrapper, so a constant zero
+  delay would spin a failing consumer as fast as the scheduler's thread can call it. Only
+  `close()`, and a `Backoff` or clock that throws inside the retry policy, are terminal, and
+  `closed()` reports it.
 - **Ravina-built transactions are SIMD-0385 v1.**
   `SimulationFutures.createV1Transaction` is the one recipe (non-strict, so a
   batch over a v1 limit is reported as `SIZE_LIMIT_EXCEEDED` and shrunk rather

@@ -58,13 +58,21 @@ public final class Main {
   /// A manager that hands out no socket: the control run, in which every confirmation must
   /// arrive by polling.
   private static final WebSocketManager NO_WEBSOCKET = new WebSocketManager() {
+    private volatile boolean closed;
+
     @Override
     public SolanaRpcWebsocket webSocket() {
       return null;
     }
 
     @Override
+    public boolean closed() {
+      return closed;
+    }
+
+    @Override
     public void close() {
+      closed = true;
     }
   };
 
@@ -95,6 +103,7 @@ public final class Main {
     final int rpcCapacityPerSecond = Integer.parseInt(setting("SOAK_RPC_CAPACITY", "50"));
     final var pollFloor = Duration.ofMillis(Long.parseLong(setting("SOAK_POLL_MILLIS", "3000")));
     final var wsTimeout = Duration.ofMillis(Long.parseLong(setting("SOAK_WS_TIMEOUT_MILLIS", "5000")));
+    final var wsFaultSpec = setting("SOAK_WS_FAULT", "");
     Files.createDirectories(runDir);
 
     final var counters = new Counters();
@@ -195,17 +204,36 @@ public final class Main {
       logger.log(INFO, "Epoch service initialized: " + epoch);
 
       // The websocket seam: the real manager owns the connection; the wrapper only watches.
+      // With SOAK_WS_FAULT set the manager is built as a consumer with registrations builds it,
+      // from a prototype whose JDK builder and onNewWebSocket consumer the fault harness owns.
       final RecordingWebSocketManager recordingManager;
       final WebSocketManager webSocketManager;
+      final WebSocketFaults webSocketFaults;
       if (webSocketEnabled) {
-        final var wsBackoff = new RecordingBackoff("websocket", Backoff.linear(MILLISECONDS, 500, 10_000));
-        recordingManager = new RecordingWebSocketManager(
-            WebSocketManager.createManager(httpClient, wsUri, wsBackoff), counters, ledger
-        );
+        final var wsBackoffPolicy = Backoff.linear(MILLISECONDS, 500, 10_000);
+        final var wsBackoff = new RecordingBackoff("websocket", wsBackoffPolicy);
+        final WebSocketManager rawManager;
+        if (wsFaultSpec.isEmpty()) {
+          webSocketFaults = null;
+          rawManager = WebSocketManager.createManager(httpClient, wsUri, wsBackoff);
+        } else {
+          webSocketFaults = new WebSocketFaults(WebSocketFaults.Spec.parse(wsFaultSpec), wsBackoffPolicy, httpClient, counters);
+          final var prototype = SolanaRpcWebsocket.build()
+              .uri(wsUri)
+              .webSocketBuilder(webSocketFaults.webSocketBuilder())
+              .commitment(Commitment.CONFIRMED)
+              .onOpen(webSocketFaults::opened);
+          rawManager = WebSocketManager.createManager(wsBackoff, prototype, webSocketFaults);
+        }
+        recordingManager = new RecordingWebSocketManager(rawManager, counters, ledger);
         webSocketManager = recordingManager;
         webSocketManager.checkConnection();
+        if (webSocketFaults != null && webSocketManager.webSocket() == null) {
+          throw new IllegalStateException("the first websocket could not be created; see the manager's warning");
+        }
       } else {
         recordingManager = null;
+        webSocketFaults = null;
         webSocketManager = NO_WEBSOCKET;
       }
 
@@ -256,13 +284,22 @@ public final class Main {
       }
       commitRun("START", rpcUri, webSocketEnabled, ratePerSecond, durationSeconds, counters,
           "payer=" + feePayer + " rpcCapacity=" + rpcCapacityPerSecond + "/s poll=" + pollFloor + " wsTimeout=" + wsTimeout
-              + " peers=" + peers + proxyDetail);
-      try (final var gauge = new Gauge(counters, ledger, capacityStates, recordingManager, runDir.resolve("gauge.csv"))) {
+              + " peers=" + peers + proxyDetail
+              + (webSocketFaults == null ? "" : " wsFault=" + webSocketFaults.describe()));
+      try (final var gauge = new Gauge(counters, ledger, capacityStates, recordingManager, webSocketFaults, runDir.resolve("gauge.csv"))) {
         final var workload = new Workload(
             instructionService, feePayer, solanaAccounts, counters, ledger, webSocketEnabled, executor
         );
+        if (webSocketFaults != null) {
+          webSocketFaults.start(webSocketManager, durationSeconds);
+        }
         workload.run(scheduler, ratePerSecond, durationSeconds, drainSeconds);
       } finally {
+        if (webSocketFaults != null) {
+          // The summary reads the manager and the candidates while everything is still up.
+          webSocketFaults.commitSummary();
+          webSocketFaults.close();
+        }
         // The validator is asked about the unjoined signatures first: the direct client shares
         // the executor, and the HTTP client's selector shuts itself down on the first rejected
         // task after shutdownNow (the lookup then fails with "selector manager closed").

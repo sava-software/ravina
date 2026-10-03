@@ -348,8 +348,8 @@ fi
 
 # ---------------------------------------------------------------------------- build
 
-log "building the module path (../gradlew --no-daemon -q soakModulePath)"
-(cd "$SCRIPT_DIR" && ../gradlew --no-daemon -q soakModulePath) || cannot_start "the harness build failed"
+log "testing the gates and building the module path (../gradlew --no-daemon -q test soakModulePath)"
+(cd "$SCRIPT_DIR" && ../gradlew --no-daemon -q test soakModulePath) || cannot_start "the harness build or its gate tests failed"
 JAVA=$(head -n 1 "$SCRIPT_DIR/build/soak/java.txt" 2>/dev/null || true)
 MP=$(head -n 1 "$SCRIPT_DIR/build/soak/module-path.txt" 2>/dev/null || true)
 [ -n "$JAVA" ] && [ -x "$JAVA" ] || cannot_start "no launcher in build/soak/java.txt ('$JAVA')"
@@ -723,6 +723,37 @@ else
   else
     report_line FAIL "exit $report_status$([ -s "$RUN_DIR/summary.md" ] || printf ', no summary.md'); see logs/report.log"
     FAILED="$FAILED report"
+  fi
+fi
+
+# ---------------------------------------------------------------------------- websocket faults
+
+# With SOAK_WS_FAULT set, five more gates, read from the recording by WebSocketGates (see
+# README "Websocket faults"): each is one line, PASS or FAIL with its detail, numbered 7 to 11
+# here. A missing or unreadable line set is a failed gate 7, not a skip.
+WS_GATES_MAIN=$MODULE/$MODULE.WebSocketGates
+if [ -n "${SOAK_WS_FAULT:-}" ]; then
+  WS_GATES_FILE=$RUN_DIR/ws-gates.txt
+  ws_status=0
+  if [ ! -s "$JFR_FILE" ]; then
+    gate 7 ws-episodes FAIL "no recording to read the websocket fault events from"
+  else
+    run_bounded "$REPORT_BOUND" "ws-gates" "$JAVA" -p "$MP" -m "$WS_GATES_MAIN" "$JFR_FILE" "$WS_GATES_FILE" \
+      > "$RUN_DIR/logs/ws-gates.log" 2>&1 < /dev/null || ws_status=$?
+    if [ "$ws_status" != 0 ] || [ ! -s "$WS_GATES_FILE" ]; then
+      gate 7 ws-episodes FAIL "WebSocketGates exited $ws_status; see logs/ws-gates.log"
+    else
+      ws_number=7
+      while IFS= read -r ws_line; do
+        ws_verdict=${ws_line%% *}
+        ws_rest=${ws_line#* }
+        ws_name=${ws_rest%% *}
+        ws_detail=${ws_rest#* }
+        case $ws_verdict in PASS | FAIL) ;; *) ws_verdict=FAIL ;; esac
+        gate "$ws_number" "$ws_name" "$ws_verdict" "$ws_detail"
+        ws_number=$((ws_number + 1))
+      done < "$WS_GATES_FILE"
+    fi
   fi
 fi
 

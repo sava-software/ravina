@@ -150,6 +150,11 @@ final class TxCommitmentMonitorServiceTests {
     }
 
     @Override
+    public boolean closed() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void close() {
     }
   }

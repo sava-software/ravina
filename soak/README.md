@@ -89,7 +89,9 @@ writes `build/soak/module-path.txt` (the harness jar and its runtime classpath) 
 `build/soak/java.txt` (the launcher). The harness JVM is started from those two files with
 `-p`/`-m`, not through Gradle, so it carries its own `-XX:StartFlightRecording` line and sees the
 same module graph a consumer does. The main module is `software.sava.ravina.soak`, the main class
-`software.sava.ravina.soak.Main`. `soak.sh` runs this task at the start of every run.
+`software.sava.ravina.soak.Main`. `soak.sh` runs this task at the start of every run, after the
+harness's own tests (`src-test/java`, the gates judged over episodes built with explicit instants;
+`../gradlew --no-daemon test` runs them alone), so a run never applies a gate its tests fail.
 
 ## Running
 
@@ -255,6 +257,39 @@ A run is evidence only if all six hold; `gates.txt` records each with its detail
    recorded at all, and its method-timing section shows the `processTransactions` passes.
 6. **`client-exit`**: the client exited 0, which it does only after its drain; not the runner's
    watchdog past duration plus drain, and not a stop after a failed launch gate.
+
+With `SOAK_WS_FAULT` set, `WebSocketGates` reads the recording after the report and writes
+`ws-gates.txt`, one line per gate, which the runner numbers 7 to 11 and applies like the others.
+Each is written against a broken manager a looser gate would pass:
+
+7. **`ws-episodes`**: in every episode the websocket backoff was asked for error counts exactly
+   1 to `count`, in order, and 1 again in the next episode (a manager that ignored the backoff, or
+   never escalated a creation failure, fails here); no creation started before its claim's deadline,
+   a creation being an offer to the consumer or a creation the builder refused, which offers
+   nothing (a check over offers alone passed a manager that retried a failed creation at once;
+   found by review, 2026-10-04); and the replacement wrapper opened within the last claim's delay
+   plus 5 s (10 s after the close for `wrapper-close`). The deadline's anchor is the `Backoff`
+   event, committed by the backoff's own `delay()`, which the manager's policy consults after the
+   claim's release (a refused candidate's close, a condemned wrapper's), so the anchor trails the
+   manager's own failure reading by the release's duration; the 50 ms slack covers it. The detail
+   counts the offers after a fault (a creation the builder refused offers nothing) the scheduled
+   wake made against those another caller made, the harness's 3 s poll or the workload's
+   websocket await, whichever reached the accessor first, from the `WebSocketWrapper` event's
+   stack.
+8. **`ws-liveness`**: no gauge row read the manager CLOSED or ERROR, the managed wrapper's last slot
+   notification was within 2 s of the summary (a wrapper wedged in CONNECTING behind a non-null
+   accessor fails here), the summary read `closed=false`, no poll threw, and no `Scheduled websocket
+   reconnect failed` line was logged.
+9. **`ws-accounting`**: the candidates offered to the consumer are one plus, per episode, `count`
+   refusals and one replacement (`hook-*`, `connect-error`) or one replacement alone (`create-*`,
+   `wrapper-close`); the faults injected are `count` per episode; and no refused or replaced
+   candidate was still open at the summary (the harness checks each one's `closed()`).
+10. **`ws-threads`**: no gauge row counted more than two threads inside sava's wrapper, and the
+    summary counted at most one: a candidate the manager gave up on took its check loop with it.
+11. **`ws-reporting`**: after every recovery at least one transaction submitted after the open settled
+    by notification before the next episode; the client's `threw` is 0; every injected fault id
+    appears in exactly one manager WARNING's throwable; and the websocket backoff claims equal the
+    faults injected.
 
 Gates 1 and 2 are also checked while the client runs, since timing entries resolve as classes load:
 a failure stops the client rather than letting it spend an hour on a recording that cannot count.
@@ -538,6 +573,58 @@ SOAK_PEERS=2 SOAK_FAULT='server-error:on=20,off=40' ./soak.sh smoke   # peer 2 p
 
 A fault run can end with work still pending. That passes gate 4 and fails gate 6 (see "Gates"),
 which is a finding to read, not necessarily a defect in the harness.
+
+### Websocket faults
+
+`SOAK_WS_FAULT` faults the websocket manager itself, in process, through the seams a consumer
+already holds (`WebSocketFaults`): the `onNewWebSocket` consumer, the `java.net.http.WebSocket.Builder`
+the prototype is built with, the managed wrapper's own `close()`, and the manager's logger. With it
+set the manager is built the way a consumer with registrations builds it, from a prototype through
+`WebSocketManager.createManager(backoff, prototype, consumer)`, the consumer subscribes to slots on
+every wrapper it accepts, and a 3 s `checkConnection()` poll runs on a harness thread, as every
+consumer's loop does. Nothing is added inside ravina.
+
+```
+<kind>[:every=SECONDS][,count=N]
+```
+
+An episode runs every `every` seconds (default 120) once the workload has started, while an open
+managed wrapper exists, and never within the episode's worst-case recovery (the sum of the backoff's
+first `count` delays) plus a minute of the end of submission: the fault is armed for the next `count`
+(default 2) creations, then the managed wrapper is closed directly, which sava treats as a terminal
+wrapper and the manager replaces on the next poll. Every injected throwable carries a unique id,
+`soak <kind> <episode>.<seam>.<ordinal>`, which gate 11 matches to the one manager WARNING that
+reports it.
+
+- **`wrapper-close`**: the close alone; the replacement must open at once, with no backoff.
+- **`hook-throw`** / **`hook-error`**: the consumer refuses the next `count` candidates it is
+  offered, with an `IllegalStateException` or a `StackOverflowError`. The vault-stat-service
+  scenario: a cache's subscribe failing on a replacement wrapper.
+- **`create-throw`** / **`create-error`**: the wrapping builder's `connectTimeout(Duration)`, which
+  sava's `create()` calls before it constructs anything, throws for the next `count` calls: no
+  wrapper and no thread ever exist, the real shape of a creation that threw (a wrapper that could not
+  start its thread).
+- **`connect-error`**: the wrapping builder's `buildAsync` throws an `Error` for the next `count`
+  calls, from inside sava's `connect()`, which leaves the wrapper's own attempt unsettled: the
+  condition the manager replaces the wrapper for rather than retrying it.
+
+The websocket backoff is `Backoff.linear(MILLISECONDS, 500, 10_000)`: delay(n) is 500 n ms up to
+the 10 s cap at n = 20, so an episode of `count` consecutive faults waits 250 c (c + 1) ms before its
+last retry is due (3 s for 3, 115.5 s for 21, which reaches the cap). `every=180,count=21` is the
+cap run; `count=2` and `count=3` show the escalation's start and its reset by the next open.
+
+```sh
+SOAK_WS_FAULT='hook-throw:every=120,count=3' ./soak.sh smoke
+SOAK_WS_FAULT='create-error:every=180,count=21' ./soak.sh hour
+```
+
+Each episode is a `ravina.soak.WebSocketFault` event, each step of a wrapper's life as the harness
+sees it a `ravina.soak.WebSocketWrapper` event (offered, refused, accepted, open, first slot
+notification, closed by the harness, leaked, and one summary before the teardown), and each manager
+WARNING a `ravina.soak.ManagerLog` event. The gauge gains `webSocketThreads` (threads inside sava's
+wrapper, one check loop per live wrapper) and `webSocketNotifyAgeMs`, and reads the websocket state
+passively from the harness's own record of the accepted wrapper, never through an accessor that
+would drive the recovery it is meant to observe.
 
 ## Measurement: a late signature subscription is still notified
 
@@ -912,6 +999,84 @@ had none of either. A swallowed transaction still recovers only by expiry (`proc
 inside a window p50 91.6 s, max 98.6 s), by the proxy's design; send to result for a real send
 was unchanged (297 ms). The 58 courteous sleeps (8.8 s in total, max 720 ms) are the block-hash
 reads of rebuilds waiting out the overdraft the resend bursts had left.
+
+**Websocket faults, 2026-10-03 (ravina at 03a83f1 plus the manager change this harness was
+written for: a failed creation, a refused candidate and an `Error` out of `connect()` back off
+and rebuild instead of closing the manager; Agave 4.2.2, 2 tx/s, websocket on, one peer).** Six
+4-minute smokes, one per fault kind, each `every=60`: `hook-throw:count=2`
+(`smoke-20261002T235416Z`), `hook-error:count=3` (`smoke-20261002T235930Z`), `create-throw:count=2`
+(`smoke-20261003T000343Z`), `create-error:count=2` (`smoke-20261003T000759Z`),
+`connect-error:count=2` (`smoke-20261003T001214Z`) and `wrapper-close` (`smoke-20261003T001629Z`).
+All eleven gates passed on every run, two episodes each: 480 of 480 settled on each, 0 thrown, 0
+pending, and the manager never closed, with one wrapper thread at every summary. What each
+recorded:
+
+- The claims escalate 1..`count` in every episode and reset to 1 at the next (the backoff was asked
+  for 500 ms then 1 s for `count=2`, then 1.5 s for 3), no creation started before its deadline, and
+  every replacement opened within its last delay plus 5 s. The `hook-*` kinds offered 7
+  candidates for 4 refusals (9 for 6), `connect-error` 7 for 4 connects that threw, the `create-*`
+  kinds offered 3 and had 4 creations refused at the builder, and `wrapper-close` offered 3 with no
+  backoff at all; none leaked. Every injected fault id appears in exactly one manager WARNING.
+- The creation that follows the harness's close is the workload's: its websocket await reaches the
+  accessor before the 3 s poll does (the offer's stack in the recording), and every retry after a
+  fault is the scheduled wake's (`hook-throw` and `connect-error`: 4 offers by the wake, 2 by
+  another caller; `hook-error`: 5 and 3; the `create-*` kinds: 2 by the wake, since the creation
+  that faults, a caller's, is refused at the builder and offers nothing); `wrapper-close` is
+  replaced on the next access with no claim at all.
+- The transactions submitted inside an episode's recovery settled by polling: 7 to 14 of 480
+  (1.5-2.9%) on the `POLL` route, one of them a websocket await that timed out first
+  (`TIMEOUT_THEN_POLL`), at p50 2.0-2.1 s against 285-313 ms for the run as a whole. `wrapper-close`
+  settled 480 of 480 by notification, since its replacement opens within a poll.
+- The `hook-error` recording first failed gate 7 on an artifact of the gate, not of the manager:
+  `RecordingFile` returns events in per-thread flush order, and the episode's claims read
+  `[2, 1, 3]`. `WebSocketGates` sorts every list by start time now, and the recording re-evaluated
+  with the corrected gate passes (`ws-gates.regated.txt` beside the original); it was not rerun.
+- Gate 7's deadline check saw offers alone until 2026-10-04 (found by review): a creation the
+  builder refused offers nothing, so a manager that retried a failed creation at once passed it.
+  With refused creations counted, each of the nine 2026-10-03 recordings re-evaluated gives the
+  verdict it recorded on every gate (the `hook-error` smoke its re-gated ones), the `create-*`
+  smokes and the `create-error` hour run with their 4 and 399 refused creations now inside the
+  check, and the control still failing; the details differ only where the gates were relabelled
+  with the fix (gate 7 counts offers, by the wake or by another caller; gate 11's failure text
+  names what threw once). `WebSocketGatesTests` pins the check on episodes built with explicit
+  instants, and `soak.sh` runs those tests before every run. The one path the same review moved
+  the close of (a wrapper whose `connect()` threw an `Error` is now closed as its claim's
+  release, after the policy's failure reading, so the `Backoff` anchor trails that reading by
+  the close) was rerun rather than re-gated: `connect-error:every=60,count=2` for 600 s
+  (`smoke-20261004T140634Z`, 2026-10-04): all eleven gates pass, 8 episodes, 16 connects that
+  threw and each reported once, 25 candidates offered (16 by the wake, 8 by another caller),
+  1,200 of 1,200 settled, 0 thrown, and no creation inside any claim's deadline.
+
+**Two hours at the backoff's cap, 2026-10-03 (`hour-ws-20261003-hook-throw` and
+`hour-ws-20261003-create-error`, `every=180,count=21`, run side by side against one validator
+started by hand, 3,600 s at 2 tx/s each).** All eleven gates passed on both: 7,200 of 7,200
+settled, 0 thrown, 0 pending, 19 episodes each (the twentieth, due at the end of submission, fell
+inside the worst case plus a minute of it and is recorded `SKIPPED_END`, not armed), 399 faults
+injected and each reported once,
+399 claims escalating 1 to 21 in every episode (500 ms to the 10 s cap, 115.5 s per episode) and
+reset by the next open, the manager never closed, no gauge row above 2 wrapper threads and 1 at
+the summary, nothing leaked. `hook-throw` offered 419 candidates for 399 refusals, the retries
+all by the scheduled wake (395) but for the 23 the poll reached first at the cap, where the 10 s
+delay outlasts the 3 s poll; `create-error` offered 20, the 399 creations refused at the builder
+and the 19 replacements built by the wake. Each run spent about 64% of its hour inside an
+episode's recovery, so 4,389 of 7,200 (61%) settled by polling at p50 1.83 s and 4 to 6 websocket
+awaits timed out first (p50 6.3 s, max 7.8 s), against 2,805-2,807 by notification at p50 293-299
+ms, max 601 ms: the price of a 115 s recovery is paid by the polling monitor, not by the manager
+(`threw=0`). Heap after the last collection went from 4.8 MiB to 12.6-13.6 MiB over the hour,
+beside the 12.0 MiB the hour run without faults ended at and the 13.3-13.6 MiB of the ten-minute
+runs, with pending at 0 to 6 throughout.
+
+**Negative control, 2026-10-03 (`control-ws-20261003-hook-throw`, `hook-throw:every=60,count=2`,
+10 minutes).** The same harness against the manager before the change (the 25.6.5
+`WebSocketManagerImpl`, with the new interface's `closed()` appended for the build; a scratch
+build, never committed) fails gates 6, 7, 8, 9 and 11. The first refused candidate closed the
+manager: the consumer's exception came back out of `webSocket()` into the commitment monitor's
+await (`Transaction 121 threw`, the one `UNSETTLED` of 1,200 and the client's exit 1), the gauge
+read the manager `CLOSED` on 53 rows and the summary `closed=true`, the one episode made no claim
+and no creation after the fault, 2 candidates were offered where 4 were expected, the second
+fault was never injected because no candidate was offered to refuse, and 1,079 of 1,200
+transactions settled by polling (send to result p50 1,650 ms against 285-313 ms above). That is
+the production incident the change is for, with its cost measured.
 
 ### The 60-second shakeout, 2026-09-26
 

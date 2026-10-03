@@ -31,6 +31,7 @@ final class Gauge implements AutoCloseable {
   private final SignatureLedger ledger;
   private final List<CapacityState> rpcCapacities;
   private final RecordingWebSocketManager webSocketManager;
+  private final WebSocketFaults webSocketFaults;
   private final BufferedWriter csv;
   private final ScheduledExecutorService scheduler;
   private final Runnable periodicEvent;
@@ -40,13 +41,15 @@ final class Gauge implements AutoCloseable {
         final SignatureLedger ledger,
         final List<CapacityState> rpcCapacities,
         final RecordingWebSocketManager webSocketManager,
+        final WebSocketFaults webSocketFaults,
         final Path csvPath) throws IOException {
     this.counters = counters;
     this.ledger = ledger;
     this.rpcCapacities = List.copyOf(rpcCapacities);
     this.webSocketManager = webSocketManager;
+    this.webSocketFaults = webSocketFaults;
     this.csv = Files.newBufferedWriter(csvPath, StandardCharsets.UTF_8);
-    this.csv.write("epochMillis,submitted,settled,pending,dropped,inFlightRpc,rpcCapacity,rpcCapacityMin,webSocket,liveSubscriptions,notified,timedOut,ledgerSize,heapAfterLastGc,heapUsed,liveThreads\n");
+    this.csv.write("epochMillis,submitted,settled,pending,dropped,inFlightRpc,rpcCapacity,rpcCapacityMin,webSocket,liveSubscriptions,notified,timedOut,ledgerSize,heapAfterLastGc,heapUsed,liveThreads,webSocketThreads,webSocketNotifyAgeMs\n");
     this.csv.flush();
     this.heapPools = ManagementFactory.getMemoryPoolMXBeans().stream()
         .filter(pool -> pool.getType() == MemoryType.HEAP && pool.isCollectionUsageThresholdSupported())
@@ -75,7 +78,9 @@ final class Gauge implements AutoCloseable {
                         int ledgerSize,
                         long heapAfterLastGc,
                         long heapUsed,
-                        int liveThreads) {
+                        int liveThreads,
+                        int webSocketThreads,
+                        long webSocketNotifyAgeMillis) {
   }
 
   private Sample sample() {
@@ -89,8 +94,11 @@ final class Gauge implements AutoCloseable {
     final var heap = ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
     String webSocket;
     try {
-      webSocket = webSocketManager == null ? "DISABLED" : webSocketManager.state();
-    } catch (final RuntimeException failure) {
+      // The fault harness reads passively; the recording manager's accessor can drive a recovery
+      // the harness is meant to observe, so it is the reading only when no faults are configured.
+      webSocket = webSocketFaults != null ? webSocketFaults.state()
+          : webSocketManager == null ? "DISABLED" : webSocketManager.state();
+    } catch (final Throwable failure) {
       webSocket = "ERROR";
     }
     int capacityMin = Integer.MAX_VALUE;
@@ -112,7 +120,9 @@ final class Gauge implements AutoCloseable {
         ledger.size(),
         afterGc,
         heap.getUsed(),
-        ManagementFactory.getThreadMXBean().getThreadCount()
+        ManagementFactory.getThreadMXBean().getThreadCount(),
+        WebSocketFaults.wrapperThreads(),
+        webSocketFaults == null ? -1 : webSocketFaults.lastNotifyAgeMillis()
     );
   }
 
@@ -130,6 +140,8 @@ final class Gauge implements AutoCloseable {
     event.heapAfterLastGc = sample.heapAfterLastGc;
     event.heapUsed = sample.heapUsed;
     event.liveThreads = sample.liveThreads;
+    event.webSocketThreads = sample.webSocketThreads;
+    event.webSocketNotifyAgeMillis = sample.webSocketNotifyAgeMillis;
     event.notifiedTotal = sample.notified;
     event.timedOutTotal = sample.timedOut;
     event.commit();
@@ -148,7 +160,8 @@ final class Gauge implements AutoCloseable {
           Long.toString(s.dropped), Long.toString(s.inFlightRpc), Integer.toString(s.rpcCapacity),
           Integer.toString(s.rpcCapacityMin), s.webSocket, Long.toString(s.liveSubscriptions), Long.toString(s.notified),
           Long.toString(s.timedOut), Integer.toString(s.ledgerSize),
-          Long.toString(s.heapAfterLastGc), Long.toString(s.heapUsed), Integer.toString(s.liveThreads)
+          Long.toString(s.heapAfterLastGc), Long.toString(s.heapUsed), Integer.toString(s.liveThreads),
+          Integer.toString(s.webSocketThreads), Long.toString(s.webSocketNotifyAgeMillis)
       ));
       csv.write('\n');
       csv.flush();

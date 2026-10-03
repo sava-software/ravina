@@ -220,6 +220,80 @@ public final class SoakEvents {
 
     @Label("Timed Out")
     public long timedOutTotal;
+
+    /// Threads inside sava's websocket wrapper (one check loop per live wrapper).
+    @Label("WebSocket Threads")
+    public int webSocketThreads;
+
+    /// Milliseconds since the managed wrapper's last slot notification, -1 with no wrapper or
+    /// no fault harness; only a websocket-fault run subscribes to slots.
+    @Label("WebSocket Notify Age ms")
+    public long webSocketNotifyAgeMillis;
+  }
+
+  /// One websocket fault episode, or the reason one was skipped, from the in-process schedule.
+  @Name("ravina.soak.WebSocketFault")
+  @Label("Soak WebSocket Fault")
+  @Category({"ravina", "soak"})
+  @StackTrace(false)
+  public static final class WebSocketFault extends Event {
+
+    /// WRAPPER_CLOSE, HOOK_THROW, HOOK_ERROR, CREATE_THROW, CREATE_ERROR, CONNECT_ERROR.
+    @Label("Kind")
+    public String kind;
+
+    /// ARMED, SKIPPED_END, SKIPPED_NO_WRAPPER, EPISODE_THREW.
+    @Label("Action")
+    public String action;
+
+    /// The episode's number from 1; 0 for a skipped one.
+    @Label("Episode")
+    public int episode;
+
+    /// How many consecutive creations the episode faults.
+    @Label("Count")
+    public int count;
+  }
+
+  /// One step in a wrapper's life as the fault harness sees it from its seams: OFFERED,
+  /// REFUSED, ACCEPTED, OPEN, NOTIFIED (first slot notification), CLOSED_BY_HARNESS,
+  /// CREATE_REFUSED, CONNECT_REFUSED, LEAKED, POLL_THREW, SUMMARY.
+  @Name("ravina.soak.WebSocketWrapper")
+  @Label("Soak WebSocket Wrapper")
+  @Category({"ravina", "soak"})
+  @StackTrace(true)
+  public static final class WebSocketWrapper extends Event {
+
+    @Label("Action")
+    public String action;
+
+    /// The wrapper's ordinal among those offered to the consumer, or the creation or connect
+    /// ordinal for CREATE_REFUSED and CONNECT_REFUSED; 0 when none applies.
+    @Label("Ordinal")
+    public int ordinal;
+
+    /// The injected fault's unique id for a refusal; free text otherwise.
+    @Label("Detail")
+    public String detail;
+  }
+
+  /// A WARNING or worse the websocket manager logged, taken from its logger: the one place a
+  /// handled failure and its throwable go, so the gates match each injected fault to it.
+  @Name("ravina.soak.ManagerLog")
+  @Label("Soak Manager Log")
+  @Category({"ravina", "soak"})
+  @StackTrace(false)
+  public static final class ManagerLog extends Event {
+
+    @Label("Level")
+    public String level;
+
+    @Label("Message")
+    public String message;
+
+    /// The record's throwable as `class: message`, or empty.
+    @Label("Thrown")
+    public String thrown;
   }
 
   /// One fault window of a fault proxy: begun when the window opens, committed when it closes,

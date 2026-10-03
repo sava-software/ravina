@@ -70,6 +70,12 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
                               CompletableFuture<?> attempt) {
   }
 
+  /// What connect()'s Error arm got from its one locked step: the claim, if it won, and whether
+  /// the wrapper was still the manager's to take, which a won claim always was (a claim is won
+  /// only on the managed wrapper); `condemned` answers for a lost claim.
+  private record Condemnation(FailureClaim claim, boolean condemned) {
+  }
+
   private record Resources(CompletableFuture<Void> retry,
                            CompletableFuture<?> attempt,
                            SolanaRpcWebsocket webSocket,
@@ -242,45 +248,109 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
   }
 
   private SolanaRpcWebsocket createAndConnect() {
-    SolanaRpcWebsocket candidate = null;
+    final SolanaRpcWebsocket candidate;
     try {
-      candidate = Objects.requireNonNull(builderLocked(builderPrototype::create));
-      final var created = candidate;
-      final boolean registered = locked(() -> {
-        if (state != State.CREATING || webSocket != null || creatingWebSocket != null) {
-          return false;
-        }
-        creatingWebSocket = created;
-        return true;
-      });
-      if (!registered) {
-        candidate.close();
-        return null;
-      }
-      if (onNewWebSocket != null) {
-        onNewWebSocket.accept(candidate);
-      }
-      final boolean published = locked(() -> {
-        if (state != State.CREATING
-            || webSocket != null
-            || creatingWebSocket != created) {
-          return false;
-        }
-        creatingWebSocket = null;
-        webSocket = created;
-        state = State.CONNECTING;
-        return true;
-      });
-      if (!published) {
-        // Once registered, the candidate belongs to manager.close(); publication can lose only
-        // to that terminal transition, which has already captured and closed it.
-        return null;
-      }
-      connect(candidate);
-      return webSocket == candidate ? candidate : null;
+      candidate = Objects.requireNonNull(builderLocked(builderPrototype::create), "the builder created no websocket");
     } catch (final RuntimeException | Error failure) {
-      close();
-      throw failure;
+      // Nothing to release: sava's builder starts the wrapper's thread as its constructor's last
+      // act, so a creation that threw left no thread and no wrapper behind.
+      creationFailed(null, failure);
+      return null;
+    }
+    final boolean registered = locked(() -> {
+      if (state != State.CREATING || webSocket != null || creatingWebSocket != null) {
+        return false;
+      }
+      creatingWebSocket = candidate;
+      return true;
+    });
+    if (!registered) {
+      closeQuietly(candidate);
+      return null;
+    }
+    if (onNewWebSocket != null) {
+      try {
+        onNewWebSocket.accept(candidate);
+      } catch (final RuntimeException | Error failure) {
+        creationFailed(candidate, failure);
+        return null;
+      }
+    }
+    final boolean published = locked(() -> {
+      if (state != State.CREATING
+          || webSocket != null
+          || creatingWebSocket != candidate) {
+        return false;
+      }
+      creatingWebSocket = null;
+      webSocket = candidate;
+      state = State.CONNECTING;
+      return true;
+    });
+    if (!published) {
+      // Once registered, the candidate belongs to manager.close() until a creation claim takes
+      // it; publication can lose only to that terminal transition, which has already captured
+      // and closed it.
+      return null;
+    }
+    connect(candidate);
+    return webSocket == candidate ? candidate : null;
+  }
+
+  /// A creation that threw, in the builder or in the `onNewWebSocket` consumer, is a failed
+  /// attempt, not the manager's end: the same claim and policy a failed connection gets, with a
+  /// fresh candidate built when the retry is due. The claim takes the candidate from `close()`'s
+  /// ownership (a `close()` that won has already captured and closed it, so a lost claim closes
+  /// nothing), the candidate is released off-lock by the policy, after its failure reading and
+  /// before the backoff or any wake, so none can meet it,
+  /// and a release that throws is logged and cannot skip the policy, which would leave the claim
+  /// pending and every later poll refused. Before the 2026-10-02 change a throw here closed the
+  /// manager for good and was rethrown; the consumers all poll `checkConnection()` in a bare loop,
+  /// so the failure is reported here, where it is handled, and nowhere else.
+  private void creationFailed(final SolanaRpcWebsocket candidate, final Throwable failure) {
+    final FailureClaim claim = locked(() -> {
+      // The state alone decides ownership: a registered candidate is creatingWebSocket until
+      // close() captures it, and close() clears it in the same locked step that leaves CREATING.
+      if (state != State.CREATING) {
+        return null;
+      }
+      creatingWebSocket = null;
+      state = State.BACKING_OFF;
+      retryPolicyPending = true;
+      return new FailureClaim(++errorCount, ++retrySequence, null);
+    });
+    long delay = -1;
+    try {
+      if (claim != null) {
+        delay = applyRetryPolicy(claim, () -> {
+          if (candidate != null) {
+            closeQuietly(candidate);
+          }
+        });
+      }
+    } finally {
+      // Written whatever the policy did: a Backoff or clock that throws closes the manager and
+      // rethrows, and this line is still the one place the creation failure goes.
+      logger.log(WARNING, "Websocket creation failed" + disposition(delay), failure);
+    }
+  }
+
+  /// The one line a handled failure gets, after what was handled: the retry installed for it, or
+  /// why none was.
+  private String disposition(final long delay) {
+    if (delay >= 0) {
+      return ". Re-connecting in " + delay + " milliseconds.";
+    }
+    return state == State.CLOSED ? "; the manager is closed." : "; a reconnect was already pending.";
+  }
+
+  /// Releases a wrapper the manager has given up on. Off-lock, and never lets a throw out: the
+  /// claim that condemned the wrapper still owes its retry policy.
+  private static void closeQuietly(final SolanaRpcWebsocket webSocket) {
+    try {
+      webSocket.close();
+    } catch (final RuntimeException | Error failure) {
+      logger.log(WARNING, "Closing a websocket the manager gave up on failed; it is replaced regardless.", failure);
     }
   }
 
@@ -292,15 +362,46 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
       connectionAttemptFailed(current, null, failure);
       return;
     } catch (final Error failure) {
-      // The create path guards this same call through createAndConnect's Error arm. The retry
-      // path does not: it commits CONNECTING and consumes the retry token under the lock before
-      // driving connect() off-lock, so an unguarded Error would leave a websocket that is
-      // neither closed() nor retried — no callback, no timer and no later accessor can leave
-      // CONNECTING. Terminal rather than backed off, because the wrapper's own attempt is left
-      // unsettled and its single-flight guard then hands every later connect() a future that
-      // never completes.
-      close();
-      throw failure;
+      // Both paths commit CONNECTING before driving connect() off-lock, so an unguarded Error
+      // would leave a websocket that is neither closed() nor retried: no callback, no timer and
+      // no later accessor can leave CONNECTING. The wrapper is condemned rather than retried,
+      // because its own attempt is left unsettled and its single-flight guard then hands every
+      // later connect() a future that never completes. One locked step claims and takes: a won
+      // claim found the wrapper managed (the claim's first test), so the step takes it too, and
+      // no poll is handed it and no close() captures it after this. The policy then closes it
+      // as the claim's release, after the failure's clock reading, so a slow close does not
+      // extend the deadline (as a refused candidate's does not), and before the backoff or any
+      // wake, so no wake can meet it; the release also cancels the claim's attempt (a wake that
+      // re-drove connect() on this wrapper while the throwing call was still inside it can have
+      // installed a copy of that unsettled attempt). A claim lost to a callback that claimed
+      // first still finds the wrapper managed and takes it, and condemns it all the same, under
+      // that claim's retry: retained, it would be reconnected into the attempt that never
+      // completes; the arm has no claim to release it under, so it closes the wrapper here, on
+      // its own thread, off the callback's policy. A claim lost to close() finds the wrapper
+      // captured there (close() nulls it in its own locked step) and leaves it closed once.
+      final Condemnation condemnation = locked(() -> {
+        final var claimed = claimAttemptFailure(current, null);
+        if (webSocket != current) {
+          return new Condemnation(claimed, false);
+        }
+        webSocket = null;
+        return new Condemnation(claimed, true);
+      });
+      final var claim = condemnation.claim();
+      long delay = -1;
+      try {
+        if (claim != null) {
+          delay = applyRetryPolicy(claim, () -> {
+            closeQuietly(current);
+            cancel(claim.attempt());
+          });
+        } else if (condemnation.condemned()) {
+          closeQuietly(current);
+        }
+      } finally {
+        logger.log(WARNING, "Websocket connect failed; the wrapper is closed" + disposition(delay), failure);
+      }
+      return;
     }
     if (attempt == null) {
       final long delay = beginFailure(current, null);
@@ -370,28 +471,44 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
 
   private long beginFailure(final SolanaRpcWebsocket current,
                             final CompletableFuture<?> expectedAttempt) {
-    final FailureClaim claim = locked(() -> {
-      if (webSocket != current
-          || (state != State.CONNECTING && state != State.OPEN)
-          || (expectedAttempt != null && connectFuture != expectedAttempt)) {
-        return null;
-      }
-      final var attempt = connectFuture;
-      connectFuture = null;
-      state = State.BACKING_OFF;
-      retryPolicyPending = true;
-      return new FailureClaim(++errorCount, ++retrySequence, attempt);
-    });
-    if (claim == null) {
-      return -1;
-    }
-    cancel(claim.attempt());
+    final FailureClaim claim = locked(() -> claimAttemptFailure(current, expectedAttempt));
+    return claim == null ? -1 : applyRetryPolicy(claim, () -> cancel(claim.attempt()));
+  }
 
+  /// The locked half of a connection failure's claim: [#lock] held by the caller.
+  private FailureClaim claimAttemptFailure(final SolanaRpcWebsocket current,
+                                           final CompletableFuture<?> expectedAttempt) {
+    if (webSocket != current
+        || (state != State.CONNECTING && state != State.OPEN)
+        || (expectedAttempt != null && connectFuture != expectedAttempt)) {
+      return null;
+    }
+    final var attempt = connectFuture;
+    connectFuture = null;
+    state = State.BACKING_OFF;
+    retryPolicyPending = true;
+    return new FailureClaim(++errorCount, ++retrySequence, attempt);
+  }
+
+  /// The policy half of any failure claim: the failure's clock reading, then `release`, what the
+  /// claim gives up (an attempt cancelled, a condemned wrapper closed; it must not throw), then
+  /// the delay from the backoff, the deadline measured from that reading so that neither the
+  /// release nor the policy work extends it, the two-phase install, and the scheduled wake.
+  /// Answers the scheduled delay, or -1 when the claim was invalidated by a terminal close or a
+  /// collaborator failure, which closes the manager (a RuntimeException is logged here, an Error
+  /// rethrown) after the release has run.
+  private long applyRetryPolicy(final FailureClaim claim, final Runnable release) {
     final long retryDelay;
     final long failureStartedAtNanos;
     final long schedulingStartedAtNanos;
     try {
-      failureStartedAtNanos = clock.nanoTime();
+      try {
+        failureStartedAtNanos = clock.nanoTime();
+      } finally {
+        // The release runs whatever the clock did: a claim has taken what it releases out of
+        // close()'s reach, so a clock that throws here would otherwise leak it.
+        release.run();
+      }
       if (!retryPolicyPending()) {
         return -1;
       }
@@ -438,8 +555,10 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
     final var retry = new CompletableFuture<Void>();
     try {
       retryScheduler.schedule(delayMillis, retry);
-    } catch (final RuntimeException failure) {
-      logger.log(WARNING, "Unable to schedule the websocket reconnect.", failure);
+    } catch (final RuntimeException | Error failure) {
+      // The deadline is installed, so a caller's poll drives the retry; the scheduler's thread
+      // may be what an Error here was short of.
+      logger.log(WARNING, "Unable to schedule the websocket reconnect; a poll drives it.", failure);
       return;
     }
     final boolean installed = locked(() -> {
@@ -459,11 +578,15 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
           } catch (final RuntimeException | Error wakeFailure) {
             // This stage is discarded, and CompletableFuture records an action's throwable on
             // it rather than rethrowing, so a wake that fails has no caller and no uncaught
-            // handler to reach. A terminal failure here stops reconnecting for good; report it
-            // or the manager dies in silence. The rethrow only completes the discarded stage,
-            // exactly as before, and keeps the semantics intact for a future retaining caller.
-            logger.log(WARNING,
-                "Scheduled websocket reconnect failed; no further reconnect is scheduled.",
+            // handler to reach. Only a collaborator can fail a wake now (a failed creation or
+            // connection is handled and logged where it happens): the Backoff or the clock,
+            // which closed the manager, or the clock at the wake's own read, after which the
+            // consumed token is not replaced and only a poll reconnects. Report it or the
+            // manager dies in silence. The rethrow only completes the discarded stage, exactly
+            // as before, and keeps the semantics intact for a future retaining caller.
+            logger.log(WARNING, state == State.CLOSED
+                    ? "Scheduled websocket reconnect failed; the manager is closed."
+                    : "Scheduled websocket reconnect failed; no further reconnect is scheduled until checkConnection() is called.",
                 wakeFailure);
             throw wakeFailure;
           }
@@ -564,6 +687,11 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
   @Override
   public SolanaRpcWebsocket webSocket() {
     return ensureWebSocket();
+  }
+
+  @Override
+  public boolean closed() {
+    return state == State.CLOSED;
   }
 
   @Override
