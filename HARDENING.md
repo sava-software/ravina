@@ -7,7 +7,7 @@ pointed at:
 
 | For | Read |
 |---|---|
-| The process contract, record formats, and the incidents behind the rules | sava-build's `HARDENING.md` and `HARDENING_CASEBOOK.md`, at the plugin version pinned in `settings.gradle.kts` |
+| The process contract, record formats, and the incidents behind the rules | sava-build's `HARDENING.md` and `HARDENING_CASEBOOK.md`, at the pinned plugin version, or the explicitly identified source revision during local candidate adoption |
 | Installed tasks and `-P` flags | `./gradlew :<project>:hardeningHelp` |
 | Operator rules: new mutants, baselines, timeouts, fuzz findings | the generated template in `AGENTS.md` |
 | Suites and targets, certification, fuzz-campaign policy, committed provenance | `AGENTS.md`, "Local ownership and measurements" |
@@ -25,6 +25,16 @@ Date every measurement and write it in the past tense, because a dated record
 stays true and a present-tense one rots. Timings from today's machine belong in
 the untracked `AGENTS.local.md`. A fixed bug goes into "Bugs the effort has
 found" in the change that fixes it.
+
+**Acceptance arguments stay current in place.** Each module's
+`config/pitest/README.md` names the live family members, their reason, the
+independent oracle and the condition that invalidates the acceptance, plus
+each audited timeout's cause. Update the argument when its code or members
+change; keep run receipts, pass reports and totals that the build can print
+outside those READMEs. Preserve measurements the build cannot reconstruct
+(such as mutator trials and fixture bounds), together with their provenance.
+The scaffold's per-suite layout is illustrative; existing tables and shared
+explanations need no formatting migration.
 
 ## Targeting: wildcard with exclusions
 

@@ -25,11 +25,6 @@ line-drift advisory (re-read the argument here, then refresh the tag with
 See `../../../ravina-core/config/pitest/README.md` for the measured note on
 timeout-detected mutants differing between single-suite and multi-suite runs.
 
-## Status
-
-No untriaged debt: all four accepted rows — three families — have a reason
-below.
-
 ## Committed toolchain provenance
 
 Beside the baseline this suite commits a provenance pair:

@@ -22,9 +22,12 @@ A new unkilled mutant has exactly three legal outcomes:
    elapsed nanos, selection order after errors) over restating the
    implementation.
 2. **Refactor** — restructure so the mutant cannot exist.
-3. **Accept it knowingly** — re-run with `pitest<Suite>BaselineUpdate` and
-   record the reason below. Acceptance is for mutants that are *equivalent
-   with respect to observable behavior*, not for "hard to test".
+3. **Accept it knowingly** — add reviewed rows with
+   `pitest<Suite>BaselineUnion` and update their arguments below in place.
+   Reserve `pitest<Suite>BaselineUpdate` for a first seed or a reviewed complete
+   rewrite. Name the property, independent oracle and condition that invalidates
+   each acceptance; a harness limit must name the missing capability, never
+   merely "hard to test".
 
 Baseline keys are line-less (`class,method,mutator,STATUS`); lines ride as
 `# line` tags that are review metadata only, so edits above a mutated method
