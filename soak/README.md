@@ -287,7 +287,10 @@ Each is written against a broken manager a looser gate would pass:
 10. **`ws-threads`**: no gauge row counted more than two threads inside sava's wrapper, and the
     summary counted at most one: a candidate the manager gave up on took its check loop with it.
 11. **`ws-reporting`**: after every recovery at least one transaction submitted after the open settled
-    by notification before the next episode; the client's `threw` is 0; every injected fault id
+    by notification before the next episode, both instants read from the `Transaction` event, its
+    start and its end (judged by the submission alone, a transaction whose notification arrived
+    inside the next episode's fault certified the recovery before it; found by review, 2026-10-04);
+    the client's `threw` is 0; every injected fault id
     appears in exactly one manager WARNING's throwable; and the websocket backoff claims equal the
     faults injected.
 

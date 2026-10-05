@@ -39,12 +39,19 @@ public final class WebSocketGates {
   private record Log(Instant at, String message, String thrown) {
   }
 
+  /// A transaction settled by websocket notification: submitted at the event's start, settled at
+  /// its end. Both are kept, because a recovery is certified by a transaction submitted after it
+  /// AND settled before the next episode; judged by the submission alone, one settling inside the
+  /// next episode's fault certified the recovery before it (found by review, 2026-10-04).
+  private record Settlement(Instant submittedAt, Instant settledAt) {
+  }
+
   private final List<Fault> faults = new ArrayList<>();
   private final List<Wrapper> wrappers = new ArrayList<>();
   private final List<Claim> claims = new ArrayList<>();
   private final List<Gauge> gauges = new ArrayList<>();
   private final List<Log> logs = new ArrayList<>();
-  private final List<Instant> webSocketSettlements = new ArrayList<>();
+  private final List<Settlement> webSocketSettlements = new ArrayList<>();
   private Instant runStart;
   private Instant runEnd;
   private long threw = -1;
@@ -79,7 +86,7 @@ public final class WebSocketGates {
     claims.sort(Comparator.comparing(Claim::at));
     gauges.sort(Comparator.comparing(Gauge::at));
     logs.sort(Comparator.comparing(Log::at));
-    webSocketSettlements.sort(Comparator.naturalOrder());
+    webSocketSettlements.sort(Comparator.comparing(Settlement::submittedAt));
   }
 
   private void accept(final RecordedEvent event) {
@@ -100,7 +107,7 @@ public final class WebSocketGates {
       case "ravina.soak.ManagerLog" -> log(event.getStartTime(), event.getString("message"), event.getString("thrown"));
       case "ravina.soak.Transaction" -> {
         if ("WEBSOCKET".equals(event.getString("route"))) {
-          settlement(event.getStartTime());
+          settlement(event.getStartTime(), event.getEndTime());
         }
       }
       case "ravina.soak.Run" -> {
@@ -138,8 +145,8 @@ public final class WebSocketGates {
     logs.add(new Log(at, message, thrown));
   }
 
-  void settlement(final Instant at) {
-    webSocketSettlements.add(at);
+  void settlement(final Instant submittedAt, final Instant settledAt) {
+    webSocketSettlements.add(new Settlement(submittedAt, settledAt));
   }
 
   void runStarted(final Instant at) {
@@ -328,7 +335,8 @@ public final class WebSocketGates {
           .findFirst();
       if (open.isPresent()) {
         final var openedAt = open.get().at;
-        final boolean served = webSocketSettlements.stream().anyMatch(at -> at.isAfter(openedAt) && at.isBefore(windowEnd));
+        final boolean served = webSocketSettlements.stream()
+            .anyMatch(s -> s.submittedAt().isAfter(openedAt) && s.settledAt().isBefore(windowEnd));
         if (!served) {
           reportingFailures.add("episode " + fault.episode + ": no transaction submitted after the recovery settled by notification before the next episode");
         }

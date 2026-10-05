@@ -48,7 +48,7 @@ final class WebSocketGatesTests {
   private static void replacement(final WebSocketGates gates, final Instant offeredAt) {
     gates.wrapper(offeredAt, "OFFERED", 2, "", true);
     gates.wrapper(offeredAt.plusMillis(20), "OPEN", 2, "", true);
-    gates.settlement(offeredAt.plusMillis(200));
+    gates.settlement(offeredAt.plusMillis(200), offeredAt.plusMillis(400));
   }
 
   private static void refusedCreation(final WebSocketGates gates, final Instant at, final int creation) {
@@ -69,6 +69,59 @@ final class WebSocketGatesTests {
     assertEquals(5, lines.size(), lines::toString);
     for (final var line : lines.subList(1, lines.size())) {
       assertTrue(line.startsWith("PASS "), line);
+    }
+  }
+
+  /// A recovery is certified by a transaction submitted after it and settled before the next
+  /// episode, both read from the event: judged by the submission alone, one whose notification
+  /// arrived inside the next episode's fault certified the recovery before it (found by review,
+  /// 2026-10-04). Two episodes, the second armed at 5 s; the first recovery's only websocket
+  /// settlement is submitted inside its window and settles 100 ms after the second episode is
+  /// armed, so the first episode fails the reporting gate and the second passes; settled 100 ms
+  /// before that arming instead, the first passes too. The other gates do not move.
+  @Test
+  void aSettlementThatLandsInTheNextEpisodeDoesNotCertifyTheRecoveryBeforeIt() {
+    final var secondArmed = T0.plusSeconds(5);
+    for (final boolean late : new boolean[]{true, false}) {
+      final var gates = new WebSocketGates();
+      gates.runStarted(T0);
+      gates.wrapper(FIRST_OFFER, "OFFERED", 1, "", false);
+      gates.wrapper(FIRST_OFFER.plusMillis(50), "OPEN", 1, "", false);
+      // episode 1: refused at 1.010 s, claimed at 1.012 s, replaced at 1.512 s
+      gates.fault(ARMED, "CREATE_THROW", "ARMED", 1, 1);
+      refusedCreation(gates, REFUSED, 2);
+      gates.claim(CLAIM, 1, 500);
+      reported(gates, CLAIM.plusMillis(1), 2, 500);
+      gates.wrapper(DUE, "OFFERED", 2, "", true);
+      gates.wrapper(DUE.plusMillis(20), "OPEN", 2, "", true);
+      // the one settlement after the first recovery: submitted inside the window, settled either
+      // side of the second episode's arming
+      gates.settlement(DUE.plusMillis(200), late ? secondArmed.plusMillis(100) : secondArmed.minusMillis(100));
+      // episode 2: the same shape 4 s later, its own settlement inside its own window
+      final var secondRefused = secondArmed.plusMillis(10);
+      final var secondClaim = secondArmed.plusMillis(12);
+      final var secondDue = secondArmed.plusMillis(512);
+      gates.fault(secondArmed, "CREATE_THROW", "ARMED", 2, 1);
+      refusedCreation(gates, secondRefused, 3);
+      gates.claim(secondClaim, 1, 500);
+      reported(gates, secondClaim.plusMillis(1), 3, 500);
+      gates.wrapper(secondDue, "OFFERED", 3, "", true);
+      gates.wrapper(secondDue.plusMillis(20), "OPEN", 3, "", true);
+      gates.settlement(secondDue.plusMillis(200), secondDue.plusMillis(400));
+      gates.wrapper(END, "SUMMARY", 3, "offered=3 episodes=2 lastNotifyAgeMs=300 closed=false wsThreads=1", false);
+      gates.runEnded(END, "threw=0");
+
+      final var lines = judged(gates);
+
+      assertEquals(5, lines.size(), lines::toString);
+      assertEquals("PASS ws-episodes 2 episode(s) of CREATE_THROW count=1; offers after a fault: 2 by the scheduled wake, 0 by a caller", lines.getFirst());
+      assertEquals("PASS ws-accounting offered=3 refused=0 createRefused=2 connectRefused=0 leaked=0", lines.get(2));
+      if (late) {
+        assertEquals("FAIL ws-reporting 2 injected fault(s); 2 claim(s); threw=0; "
+            + "episode 1: no transaction submitted after the recovery settled by notification before the next episode", lines.get(4));
+      } else {
+        assertEquals("PASS ws-reporting 2 injected fault(s) each reported once by the manager; 2 claim(s); threw=0", lines.get(4));
+      }
     }
   }
 
