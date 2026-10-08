@@ -16,16 +16,17 @@ import java.util.function.Consumer;
 /// timing but disables its fixed reconnect throttle so [Backoff] is the one reconnect policy.
 ///
 /// No failed creation or connection closes the manager. A wrapper the builder cannot create, one
-/// the `onNewWebSocket` consumer refuses by throwing, and one whose `connect()` fails with an
-/// `Error` are each handled like a failed connection attempt: the manager backs off under its
-/// [Backoff], logs the failure once at WARNING with the throwable and the retry delay when one
-/// was installed, and builds a fresh wrapper when the retry is due, offered to the consumer
-/// again. Nothing is rethrown: every consumer polls [#checkConnection()] in a loop, and a
-/// rethrown transient failure would end the loop the manager was about to recover from. Only
-/// [#close()] is terminal, and so is a [Backoff] or clock that throws inside the retry policy,
-/// which is a programming error (a `RuntimeException` closes the manager with a WARNING and no
-/// throw; an `Error` closes it and is rethrown); [#closed()] reports that state. A constant zero
-/// reconnect delay therefore spins a failing creation as fast as it spins a failing connection:
+/// the `onNewWebSocket` consumer refuses by throwing, and one whose `connect()` fails with
+/// anything but a `RuntimeException` are each handled like a failed connection attempt: the
+/// manager backs off under its [Backoff], logs the failure once at WARNING with the throwable
+/// and the retry delay when one was installed, and builds a fresh wrapper when the retry is due,
+/// offered to the consumer again. Whatever is thrown counts, a checked exception from code that
+/// declares none included. Nothing is rethrown: every consumer polls [#checkConnection()] in a
+/// loop, and a rethrown transient failure would end the loop the manager was about to recover
+/// from. Only [#close()] is terminal, and so is a [Backoff] or clock that throws inside the
+/// retry policy, which is a programming error (an `Error` closes the manager and is rethrown;
+/// anything else closes it with a WARNING and no throw); [#closed()] reports that state. A
+/// constant zero reconnect delay therefore spins a failing creation as fast as it spins a failing connection:
 /// give the manager a positive or an escalating delay.
 ///
 /// Two consequences for a consumer. To fail fast at startup, read the first call's answer: a
@@ -128,9 +129,9 @@ public interface WebSocketManager extends AutoCloseable {
 
   /// Whether this manager is terminal: [#close()] was called, or the manager closed itself
   /// because its [Backoff] or clock threw inside the retry policy. From then on [#webSocket()]
-  /// is null and [#checkConnection()] a no-op, and nothing reconnects. A `RuntimeException` from
-  /// those collaborators closes the manager without any throw, so a consumer that must know polls
-  /// this. Side-effect free, and monotonic: true stays true. A decorator must delegate it.
+  /// is null and [#checkConnection()] a no-op, and nothing reconnects. Anything but an `Error`
+  /// from those collaborators closes the manager without any throw, so a consumer that must know
+  /// polls this. Side-effect free, and monotonic: true stays true. A decorator must delegate it.
   boolean closed();
 
   /// Terminally closes this manager and its current websocket. Idempotent; no later call may

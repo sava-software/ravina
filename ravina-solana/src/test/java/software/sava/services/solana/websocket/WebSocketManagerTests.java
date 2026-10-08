@@ -281,11 +281,8 @@ final class WebSocketManagerTests {
         duringCreate.run();
       }
       final var createFailure = createFailures.pollFirst();
-      if (createFailure instanceof RuntimeException exception) {
-        throw exception;
-      }
-      if (createFailure instanceof Error error) {
-        throw error;
+      if (createFailure != null) {
+        WebSocketManagerTests.<RuntimeException>throwUnchecked(createFailure);
       }
       if (nullCreates > 0) {
         --nullCreates;
@@ -557,7 +554,8 @@ final class WebSocketManagerTests {
     private final long[] delays;
     private final List<Long> errorCounts = new ArrayList<>();
     private Runnable duringDelay;
-    private RuntimeException delayFailure;
+    /// Thrown by `delay` as it is, a checked exception included.
+    private Throwable delayFailure;
     private Error delayError;
 
     private RecordingBackoff(final long... delays) {
@@ -588,7 +586,7 @@ final class WebSocketManagerTests {
         duringDelay.run();
       }
       if (delayFailure != null) {
-        throw delayFailure;
+        WebSocketManagerTests.<RuntimeException>throwUnchecked(delayFailure);
       }
       if (delayError != null) {
         throw delayError;
@@ -604,9 +602,26 @@ final class WebSocketManagerTests {
     assertFalse(manager.lock.isLocked(), "the manager must not hold its lock after returning");
   }
 
+  /// Throws `failure` as it is, declared or not: what a collaborator written in a language
+  /// without checked exceptions does. The cast is erased, so nothing is wrapped.
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> void throwUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
+  }
+
+  /// Every wait on another thread goes through these two, bounded by [#WAIT_SECONDS]: a thread
+  /// handoff here takes microseconds, so a bound that trips means the other thread never arrived,
+  /// which a mutant that leaves the lock held or never detaches a wrapper causes. The bound sits
+  /// inside PIT's watchdog (the test's measured duration x 1.25 plus 4 s, a few milliseconds
+  /// over 4 s for these tests) so that such a mutant fails an assertion and is killed, where a
+  /// wait that outlasts the watchdog is only timed out, which the ratchet counts as a reviewer
+  /// stop, not a kill (two of them on 2026-10-08, at 5 s). An unbounded `join()` is never used
+  /// for the same reason.
+  private static final long WAIT_SECONDS = 2;
+
   private static void await(final CountDownLatch latch) {
     try {
-      assertTrue(latch.await(5, TimeUnit.SECONDS), "the coordinated thread did not reach its rendezvous");
+      assertTrue(latch.await(WAIT_SECONDS, TimeUnit.SECONDS), "the coordinated thread did not reach its rendezvous");
     } catch (final InterruptedException exception) {
       Thread.currentThread().interrupt();
       fail(exception);
@@ -615,7 +630,7 @@ final class WebSocketManagerTests {
 
   private static <T> T await(final CompletableFuture<T> future) {
     try {
-      return future.get(5, TimeUnit.SECONDS);
+      return future.get(WAIT_SECONDS, TimeUnit.SECONDS);
     } catch (final InterruptedException exception) {
       Thread.currentThread().interrupt();
       return fail(exception);
@@ -640,7 +655,7 @@ final class WebSocketManagerTests {
     assertEquals(1, commands.size(), "one delayed completion must be submitted");
     assertFalse(token.isDone());
     commands.getFirst().run();
-    assertNull(token.join());
+    assertNull(await(token));
   }
 
   @Test
@@ -1253,7 +1268,8 @@ final class WebSocketManagerTests {
     private long nanos;
     private Runnable duringNanoTime;
     private boolean failOnNanoTime;
-    private RuntimeException nanoTimeFailure;
+    /// Thrown by `nanoTime` as it is, a checked exception included.
+    private Throwable nanoTimeFailure;
 
     private TestClock(final long originMillis) {
       this.nanos = originMillis * 1_000_000L;
@@ -1265,7 +1281,7 @@ final class WebSocketManagerTests {
         throw new AssertionError("a terminal manager must not consult its retry clock");
       }
       if (nanoTimeFailure != null) {
-        throw nanoTimeFailure;
+        WebSocketManagerTests.<RuntimeException>throwUnchecked(nanoTimeFailure);
       }
       final var duringNanoTime = this.duringNanoTime;
       this.duringNanoTime = null;
@@ -1460,7 +1476,7 @@ final class WebSocketManagerTests {
       } finally {
         releaseScheduler.countDown();
       }
-      failure.join();
+      await(failure);
     }
 
     assertTrue(lateRetry.get().isCancelled(), "a retry token returned after close must be rejected");
@@ -1526,17 +1542,17 @@ final class WebSocketManagerTests {
         final var failureB = CompletableFuture.runAsync(
             () -> attemptB.completeExceptionally(new IOException("attempt B failed"))
         );
-        CompletableFuture.anyOf(schedulerBEntered, failureB).join();
+        await(CompletableFuture.anyOf(schedulerBEntered, failureB));
         assertTrue(schedulerBEntered.isDone(), "attempt B must synchronously request its retry generation");
         assertUnlocked(manager);
 
         releaseSchedulerA.countDown();
-        failureA.join();
+        await(failureA);
         assertTrue(retryA.get().isCancelled(), "A returned after generation B and must be rejected as stale");
         assertFalse(retryB.get().isDone(), "B remains the live retry while its scheduler call is blocked");
 
         releaseSchedulerB.countDown();
-        failureB.join();
+        await(failureB);
         assertFalse(retryB.get().isDone(), "B's token must be installed rather than canceled");
         assertEquals(List.of(1L, 2L), backoff.errorCounts);
 
@@ -1687,7 +1703,7 @@ final class WebSocketManagerTests {
       releaseCreate.countDown();
     }
 
-    final var webSocket = firstAccess.join();
+    final var webSocket = await(firstAccess);
     assertNotNull(webSocket);
     assertSame(builder.only().proxy, webSocket);
     assertEquals(1, builder.only().connectCount);
@@ -1709,7 +1725,7 @@ final class WebSocketManagerTests {
     final var firstAccess = CompletableFuture.supplyAsync(manager::webSocket);
 
     try {
-      CompletableFuture.anyOf(createEntered, firstAccess).join();
+      await(CompletableFuture.anyOf(createEntered, firstAccess));
       assertTrue(createEntered.isDone(), "the first accessor must reach the builder factory");
       assertUnlocked(manager);
       manager.close();
@@ -1717,7 +1733,7 @@ final class WebSocketManagerTests {
       releaseCreate.countDown();
     }
 
-    assertNull(firstAccess.join());
+    assertNull(await(firstAccess));
     assertEquals(1, builder.created.size(), "the already-started factory may still return one candidate");
     assertTrue(handedOut.isEmpty(), "a candidate returned after close must not reach the user hook");
     assertEquals(0, builder.only().connectInvocationCount);
@@ -1745,7 +1761,7 @@ final class WebSocketManagerTests {
     try {
       // Either the hook is entered or the accessor returns. A broken registration/publication
       // guard therefore reaches a finite assertion instead of waiting on a hook it skipped.
-      CompletableFuture.anyOf(hookEntered, firstAccess).join();
+      await(CompletableFuture.anyOf(hookEntered, firstAccess));
       assertTrue(hookEntered.isDone(), "the accepted candidate must reach the new-websocket hook");
       assertEquals(1, builder.created.size(), "the hook receives an already-created candidate");
       assertUnlocked(manager);
@@ -1756,7 +1772,7 @@ final class WebSocketManagerTests {
       releaseHook.countDown();
     }
 
-    assertNull(firstAccess.join());
+    assertNull(await(firstAccess));
     assertEquals(0, builder.only().connectInvocationCount,
         "a candidate rejected after close must never receive a connect call");
     assertEquals(1, builder.only().closeInvocationCount,
@@ -2553,6 +2569,7 @@ final class WebSocketManagerTests {
     final var manager = new WebSocketManagerImpl(new TestBackoff(10, 10), builder, null, new TestClock(3_000));
 
     manager.close();
+    assertUnlocked(manager);
     manager.checkConnection();
 
     assertNull(manager.webSocket());
@@ -2595,11 +2612,8 @@ final class WebSocketManagerTests {
         lockHeldDuringOffer = true;
       }
       final var refusal = refusals.pollFirst();
-      if (refusal instanceof RuntimeException exception) {
-        throw exception;
-      }
-      if (refusal instanceof Error error) {
-        throw error;
+      if (refusal != null) {
+        WebSocketManagerTests.<RuntimeException>throwUnchecked(refusal);
       }
     }
   }
@@ -3330,10 +3344,10 @@ final class WebSocketManagerTests {
         assertEquals(47, delays.get(2), "claim C escalated past A and B");
 
         releaseSchedulerA.countDown();
-        failureA.join();
+        await(failureA);
         assertTrue(tokens.get(0).isCancelled(), "A returned after claims B and C and must be rejected as stale");
         releaseSchedulerC.countDown();
-        failureC.join();
+        await(failureC);
         assertFalse(tokens.get(2).isDone(), "C's token is the one installed");
         assertEquals(List.of(1L, 2L, 3L), backoff.errorCounts);
 
@@ -3458,8 +3472,10 @@ final class WebSocketManagerTests {
     assertFalse(fresh.closed());
     fresh.close();
     assertTrue(fresh.closed(), "close() is terminal");
+    assertUnlocked(fresh);
     fresh.close();
     assertTrue(fresh.closed(), "and monotonic");
+    assertUnlocked(fresh);
   }
 
   /// A `close()` that lands while the refused candidate is being released, after the claim and
@@ -3649,9 +3665,12 @@ final class WebSocketManagerTests {
     assertNotNull(holder[0].webSocket());
   }
 
-  /// The condemned wrapper is taken out of the manager's hands before its policy runs: a poll
-  /// that lands inside the policy of the `Error` arm is handed nothing, not the wrapper whose
-  /// `connect()` threw.
+  /// The condemned wrapper is taken out of the manager's hands in the arm's own locked step,
+  /// before its policy runs: a poll that lands at the policy's first clock reading, before the
+  /// release has closed the wrapper, is handed nothing, not the wrapper whose `connect()` threw.
+  /// Polled any later, the closed wrapper would be detached by the accessor's own terminal-wrapper
+  /// path and hide a step that left it in place; polled here, the poll runs on the thread the arm
+  /// holds the step's result on, and the wrapper is still open.
   @Test
   void aPollDuringTheErrorArmsPolicyIsHandedNothing() {
     final var clock = new TestClock(11_200);
@@ -3659,17 +3678,23 @@ final class WebSocketManagerTests {
     final var backoff = new RecordingBackoff(13);
     final var holder = new WebSocketManagerImpl[1];
     final var handedOut = new ArrayList<Object>();
-    backoff.duringDelay = () -> handedOut.add(holder[0].webSocket());
+    final var openAtThePoll = new ArrayList<Boolean>();
     builder.duringConnect = () -> {
+      clock.duringNanoTime = () -> {
+        openAtThePoll.add(!builder.only().closed);
+        handedOut.add(holder[0].webSocket());
+      };
       throw new StackOverflowError("first connect recursed");
     };
     holder[0] = new WebSocketManagerImpl(backoff, builder, null, clock, new ManualRetryScheduler());
 
     withoutManagerLogging(() -> assertNull(holder[0].webSocket()));
 
-    assertEquals(1, handedOut.size(), "the poll inside the policy ran");
+    assertEquals(1, handedOut.size(), "the poll at the failure's reading ran");
+    assertEquals(List.of(true), openAtThePoll, "before the release closed the wrapper");
     assertNull(handedOut.getFirst(), "and was handed nothing");
-    assertEquals(1, builder.only().closeCount, "the wrapper was already closed");
+    assertEquals(1, builder.only().closeCount, "the wrapper was closed by the release");
+    assertEquals(List.of(1L), backoff.errorCounts, "the poll claimed nothing of its own");
   }
 
   /// A wake that is due at once, from a zero delay through a scheduler that completes its token
@@ -3721,8 +3746,9 @@ final class WebSocketManagerTests {
   }
 
   /// A backoff that throws an `Error` while a failed creation's policy is computed closes the
-  /// manager and rethrows, as for any failure; the creation's own line is still written first,
-  /// so the failure that started it is not lost to the collaborator's.
+  /// manager and rethrows, as for any failure. Both lines are written, the policy's first and
+  /// then the creation's, so neither the failure that started it nor the collaborator's is lost
+  /// to the other, and each says the manager is closed.
   @Test
   void aCreationFailureWhosePolicyThrowsAnErrorIsStillLogged() {
     final var builder = new FakeBuilder();
@@ -3736,7 +3762,9 @@ final class WebSocketManagerTests {
     final List<LogRecord> records = recordedManagerLogs(
         () -> assertSame(policyFailure, assertThrows(StackOverflowError.class, manager::checkConnection)));
 
-    assertWarned(onlyRecord(records), "Websocket creation failed; the manager is closed.", failure);
+    assertEquals(2, records.size(), () -> records.stream().map(LogRecord::getMessage).toList().toString());
+    assertWarned(records.get(0), "Unable to calculate the websocket reconnect policy; manager closed.", policyFailure);
+    assertWarned(records.get(1), "Websocket creation failed; the manager is closed.", failure);
     assertTrue(manager.closed());
   }
 
@@ -3797,5 +3825,244 @@ final class WebSocketManagerTests {
         () -> assertEquals(2, builder.created.size(), "and replaced"),
         () -> assertFalse(manager.closed())
     );
+  }
+
+  /// A consumer written without checked exceptions can throw one `Consumer` does not declare. It
+  /// is the same refused candidate: nothing leaves the call, the candidate is closed once and
+  /// never connected, the record carries the exception itself with the retry delay, the manager
+  /// stays open, and a fresh candidate is offered at the delay. Caught as a `RuntimeException` or
+  /// an `Error` only, the exception left the call and left `CREATING` behind it: no later call
+  /// created anything, and `closed()` stayed false.
+  ///
+  /// The builder, the backoff, the clock and the scheduler are pinned the same way below. The
+  /// wrapper's own `connect()` and `close()` are not: the fake wrapper is a `Proxy`, which hands
+  /// an undeclared checked exception out as an `UndeclaredThrowableException`, a
+  /// `RuntimeException`. Their arms take whatever is not a `RuntimeException`, and the `Error`
+  /// tests above are what runs them.
+  @Test
+  void aCheckedExceptionFromTheConsumerIsARefusedCandidate() {
+    final var clock = new TestClock(12_000);
+    final var builder = new FakeBuilder();
+    final var consumer = new RefusingConsumer();
+    final var refusal = new IOException("subscription could not be written");
+    consumer.refusals.add(refusal);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(13, 13), builder, consumer, clock, new ManualRetryScheduler());
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(manager::checkConnection));
+
+    final var refused = builder.created.getFirst();
+    assertWarned(onlyRecord(records), "Websocket creation failed. Re-connecting in 13 milliseconds.", refusal);
+    assertAll(
+        () -> assertEquals(1, refused.closeInvocationCount, "the refused candidate is closed once"),
+        () -> assertEquals(0, refused.connectInvocationCount, "and never connected"),
+        () -> assertFalse(manager.closed()),
+        () -> assertUnlocked(manager)
+    );
+    clock.advanceMillis(12);
+    assertNull(manager.webSocket(), "before the delay nothing is built");
+    assertEquals(1, builder.created.size());
+    clock.advanceMillis(1);
+    final var replacement = manager.webSocket();
+    assertEquals(2, builder.created.size(), "at the delay a fresh candidate is built");
+    assertSame(builder.created.get(1).proxy, replacement);
+    assertEquals(List.of(refused.proxy, replacement), consumer.offered);
+  }
+
+  /// The same from the builder: a failed creation with nothing to close, retried at its delay.
+  @Test
+  void aCheckedExceptionFromTheBuilderIsAFailedCreation() {
+    final var clock = new TestClock(12_100);
+    final var builder = new FakeBuilder();
+    final var failure = new IOException("builder could not read its configuration");
+    builder.createFailures.add(failure);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(13, 13), builder, null, clock, new ManualRetryScheduler());
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(manager::checkConnection));
+
+    assertWarned(onlyRecord(records), "Websocket creation failed. Re-connecting in 13 milliseconds.", failure);
+    assertAll(
+        () -> assertTrue(builder.created.isEmpty()),
+        () -> assertFalse(manager.builderLock.isLocked(), "the builder lock is released"),
+        () -> assertFalse(manager.closed()),
+        () -> assertUnlocked(manager)
+    );
+    assertNull(manager.webSocket(), "nothing is built before the delay");
+    clock.advanceMillis(13);
+    assertNotNull(manager.webSocket(), "the next due poll builds again");
+    assertEquals(1, builder.created.size());
+  }
+
+  /// A `Backoff` that throws a checked exception inside the retry policy is the programming error
+  /// a `RuntimeException` from it is: the manager closes itself, logs the exception, and throws
+  /// nothing. Caught as a `RuntimeException` or an `Error` only, it left the failure's claim
+  /// pending for good: `closed()` false, and no retry ever due.
+  @Test
+  void aCheckedExceptionFromTheBackoffClosesTheManagerWithoutAThrow() {
+    final var builder = new FakeBuilder();
+    final var backoff = new RecordingBackoff(17);
+    final var policyFailure = new IOException("backoff could not read its schedule");
+    backoff.delayFailure = policyFailure;
+    final var manager = new WebSocketManagerImpl(backoff, builder, null, new TestClock(12_200), new ManualRetryScheduler());
+    manager.webSocket();
+    final var fake = builder.only();
+    fake.fireOpen();
+
+    final var records = recordedManagerLogs(
+        () -> assertDoesNotThrow(() -> fake.fireError(new IOException("transport failed"))));
+
+    assertWarned(onlyRecord(records), "Unable to calculate the websocket reconnect policy; manager closed.", policyFailure);
+    assertAll(
+        () -> assertTrue(manager.closed()),
+        () -> assertEquals(1, fake.closeCount, "the manager's close closed the wrapper"),
+        () -> assertNull(manager.webSocket()),
+        () -> assertUnlocked(manager)
+    );
+  }
+
+  /// The same from the clock at a failure's own reading.
+  @Test
+  void aCheckedExceptionFromTheFailureClockClosesTheManagerWithoutAThrow() {
+    final var clock = new TestClock(12_300);
+    final var builder = new FakeBuilder();
+    final var manager = new WebSocketManagerImpl(new RecordingBackoff(19), builder, null, clock, new ManualRetryScheduler());
+    manager.webSocket();
+    final var fake = builder.only();
+    fake.fireOpen();
+    final var clockFailure = new IOException("clock source unavailable");
+    clock.nanoTimeFailure = clockFailure;
+
+    final var records = recordedManagerLogs(
+        () -> assertDoesNotThrow(() -> fake.fireError(new IOException("transport failed"))));
+
+    assertWarned(onlyRecord(records), "Unable to calculate the websocket reconnect policy; manager closed.", clockFailure);
+    assertAll(
+        () -> assertTrue(manager.closed()),
+        () -> assertEquals(1, fake.closeCount),
+        () -> assertNull(manager.webSocket()),
+        () -> assertUnlocked(manager)
+    );
+  }
+
+  /// A checked exception from the retry scheduler is logged as an `Error` from it is, and leaves
+  /// the deadline installed: a poll at the deadline reconnects.
+  @Test
+  void aCheckedExceptionFromTheSchedulerIsLoggedAndAPollStillReconnects() {
+    final var clock = new TestClock(12_400);
+    final var builder = new FakeBuilder();
+    final var schedulerFailure = new IOException("timer unavailable");
+    final WebSocketManagerImpl.RetryScheduler failingScheduler =
+        (_, _) -> WebSocketManagerTests.<RuntimeException>throwUnchecked(schedulerFailure);
+    final var manager = new WebSocketManagerImpl(new TestBackoff(13, 13), builder, null, clock, failingScheduler);
+    final var webSocket = manager.webSocket();
+    final var fake = builder.only();
+    fake.fireOpen();
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(() -> fake.fireError(new IOException("drop"))));
+
+    final var scheduling = records.stream().filter(record -> record.getThrown() == schedulerFailure).toList();
+    assertWarned(onlyRecord(scheduling), "Unable to schedule the websocket reconnect; a poll drives it.", schedulerFailure);
+    assertFalse(manager.closed());
+    assertUnlocked(manager);
+    clock.advanceMillis(13);
+    manager.checkConnection();
+    assertSame(webSocket, manager.webSocket());
+    assertEquals(2, fake.connectCount, "the poll reconnected the retained wrapper");
+  }
+
+  /// A wake that fails at its own clock reading with a checked exception is reported as any other
+  /// failed wake is: the discarded stage is the only place the throw can land, so the record is
+  /// all an operator gets, and without it the token was consumed in silence.
+  @Test
+  void aWakeFailedByACheckedExceptionFromItsClockIsReported() {
+    final var clock = new TestClock(12_500);
+    final var builder = new FakeBuilder();
+    final var scheduler = new ManualRetryScheduler();
+    final var manager = new WebSocketManagerImpl(new TestBackoff(13, 13), builder, null, clock, scheduler);
+    final var webSocket = manager.webSocket();
+    final var fake = builder.only();
+    fake.fireOpen();
+    withoutManagerLogging(() -> fake.fireError(new IOException("drop")));
+    final var clockFailure = new IOException("clock source unavailable at the wake");
+    clock.nanoTimeFailure = clockFailure;
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(scheduler::runPending));
+
+    assertWarned(onlyRecord(records),
+        "Scheduled websocket reconnect failed; no further reconnect is scheduled until checkConnection() is called.",
+        clockFailure);
+    assertFalse(manager.closed());
+    clock.nanoTimeFailure = null;
+    clock.advanceMillis(13);
+    manager.checkConnection();
+    assertSame(webSocket, manager.webSocket());
+    assertEquals(2, fake.connectCount, "the poll reconnected");
+  }
+
+  /// An `Error` from the backoff inside the attempt future's completion stage, the path every
+  /// failed connection attempt takes, closes the manager and is rethrown into a stage the JDK
+  /// records and discards: no caller, no uncaught handler, and the caller's own line is skipped
+  /// by the throw. The policy's line is therefore the only trace of the manager's end, and it is
+  /// written before the rethrow. The fake's attempt completes on the test thread, which is how
+  /// the rethrow is observed here; on a transport thread it reaches nothing.
+  @Test
+  void anErrorFromThePolicyInsideTheAttemptsCompletionIsLoggedBeforeItIsLostToTheStage() {
+    final var builder = new FakeBuilder();
+    final var backoff = new RecordingBackoff(17);
+    final var policyFailure = new StackOverflowError("backoff recursed inside the completion");
+    final var attempt = new CompletableFuture<Void>();
+    builder.connectResults.add(attempt);
+    final var manager = new WebSocketManagerImpl(backoff, builder, null, new TestClock(12_600), new ManualRetryScheduler());
+    manager.webSocket();
+    final var fake = builder.only();
+    backoff.delayError = policyFailure;
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(
+        () -> attempt.completeExceptionally(new IOException("handshake failed")),
+        "the stage absorbs the rethrow; the completing thread sees nothing"
+    ));
+
+    assertWarned(onlyRecord(records), "Unable to calculate the websocket reconnect policy; manager closed.", policyFailure);
+    assertAll(
+        () -> assertTrue(manager.closed(), "the collaborator failure closed the manager"),
+        () -> assertEquals(1, fake.closeCount, "and its close closed the wrapper"),
+        () -> assertNull(manager.webSocket()),
+        () -> assertUnlocked(manager)
+    );
+  }
+
+  /// A claim lost while another claim's policy is pending runs no policy of its own. A transport
+  /// callback that lands inside the backoff of a failure already claimed finds the wrapper
+  /// `BACKING_OFF`, so its claim is refused, and it must neither consult the backoff nor install
+  /// a deadline nor log a reconnect: the deadline is the pending claim's to install, and one
+  /// installed under the lost claim would be measured from the wrong failure and would leave the
+  /// pending claim to find its install refused, reporting a reconnect it never installed. Before
+  /// the claim's release became an argument, running the policy on a lost claim dereferenced a
+  /// null claim and closed the manager, so this guard was pinned only by accident.
+  @Test
+  void aClaimLostWhileAnotherClaimsPolicyIsPendingRunsNoPolicy() {
+    final var clock = new TestClock(12_700);
+    final var builder = new FakeBuilder();
+    final var backoff = new RecordingBackoff(13, 29);
+    final var scheduler = new ManualRetryScheduler();
+    final var manager = new WebSocketManagerImpl(backoff, builder, null, clock, scheduler);
+    manager.webSocket();
+    final var fake = builder.only();
+    fake.fireOpen();
+    final var first = new IOException("first failure");
+    final var insideThePolicy = new IOException("second failure, inside the first one's policy");
+    backoff.duringDelay = () -> fake.fireError(insideThePolicy);
+
+    final var records = recordedManagerLogs(() -> assertDoesNotThrow(() -> fake.fireError(first)));
+
+    assertWarned(onlyRecord(records), "Websocket failure. Re-connecting in 13 milliseconds.", first);
+    assertAll(
+        () -> assertEquals(List.of(1L), backoff.errorCounts, "the lost claim consulted no backoff"),
+        () -> assertEquals(13, scheduler.onlyPending().delayMillis(), "the pending claim's deadline was installed, once"),
+        () -> assertFalse(manager.closed()),
+        () -> assertUnlocked(manager)
+    );
+    clock.advanceMillis(13);
+    manager.checkConnection();
+    assertEquals(2, fake.connectCount, "and the retained wrapper reconnects at that deadline");
   }
 }

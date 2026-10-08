@@ -250,8 +250,9 @@ A fluent call returning its receiver type is an expression, invisible to
 
 **Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals:
 log output is not part of any behavioral contract. The websocket entries include the warning for
-a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, and the
-connection-open `INFO` in `markOpen`. The transactions entries include the
+a terminal `connect()` return, the warning carrying an exceptional attempt's throwable, the close
+callback's warning, and the connection-open `INFO` in `markOpen`; the error callback's warning is
+not one, since the lost-claim test above asserts it is the one record written. The transactions entries include the
 warning `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` logs when a signature
 notification times out: the await then yields `null` and the polling monitor carries the
 outcome, so the line is diagnostic only. Two more in the same class: the `INFO`
@@ -276,25 +277,30 @@ reconnect was already pending), is the only place the throwable goes
 (`aRefusedCandidateIsClosedAndReplacedAfterTheBackoff`, `anErrorFromAReconnectAttemptReplacesTheWrapperRatherThanStrandingIt`
 and the close-race tests); the same holds for the warning a condemned wrapper's failing `close()`
 gets (`aCandidateWhoseCloseThrowsCannotWedgeTheClaim`), for the retry-policy warning once a
-collaborator closed the manager with nothing thrown to the caller
-(`aCreationFailureWhosePolicyFailsClosesTheManagerAndSaysSo`), and for the scheduler-rejection
+collaborator closed the manager, with nothing thrown to the caller
+(`aCreationFailureWhosePolicyFailsClosesTheManagerAndSaysSo`) or with an `Error` rethrown into
+the attempt future's completion stage, which the JDK records and discards, so the warning is
+the one trace of the manager's end
+(`anErrorFromThePolicyInsideTheAttemptsCompletionIsLoggedBeforeItIsLostToTheStage`), and for the scheduler-rejection
 warning, which now also covers an `Error` from the scheduler
 (`anErrorFromTheSchedulerIsLoggedAndAPollStillReconnects`). Asserting a log anywhere the
 behaviour is observable by other means would contradict this family's argument rather than harden
 anything.
 
 **Websocket diagnostics-only branches** `# ws-log-only` (`catchAll`) — the boundary and
-`ORDER_IF` mutants around `delay >= 0` in `accept`, `connect`, and
-`connectionAttemptFailed` only suppress a zero-delay warning or emit one for a stale `-1` result.
-The one `beginFailure` return mutant, on the method's single return, likewise changes only that
-gate or the delay printed in the message, on both of its paths: where no failure claim was
-accepted the returned number cannot alter manager state or schedule another attempt, and where
-one was, retry timing and wake ownership were already installed before the return. The same
-returns inside `applyRetryPolicy`,
+`ORDER_IF` mutants around `delay >= 0` in the close callback (`accept` with a status code),
+`connect`, and `connectionAttemptFailed` only suppress a zero-delay warning or emit one for a
+stale `-1` result. The error callback's gate keeps its boundary member only: `delay > 0`
+suppresses the warning for a zero delay, which no test of that callback installs, while the
+`ORDER_IF` removal there, and `beginFailure`'s return, are not in the family, since a lost
+claim's `-1` is asserted by the record it must not write
+(`aClaimLostWhileAnotherClaimsPolicyIsPendingRunsNoPolicy`, `onlyRecord` in the collaborator-
+failure tests), so emitting a warning for it, or returning a number that passes the gate, is
+killed. The same returns inside `applyRetryPolicy`,
 which `beginFailure` shares with a failed creation and a connect `Error` since 2026-10-02, are
-**not** in this family: a handled creation failure's one WARNING states its disposition from
-that number (a retry delay, or that the manager is closed), so each of those returns is killed
-by an assertion on the record.
+**not** in this family either: a handled creation failure's one WARNING states its disposition
+from that number (a retry delay, or that the manager is closed), so each of those returns is
+killed by an assertion on the record.
 
 **Exact-zero retry deadline** `# retry-deadline-zero` (`catchAll`) — changing the
 `remainingNanos <= 0` boundary at exactly zero reaches the rounding expression instead of its
@@ -305,8 +311,9 @@ zero-delay scheduler wake; negative and positive remainders retain their origina
 directions remove one condition already implied by another locked state, identity, or generation
 check. A manager drive is the only path that can install a connect future; registration's
 `CREATING` claim implies both websocket slots are empty; publication retains the exact creating
-candidate unless `close` atomically clears it with the state; one retry sequence has only one
-installing scheduler call; and an installed retry token exists only while `BACKING_OFF`. The
+candidate unless `close` atomically clears it with the state (both steps keyed to
+`createAndConnect` since the lock is taken by hand there, 2026-10-05); one retry sequence has
+only one installing scheduler call; and an installed retry token exists only while `BACKING_OFF`. The
 opposite branch directions, which reject or admit work without those authoritative checks, are
 killed by the reentrant and stale-predecessor tests.
 
@@ -321,10 +328,13 @@ label would have made deleting it ratchet-invisible, which is exactly what the a
 at the top of this file forbids.
 
 **Websocket terminal-state invariants** `# ws-terminal-invariant` (`catchAll`) — after the first
-manager `close`, every captured resource field is cleared, so forcing a later close through the
-same snapshot-and-clear block still produces four null resources. While creation is live,
-`creatingWebSocket` and `webSocket` are mutually exclusive under the same lock, so the comparison
-which prevents closing one object through both slots cannot distinguish a reachable state.
+manager `close`, every resource field it captures is cleared, so forcing a later close past the
+`CLOSED` return and through the same capture-and-clear step still captures four nulls, cancels
+and closes nothing, and writes what is already written. Invalidated if `close()` ever writes
+anything but those fields and the state, or if a field it clears is written again after
+`CLOSED`. The step is keyed to `close` since the lock is taken by hand there (2026-10-05); the
+comparison that keeps a candidate from being closed through both slots is killed now, since
+the null guard before it is what the mutator reaches.
 
 **Detached-state normalization only** `# state-normalization-only` (`catchAll`) — after a terminal
 wrapper is detached, `webSocket` is null. The same accessor immediately takes the creation path
@@ -507,8 +517,9 @@ guard (`# ws-log-only`), two `lambda$connect$0` rows orphaned when the attempt c
 moved into `installConnectAttempt`, and one of the three `accept` `# log-removal`
 rows. That last one did not lose coverage: the connection-open log moved to
 `markOpen` when the open transition gained its second caller, so its acceptance is
-now the `markOpen` `# log-removal` row, and the two remaining `accept` rows are the
-close and failure warnings.
+now the `markOpen` `# log-removal` row, and the two remaining `accept` rows were the
+close and failure warnings (the failure warning's row left on 2026-10-08, killed; see
+`# log-removal`).
 
 **Wall-clock websocket confirmation fallback** — retired 2026-09-24. The family
 argued that `CompletableFuture.orTimeout`, which runs on the JVM-global delayed

@@ -383,7 +383,9 @@ them, because the list is the argument for the effort.
   so that pairing for one transport failure is the fingerprint to look for. Since 2026-10-02 an
   `Error` out of `connect()` is a third same-wrapper claimant that can land on a successor attempt
   installed on the same wrapper by a wake in the window; it condemns that wrapper, whose attempt
-  could never complete, where it used to close the manager, and converges the same way.
+  could never complete, where it used to close the manager, and converges the same way. Since
+  2026-10-05 a checked exception out of `connect()` takes the same arm; before that it escaped
+  and stranded `CONNECTING`.
   Do **not** "fix" it by suppressing the cancellation claim: an implementation that reports a real
   failure only by cancelling would then stall in `CONNECTING` forever. The manager cannot fence it
   locally, because it installs one handler set on the reused wrapper at construction. Reordering
@@ -419,7 +421,18 @@ them, because the list is the argument for the effort.
   no longer closes itself on those, it backs off and builds a fresh wrapper, so a constant zero
   delay would spin a failing consumer as fast as the scheduler's thread can call it. Only
   `close()`, and a `Backoff` or clock that throws inside the retry policy, are terminal, and
-  `closed()` reports it.
+  `closed()` reports it. Since 2026-10-05 every one of those guards catches `Throwable`: a
+  collaborator written without checked exceptions can throw one, and until then one that escaped
+  left `CREATING`, `CONNECTING` or a pending claim behind for good, with the manager open.
+- **`WebSocketManagerImpl`'s creation, claim and `close()` steps take the lock by hand and build
+  nothing; do not fold them back into `locked(() -> …)`.** A capturing lambda or a result record
+  is an allocation, and one that fails after a step's first write, or while `CREATING` or a
+  pending claim is held (short of `close()`, only the thread that entered them can leave them),
+  strands the manager open with nothing retried. No test can provoke an allocation failure, so
+  nothing fails when the idiom comes back; the rule, and what it does not cover, is stated on the
+  `lock` field. For the same reason a claim's policy takes what it releases as arguments, not as
+  a lambda, and installs its deadline inside the guard whose every other way out is `close()`,
+  and a drive cancels the token it took only after its guarded call.
 - **Ravina-built transactions are SIMD-0385 v1.**
   `SimulationFutures.createV1Transaction` is the one recipe (non-strict, so a
   batch over a v1 limit is reported as `SIZE_LIMIT_EXCEEDED` and shrunk rather
