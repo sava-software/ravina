@@ -1,5 +1,21 @@
 # Changelog
 
+## [25.6.6](https://github.com/sava-software/ravina/compare/25.6.5...25.6.6) (2026-10-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **solana:** WebSocketManager gains an abstract closed(), and checkConnection() no longer throws for a failed creation, a refused candidate or an Error out of connect(): the manager backs off and rebuilds instead of closing. A caller that treated null from the first webSocket() as a failed creation still can; a caller that relied on the rethrow to stop its poll loop must poll closed() instead.
+
+### Bug Fixes
+
+* **gradle:** adopt sava-build 21.6.4 ([21db21f](https://github.com/sava-software/ravina/commit/21db21f9c168b37016d53bf76cb409bb00d81aee))
+* **gradle:** adopt sava-build 21.6.6 ([66af542](https://github.com/sava-software/ravina/commit/66af542a5a6d1fe8b2ae630002ffd90456c4fa7d))
+* **gradle:** bump solanaBOMVersion to 25.30.32 ([f21fa34](https://github.com/sava-software/ravina/commit/f21fa34851eb4fe208313c5d5d54be0c4245c7ac))
+* **soak:** certify a recovery only by a transaction settled before the next episode ([d2a44ae](https://github.com/sava-software/ravina/commit/d2a44ae2c5633b3abe29a4307e188ac6953f539a))
+* **solana:** back off and rebuild after a failed websocket creation instead of closing the manager ([bdfc7d5](https://github.com/sava-software/ravina/commit/bdfc7d57e6bc7aab7bc5cf90959df4d5ab5ca90e))
+* **solana:** guard every websocket collaborator against any throwable, and keep the failure path free of allocations ([d4bc80d](https://github.com/sava-software/ravina/commit/d4bc80ded33eae2a9824c50b8f11ec40e37c3fa1))
+
 ## [25.6.5](https://github.com/sava-software/ravina/compare/25.6.4...25.6.5) (2026-09-27)
 
 
