@@ -673,10 +673,16 @@ confirmation.**
   `ravina-kms/google/src/test/java`, in the package it exercises, so it never
   reaches the jar or the ownership audit, and `recompileExcludes =
   listOf("Integ.java")` keeps it out of the PIT/Jazzer recompile, so a checkout
-  with it mutates the same classes as one without. A clean certification or
-  `fuzzAll` still refuses any git-ignored file in the main or test sources, so
-  run both from a clean `git worktree add --detach` of the commit, which has
-  none. Its correctness rides on running it against real KMS.
+  with it mutates the same classes as one without. Its correctness rides on
+  running it against real KMS. A clean certification still refuses any
+  git-ignored file in the main or test sources, so run `:hardeningCertifyAll`
+  from a clean `git worktree add --detach` of the commit, which has none. Its
+  receipts, `.running` markers and quiet-member counts land in that worktree's
+  `.pitest-history/` directories, the root's and each certified project's, and
+  leave with it, so keep the worktree, or copy those directories out with their
+  paths, while they are release evidence. `fuzzAll` checks only the
+  projects that register a fuzz target, and `ravina-kms/google` registers none,
+  so it runs from the primary checkout, which keeps the local corpora.
 - **Fuzz-related exclusions.** The plugin excludes every registered harness
   class and its nested types by itself. The hand-written `*Fuzz*` globs are
   still load-bearing: they keep the generated `<Harness>SeedReplayTest`
