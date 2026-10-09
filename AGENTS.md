@@ -281,12 +281,14 @@ editing it, and when it and the installed tasks disagree, the tasks win.
   the gate forces goes back through review as a delta. `hardeningCertify` (or
   `:hardeningCertifyAll`) and `fuzzAll` are the pre-release checks this repo's notes
   assign an owner to.
-- Doc and comment edits owe no suite; a build-script edit only when it changes what
+- Test-only edits owe the suites whose mutated code those tests exercise; when scope
+  is unclear, run `./gradlew qualityGate` from the Gradle root. Doc and comment
+  edits owe no suite; a build-script edit only when it changes what
   PIT is given. A change the gate forced owes it again by the same reachability rule
   once reviewed. `pitest<Suite>Verify` answers one way: it keeps its report while only
   recompiled Java sources changed and every recompiled class is byte-identical, which
   proves that suite is owed nothing; a refusal (a moved line, a resource, a build
-  script, an ArcMutate suite) names its cause and proves nothing by itself.
+  script, `src/main/java` under ArcMutate) names its cause and proves nothing by itself.
 - When the gate reports unkilled mutants, iterate on one cluster with
   `-PmutateOnly=<class-glob>`. Before any record decision, re-run unscoped with
   `-PnoMutationHistory`: a `[history]` report cannot support adding, removing, or
