@@ -107,4 +107,12 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
       return true;
     }
   }
+
+  /// The generated form would print the endpoint whole, and an RPC provider's key sits in its
+  /// path or query.
+  @Override
+  public String toString() {
+    return "RemoteHttpResourceConfig[capacityMonitor=" + capacityMonitor
+        + ", endpoint=" + ServiceConfigUtil.redactEndpoint(endpoint) + ", backoff=" + backoff + ']';
+  }
 }

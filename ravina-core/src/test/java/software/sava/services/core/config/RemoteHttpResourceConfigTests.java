@@ -184,4 +184,20 @@ final class RemoteHttpResourceConfigTests {
     );
     assertTrue(exception.getMessage().contains("capacityConfig"));
   }
+
+  /// An RPC provider's key sits in the endpoint's path or query, so `toString()` shows scheme and
+  /// host only, while the config keeps the full endpoint.
+  @Test
+  void testToStringRedactsTheEndpoint() {
+    final var secret = "https://rpc.example.com/v2/not-a-real-secret?api-key=also-not-real";
+    final var config = RemoteHttpResourceConfig.parseConfig(
+        JsonIterator.parse("{\"endpoint\": \"" + secret
+            + "\", \"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"),
+        DEFAULT_SERVICE_NAME, DEFAULT_ENDPOINT, DEFAULT_BACKOFF
+    );
+    assertEquals(URI.create(secret), config.endpoint());
+    assertEquals("RemoteHttpResourceConfig[capacityMonitor=" + config.capacityMonitor()
+            + ", endpoint=https://rpc.example.com/(redacted), backoff=" + DEFAULT_BACKOFF + ']',
+        config.toString());
+  }
 }
