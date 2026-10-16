@@ -113,6 +113,9 @@ endpoint that is already running and starts no validator; `--validator PATH` nam
 start; `--out DIR` names the run directory. A value is taken from the flag, then the environment,
 then the profile, then `Main.java`'s default. An unknown `SOAK_*` name in the environment refuses
 the run, because the client ignores a name it does not read and would silently use its default.
+A hosted endpoint carries its key in the URL, so the runner writes `SOAK_RPC` and `SOAK_WS` to the
+run directory and the terminal only as scheme, host and port, with `/(redacted)` standing in for a
+path, query, user info or fragment; the local validator's URLs have none and appear whole.
 
 ### Settings
 
@@ -212,15 +215,15 @@ strings, and it must be new or empty.
 
 | path | writer | what it is |
 |---|---|---|
-| `run.env` | soak.sh | every resolved `SOAK_*` value |
-| `run.txt` | soak.sh | the git revision and dirty files, the JDK and its `java -version`, the validator and its version, the endpoint's `getVersion`, the method-timing entries and the launch line |
+| `run.env` | soak.sh | every resolved `SOAK_*` value, `SOAK_RPC` and `SOAK_WS` redacted (a keyed endpoint is supplied again to replay the run) |
+| `run.txt` | soak.sh | the git revision and dirty files, the JDK and its `java -version`, the validator and its version, the endpoints (redacted) and the RPC endpoint's `getVersion`, the method-timing entries and the launch line |
 | `config/` | soak.sh | the recording and logging settings the run used |
 | `logs/client.log` | client JVM | its output, closing with `Run finished: submitted=N settled=N pending=N dropped=N notified=N timedOut=N threw=N faultsInjected=N`, or `Run interrupted: …` from the shutdown hook when the run was stopped |
 | `logs/jfr-methodtrace.log` | client JVM | the method tracer's log, which gate 2 reads |
 | `logs/validator.log` | validator | its output; the ledger itself is under `build/ledger` |
 | `jfr-repo/`, `jfr/soak.jfr` | client JVM | the chunk repository, and the recording dumped on exit |
 | `gauge.csv` | Main | one row every ten seconds and a last one at close; `rpcCapacity` is peer 1's capacity reading and `rpcCapacityMin` the lowest across peers |
-| `jfr-summary.txt` | soak.sh | `jfr summary` over the recording, which gate 3 reads |
+| `jfr-summary.txt` | soak.sh | `jfr summary` over the recording, which gate 3 reads with the `ravina.soak.Run` events |
 | `gates.txt` | soak.sh | one line per gate, the notes, the report's result and the final `RESULT` line |
 | `summary.md`, `logs/report.log` | Report | the report |
 
@@ -240,7 +243,9 @@ A run is evidence only if all six hold; `gates.txt` records each with its detail
 3. **`privacy-events`**: `jfr summary` shows no `jdk.InitialEnvironmentVariable`,
    `jdk.InitialSystemProperty`, `jdk.SystemProcess` or `jdk.NativeLibrary` event. A default
    recording stores environment variables, system properties and every command line on the machine
-   verbatim, in a file people attach to issues.
+   verbatim, in a file people attach to issues. And every `ravina.soak.Run` event's `rpc` is already
+   in its redacted form, so a hosted provider's key never reaches the recording; the gate compares
+   each value with its own redaction and prints only the counts.
 4. **`transaction-count`**: the `ravina.soak.Transaction` events equal `submitted` minus `pending`
    in the client log's `Run finished:` line, and at least one was submitted. The workload commits a
    transaction's event when its `processInstructions` call returns, so one still pending at exit

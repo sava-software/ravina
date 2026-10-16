@@ -171,6 +171,27 @@ contains_word() { # <word> <space-separated list>
   case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac
 }
 
+# redact_endpoint <url>: scheme://host[:port], with /(redacted) in place of a path, query, user
+# info or fragment left out, the shape ServiceConfigUtil.redactEndpoint renders. A hosted
+# endpoint carries its key in one of those, so only this form of SOAK_RPC and SOAK_WS is written
+# to the run directory or the terminal. The local validator's URLs come out unchanged.
+redact_endpoint() {
+  local scheme rest authority remainder host
+  case $1 in *://*) ;; *) printf '(unparsed endpoint)'; return 0 ;; esac
+  scheme=${1%%://*}
+  rest=${1#*://}
+  authority=${rest%%[/?#]*}
+  remainder=${rest#"$authority"}
+  host=${authority##*@}
+  if [ -z "$scheme" ] || [ -z "$host" ]; then
+    printf '(unparsed endpoint)'
+  elif [ "$host" != "$authority" ] || { [ -n "$remainder" ] && [ "$remainder" != / ]; }; then
+    printf '%s://%s/(redacted)' "$scheme" "$host"
+  else
+    printf '%s://%s' "$scheme" "$host"
+  fi
+}
+
 # Invoked by the EXIT trap, not by name. Every command tolerates failure: a failing kill here must not
 # replace the exit status the run already decided.
 # shellcheck disable=SC2329
@@ -312,8 +333,10 @@ fi
 SOAK_WEBSOCKET=$(printf '%s' "$SOAK_WEBSOCKET" | tr '[:upper:]' '[:lower:]')
 case $SOAK_WEBSOCKET in true | false) ;; *) cannot_start "SOAK_WEBSOCKET must be true or false, not '$SOAK_WEBSOCKET'" ;; esac
 [ "$SOAK_WEBSOCKET" = false ] || METHOD_TIMING_ENTRIES+=("$WEBSOCKET_TIMING_ENTRY")
-case $SOAK_RPC in http://* | https://*) ;; *) cannot_start "SOAK_RPC must be an http(s) URL, not '$SOAK_RPC'" ;; esac
-case $SOAK_WS in ws://* | wss://*) ;; *) cannot_start "SOAK_WS must be a ws(s) URL, not '$SOAK_WS'" ;; esac
+case $SOAK_RPC in http://* | https://*) ;; *) cannot_start "SOAK_RPC must be an http(s) URL, not '$(redact_endpoint "$SOAK_RPC")'" ;; esac
+case $SOAK_WS in ws://* | wss://*) ;; *) cannot_start "SOAK_WS must be a ws(s) URL, not '$(redact_endpoint "$SOAK_WS")'" ;; esac
+RPC_SHOWN=$(redact_endpoint "$SOAK_RPC")
+WS_SHOWN=$(redact_endpoint "$SOAK_WS")
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 resolve SOAK_OUT "$flag_out" "$SCRIPT_DIR/runs/$PROFILE-$STAMP"
@@ -375,9 +398,14 @@ GATES=$RUN_DIR/gates.txt
 
 {
   printf '# Resolved by soak.sh, profile %s, %s. Flag > environment > profile > Main.java default.\n' "$PROFILE" "$STAMP"
+  printf '# SOAK_RPC and SOAK_WS are scheme, host and port: a keyed endpoint is supplied again to replay.\n'
   # shellcheck disable=SC2086 # CLIENT_KEYS is a space-separated list, split on purpose
   for key in $( (printf '%s\n' $CLIENT_KEYS; printf '%s\n' SOAK_VALIDATOR) | sort -u); do
-    printf '%s=%q\n' "$key" "${!key:-}"
+    case $key in
+      SOAK_RPC) printf '%s=%q\n' "$key" "$RPC_SHOWN" ;;
+      SOAK_WS) printf '%s=%q\n' "$key" "$WS_SHOWN" ;;
+      *) printf '%s=%q\n' "$key" "${!key:-}" ;;
+    esac
   done
 } > "$RUN_DIR/run.env"
 
@@ -417,11 +445,11 @@ until healthy "$SOAK_RPC"; do
     tail -n 20 "$RUN_DIR/logs/validator.log" "$LEDGER_DIR/validator.log" 2>/dev/null >&2 || true
     cannot_start "the validator exited before it answered getHealth; see $RUN_DIR/logs/validator.log"
   fi
-  [ "$waited" -lt "$HEALTH_BOUND" ] || cannot_start "$SOAK_RPC did not answer getHealth \"ok\" within $HEALTH_BOUND s"
+  [ "$waited" -lt "$HEALTH_BOUND" ] || cannot_start "$RPC_SHOWN did not answer getHealth \"ok\" within $HEALTH_BOUND s"
   sleep 1
   waited=$((waited + 1))
 done
-log "$SOAK_RPC is healthy"
+log "$RPC_SHOWN is healthy"
 
 # ---------------------------------------------------------------------------- run.txt
 
@@ -444,9 +472,9 @@ if [ -n "$git_changes" ]; then git_dirty=true; else git_dirty=false; fi
   else
     echo "validator: external, not started by this run"
   fi
-  echo "rpc: $SOAK_RPC"
+  echo "rpc: $RPC_SHOWN"
   echo "rpc getVersion: $(rpc_request "$SOAK_RPC" getVersion || true)"
-  echo "ws: $SOAK_WS"
+  echo "ws: $WS_SHOWN"
   echo "method-timing entries:"
   printf '  %s\n' "${METHOD_TIMING_ENTRIES[@]}"
   echo "launch (cwd $RUN_DIR, environment as run.env):"
@@ -601,13 +629,19 @@ fi
 
 # 3. The privacy and per-chunk-noise events the .jfc turns off recorded nothing: environment
 # variables, -D properties and the machine's process list must never reach a file people attach.
+# Nor may a hosted endpoint's key: every ravina.soak.Run event's rpc must already be in its
+# redacted form. The check compares each value with its own redaction and never prints one.
 if [ ! -s "$JFR_FILE" ]; then
   gate 3 privacy-events FAIL "no recording at jfr/soak.jfr"
 else
   summary_status=0
   run_bounded "$JFR_TOOL_BOUND" "jfr summary" "$JFR" summary "$JFR_FILE" > "$RUN_DIR/jfr-summary.txt" 2>&1 || summary_status=$?
+  runs_status=0
+  run_bounded "$JFR_TOOL_BOUND" "jfr print" "$JFR" print --events ravina.soak.Run "$JFR_FILE" > "$SCRATCH/runs.txt" 2> "$SCRATCH/runs.err" || runs_status=$?
   if [ "$summary_status" != 0 ]; then
     gate 3 privacy-events FAIL "jfr summary exited $summary_status; see jfr-summary.txt"
+  elif [ "$runs_status" != 0 ]; then
+    gate 3 privacy-events FAIL "jfr print of the ravina.soak.Run events exited $runs_status"
   else
     counts=""
     leaked=""
@@ -616,6 +650,14 @@ else
       counts="$counts $event=${count:-absent}"
       case ${count:-0} in 0) ;; *) leaked="$leaked $event" ;; esac
     done
+    rpc_values=0
+    rpc_unredacted=0
+    while IFS= read -r rpc; do
+      rpc_values=$((rpc_values + 1))
+      [ "$(redact_endpoint "$rpc")" = "$rpc" ] || rpc_unredacted=$((rpc_unredacted + 1))
+    done < <(sed -n 's/^  rpc = "\(.*\)"$/\1/p' "$SCRATCH/runs.txt")
+    counts="$counts; Run rpc redacted in $((rpc_values - rpc_unredacted))/$rpc_values"
+    [ "$rpc_unredacted" -eq 0 ] || leaked="$leaked ravina.soak.Run.rpc($rpc_unredacted)"
     if [ -z "$leaked" ]; then
       gate 3 privacy-events PASS "${counts# }"
     else

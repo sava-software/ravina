@@ -8,9 +8,9 @@ import jdk.jfr.consumer.RecordedObject;
 import jdk.jfr.consumer.RecordedStackTrace;
 import jdk.jfr.consumer.RecordedThread;
 import jdk.jfr.consumer.RecordingFile;
+import software.sava.services.core.config.ServiceConfigUtil;
 
 import java.io.IOException;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -854,7 +854,8 @@ public final class Report {
     } else {
       final var rows = new ArrayList<String[]>();
       runs.stream().sorted(Comparator.comparing(RunRow::at)).forEach(run -> rows.add(row(
-          orUnknown(run.phase), instant(run.at), redactEndpoint(run.rpc), orUnknown(run.webSocketEnabled),
+          orUnknown(run.phase), instant(run.at), // a recording made before the event held the endpoint redacted holds it whole
+          run.rpc == null ? "?" : ServiceConfigUtil.redactEndpoint(run.rpc), orUnknown(run.webSocketEnabled),
           Double.isNaN(run.ratePerSecond) ? "n/a" : fmt(run.ratePerSecond),
           count(run.durationSeconds), count(run.submitted), count(run.settled), orUnknown(run.detail)
       )));
@@ -1491,27 +1492,6 @@ public final class Report {
 
   private static String display(final Timing timing) {
     return shortType(timing.type) + "::" + timing.name;
-  }
-
-  /// Scheme, host and port only. A hosted endpoint carries its key in the path, the query or the
-  /// user info, and the report is a file people paste into issues.
-  static String redactEndpoint(final String endpoint) {
-    if (endpoint == null) {
-      return "?";
-    }
-    try {
-      final var uri = URI.create(endpoint);
-      if (uri.getScheme() == null || uri.getHost() == null) {
-        return "(unparsed endpoint)";
-      }
-      final var path = uri.getRawPath();
-      final boolean hidden = (path != null && !path.isEmpty() && !path.equals("/"))
-          || uri.getRawQuery() != null || uri.getRawUserInfo() != null || uri.getRawFragment() != null;
-      return uri.getScheme() + "://" + uri.getHost() + (uri.getPort() < 0 ? "" : ":" + uri.getPort())
-          + (hidden ? "/(redacted)" : "");
-    } catch (final IllegalArgumentException malformed) {
-      return "(unparsed endpoint)";
-    }
   }
 
   /// Power-of-two buckets keyed by their upper bound: 0, 1, 2, 3-4, 5-8, ...

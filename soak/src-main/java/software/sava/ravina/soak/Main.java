@@ -7,6 +7,7 @@ import software.sava.kms.core.signing.MemorySigner;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.load_balance.BalancedItem;
 import software.sava.services.core.remote.load_balance.LoadBalancer;
@@ -425,7 +426,7 @@ public final class Main {
     event.phase = phase;
     // scheme, host and port only: a hosted provider's key rides in the path, query or user
     // info, and soak.jfr is the file people attach to issues
-    event.rpc = Report.redactEndpoint(rpcUri.toString());
+    event.rpc = ServiceConfigUtil.redactEndpoint(rpcUri);
     event.webSocketEnabled = webSocketEnabled;
     event.ratePerSecond = ratePerSecond;
     event.durationSeconds = durationSeconds;

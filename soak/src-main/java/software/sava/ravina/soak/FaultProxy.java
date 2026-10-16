@@ -3,6 +3,7 @@ package software.sava.ravina.soak;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import software.sava.core.tx.Transaction;
+import software.sava.services.core.config.ServiceConfigUtil;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -182,7 +183,8 @@ final class FaultProxy implements AutoCloseable {
     this.server.createContext("/", this::handle);
     this.server.setExecutor(executor);
     this.server.start();
-    logger.log(INFO, "Fault proxy " + name + " on " + endpoint() + " -> " + upstream + " with "
+    // the upstream is SOAK_RPC, whose path or query can hold a hosted provider's key
+    logger.log(INFO, "Fault proxy " + name + " on " + endpoint() + " -> " + ServiceConfigUtil.redactEndpoint(upstream) + " with "
         + (spec == null ? "no fault" : spec) + "; pass-through until started");
   }
 
@@ -402,7 +404,7 @@ final class FaultProxy implements AutoCloseable {
       respond(exchange, 502, errorBody(502, "proxy interrupted", "0"));
       return;
     } catch (final IOException failure) {
-      logger.log(WARNING, "Fault proxy " + name + " could not reach " + upstream, failure);
+      logger.log(WARNING, "Fault proxy " + name + " could not reach " + ServiceConfigUtil.redactEndpoint(upstream), failure);
       respond(exchange, 502, errorBody(502, "proxy upstream failure: " + failure.getMessage(), "0"));
       return;
     }
