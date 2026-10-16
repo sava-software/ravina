@@ -28,7 +28,7 @@ final class FaultProxyTests {
 
   @Test
   void bothLogLinesNameTheUpstreamWithoutItsKey() throws Exception {
-    try (final var hangUp = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+    try (final var hangUp = new ServerSocket(0, 50, InetAddress.getByAddress(new byte[]{127, 0, 0, 1}))) {
       Thread.ofVirtual().start(() -> {
         try {
           for (; ; ) {
