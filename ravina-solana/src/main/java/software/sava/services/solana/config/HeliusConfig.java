@@ -1,6 +1,7 @@
 package software.sava.services.solana.config;
 
 import software.sava.services.core.config.BaseHttpClientConfig;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.CapacityConfig;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -108,7 +109,7 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
   @Override
   public String toString() {
     return "HeliusConfig[" +
-        "endpoint=" + endpoint + ", " +
+        "endpoint=" + ServiceConfigUtil.redactEndpoint(endpoint) + ", " +
         "capacityConfig=" + capacityMonitor + ", " +
         "backoff=" + backoff + ']';
   }

@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -240,6 +241,8 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   private FakeRpcClient rpcClient;
+  /// Shaped like a hosted RPC endpoint, with a key in the path and another in the query.
+  private static final URI SECRET_ENDPOINT = URI.create("https://fake.rpc.invalid/v2/not-a-real-secret?api-key=also-not-real");
   private FakeEpochInfoService epochInfoService;
   private FakeWebSocketManager webSocketManager;
   private FakeWebSocket webSocket;
@@ -526,9 +529,12 @@ final class TxCommitmentMonitorServiceTests {
     assertNull(service.validateResponse(context, "sig"), "a matching signature is not an error");
   }
 
+  /// The message names the offending endpoint redacted: a hosted RPC provider's key sits in its
+  /// path or query, and the message reaches logs and flight recordings.
   @Test
   void aMismatchedSignatureIsRejected() {
     final var service = service();
+    rpcClient.endpoint = SECRET_ENDPOINT;
     final var context = new SendTxContext(
         balancedItem(rpcClient), CompletableFuture.completedFuture("other"), null, null, 1, 0);
 
@@ -537,7 +543,9 @@ final class TxCommitmentMonitorServiceTests {
     final var message = thrown.getMessage();
     assertTrue(message.contains("sig"), message);
     assertTrue(message.contains("other"), message);
-    assertTrue(message.contains("fake.rpc.invalid"), "the offending endpoint must be named: " + message);
+    assertTrue(message.contains("RPC https://fake.rpc.invalid/(redacted)\n"), "the offending endpoint must be named: " + message);
+    assertFalse(message.contains("not-a-real-secret"), message);
+    assertFalse(message.contains("also-not-real"), message);
   }
 
   @Test
@@ -666,6 +674,7 @@ final class TxCommitmentMonitorServiceTests {
   void aMismatchedSecondResponseIsRejected() {
     final var service = service();
     final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    rpcClient.endpoint = SECRET_ENDPOINT;
     publisher.failOverResult = new SendTxContext(
         balancedItem(rpcClient), CompletableFuture.completedFuture("other"), null, null, 1, 0);
 
@@ -673,7 +682,8 @@ final class TxCommitmentMonitorServiceTests {
     final var message = thrown.getMessage();
     assertTrue(message.contains("sig"), message);
     assertTrue(message.contains("other"), message);
-    assertTrue(message.contains("fake.rpc.invalid"), "the offending endpoint must be named: " + message);
+    assertTrue(message.contains("RPC https://fake.rpc.invalid/(redacted)\n"), "the offending endpoint must be named: " + message);
+    assertFalse(message.contains("not-a-real-secret"), message);
   }
 
   /// The cluster looked at the transaction and refused it: a result, and

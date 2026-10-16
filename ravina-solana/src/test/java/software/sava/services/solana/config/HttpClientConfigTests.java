@@ -440,8 +440,21 @@ final class HttpClientConfigTests {
     assertNotEquals(base.hashCode(), diffEndpoint.hashCode());
 
     final var string = base.toString();
-    assertTrue(string.startsWith("HeliusConfig["), string);
-    assertTrue(string.contains("https://api.helius.xyz/v0"), string);
+    assertTrue(string.startsWith("HeliusConfig[endpoint=https://api.helius.xyz/(redacted), capacityConfig="), string);
+    assertFalse(string.contains("/v0"), string);
+  }
+
+  /// Helius takes its API key in the query, so `toString()` shows scheme and host only, while the
+  /// config and the client it builds keep the full endpoint.
+  @Test
+  void testHeliusToStringRedactsTheApiKey() {
+    final var secret = "https://mainnet.helius-rpc.com/?api-key=not-a-real-secret";
+    final var config = HeliusConfig.parseConfig(JsonIterator.parse("{\"url\": \"" + secret
+        + "\", \"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"));
+    assertEquals(URI.create(secret), config.endpoint());
+    final var string = config.toString();
+    assertTrue(string.startsWith("HeliusConfig[endpoint=https://mainnet.helius-rpc.com/(redacted), capacityConfig="), string);
+    assertFalse(string.contains("not-a-real-secret"), string);
   }
 
   @Test

@@ -129,6 +129,7 @@ final class BaseTxMonitorServiceTests {
 
     long blockHeight;
     int blockHeightCalls;
+    URI endpoint = URI.create("http://fake.rpc.invalid/");
 
     final List<List<String>> sigStatusRequests = new ArrayList<>();
     final List<Boolean> searchTransactionHistoryFlags = new ArrayList<>();
@@ -153,7 +154,7 @@ final class BaseTxMonitorServiceTests {
           return CompletableFuture.completedFuture(sigStatuses.apply(signatures));
         }
         case "endpoint" -> {
-          return URI.create("http://fake.rpc.invalid/");
+          return endpoint;
         }
         case "toString" -> {
           return "FakeRpcClient";

@@ -3,6 +3,7 @@ package software.sava.services.solana.transactions;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.NanoClock;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
@@ -119,7 +120,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                 - %s
                 - %s
               """,
-          sendTxContext.rpcClient().item().endpoint(),
+          ServiceConfigUtil.redactEndpoint(sendTxContext.rpcClient().item().endpoint()),
           sig,
           response
       ));
