@@ -99,7 +99,7 @@ options
 
 Any SOAK_* environment variable overrides the profile; a flag overrides both. An unknown SOAK_*
 name is refused, because the client ignores it and the run would silently use the default.
-Every resolved value is written to <run>/run.env.
+Every resolved value is written to <run>/run.env, SOAK_RPC and SOAK_WS as scheme, host and port.
 
 exit codes
   0 every gate passed   1 a gate failed   4 the run could not start
@@ -174,22 +174,49 @@ contains_word() { # <word> <space-separated list>
 # redact_endpoint <url>: scheme://host[:port], with /(redacted) in place of a path, query, user
 # info or fragment left out, the shape ServiceConfigUtil.redactEndpoint renders. A hosted
 # endpoint carries its key in one of those, so only this form of SOAK_RPC and SOAK_WS is written
-# to the run directory or the terminal. The local validator's URLs come out unchanged.
+# to the run directory or the terminal. The local validator's URLs come out unchanged. Only a
+# host[:port] of the shape java.net.URI parses is ever printed, otherwise '(unparsed endpoint)':
+# user info cut short by an unencoded '/', '?' or '#' in a password must not pass for the host.
 redact_endpoint() {
-  local scheme rest authority remainder host
+  local scheme rest authority remainder hostport name port ok=1
   case $1 in *://*) ;; *) printf '(unparsed endpoint)'; return 0 ;; esac
   scheme=${1%%://*}
   rest=${1#*://}
   authority=${rest%%[/?#]*}
   remainder=${rest#"$authority"}
-  host=${authority##*@}
-  if [ -z "$scheme" ] || [ -z "$host" ]; then
+  hostport=${authority##*@}
+  case $hostport in
+    \[*\] | \[*\]:*) name=${hostport%%]*}]; port=${hostport#"$name"} ;;
+    *) name=${hostport%%:*}; port=${hostport#"$name"} ;;
+  esac
+  case $scheme in '' | [!A-Za-z]* | *[!A-Za-z0-9+.-]*) ok=0 ;; esac
+  case $name in
+    \[*\]) case ${name:1:${#name}-2} in '' | *[!0-9A-Fa-f:.]*) ok=0 ;; esac ;;
+    '' | *[!A-Za-z0-9.-]*) ok=0 ;;
+  esac
+  case $port in
+    '' | :) port='' ;;
+    :*[!0-9]*) ok=0 ;;
+    :*) ;;
+    *) ok=0 ;;
+  esac
+  if [ "$ok" = 0 ]; then
     printf '(unparsed endpoint)'
-  elif [ "$host" != "$authority" ] || { [ -n "$remainder" ] && [ "$remainder" != / ]; }; then
-    printf '%s://%s/(redacted)' "$scheme" "$host"
+  elif [ "$hostport" != "$authority" ] || { [ -n "$remainder" ] && [ "$remainder" != / ]; }; then
+    printf '%s://%s%s/(redacted)' "$scheme" "$name" "$port"
   else
-    printf '%s://%s' "$scheme" "$host"
+    printf '%s://%s%s' "$scheme" "$name" "$port"
   fi
+}
+
+# shown_argument <arg>: a command-line argument as it may be echoed: one holding a URL, such as
+# '--rpc=URL' or a URL left over after a mis-paired flag, is shown through redact_endpoint.
+shown_argument() {
+  case $1 in
+    *=*://*) printf '%s=' "${1%%=*}"; redact_endpoint "${1#*=}" ;;
+    *://*) redact_endpoint "$1" ;;
+    *) printf '%s' "$1" ;;
+  esac
 }
 
 # Invoked by the EXIT trap, not by name. Every command tolerates failure: a failing kill here must not
@@ -222,7 +249,7 @@ case $PROFILE in
   smoke) profile_duration=600; profile_rate=2; profile_websocket=true ;;
   hour) profile_duration=3600; profile_rate=2; profile_websocket=true ;;
   control) profile_duration=600; profile_rate=2; profile_websocket=false ;;
-  *) usage_error "unknown profile '$PROFILE'" ;;
+  *) usage_error "unknown profile '$(shown_argument "$PROFILE")'" ;;
 esac
 
 flag_duration=""; flag_rate=""; flag_drain=""; flag_rpc=""; flag_ws=""; flag_validator=""; flag_out=""
@@ -242,7 +269,7 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
-    *) usage_error "unknown argument '$1'" ;;
+    *) usage_error "unknown argument '$(shown_argument "$1")'" ;;
   esac
 done
 if [ -n "$flag_rpc" ] && [ -z "$flag_ws" ]; then usage_error "--rpc needs --ws"; fi
@@ -477,7 +504,7 @@ if [ -n "$git_changes" ]; then git_dirty=true; else git_dirty=false; fi
   echo "ws: $WS_SHOWN"
   echo "method-timing entries:"
   printf '  %s\n' "${METHOD_TIMING_ENTRIES[@]}"
-  echo "launch (cwd $RUN_DIR, environment as run.env):"
+  echo "launch (cwd $RUN_DIR, environment as run.env with SOAK_RPC and SOAK_WS unredacted):"
   printf '  '
   printf '%q ' "${CLIENT_CMD[@]}"
   printf '\n'
@@ -641,7 +668,8 @@ else
   if [ "$summary_status" != 0 ]; then
     gate 3 privacy-events FAIL "jfr summary exited $summary_status; see jfr-summary.txt"
   elif [ "$runs_status" != 0 ]; then
-    gate 3 privacy-events FAIL "jfr print of the ravina.soak.Run events exited $runs_status"
+    cp "$SCRATCH/runs.err" "$RUN_DIR/jfr-print-runs.err" 2>/dev/null || true
+    gate 3 privacy-events FAIL "jfr print of the ravina.soak.Run events exited $runs_status; see jfr-print-runs.err"
   else
     counts=""
     leaked=""
