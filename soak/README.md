@@ -115,7 +115,9 @@ then the profile, then `Main.java`'s default. An unknown `SOAK_*` name in the en
 the run, because the client ignores a name it does not read and would silently use its default.
 A hosted endpoint carries its key in the URL, so the runner writes `SOAK_RPC` and `SOAK_WS` to the
 run directory and the terminal only as scheme, host and port, with `/(redacted)` standing in for a
-path, query, user info or fragment; the local validator's URLs have none and appear whole.
+path, query, user info or fragment; the local validator's URLs have none and appear whole. An
+endpoint without a host, or a websocket one with a fragment, is refused before the run starts,
+because the JDK's own refusal of one repeats the whole URL into the client log and the recording.
 
 ### Settings
 

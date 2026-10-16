@@ -364,6 +364,10 @@ RPC_SHOWN=$(redact_endpoint "$SOAK_RPC")
 WS_SHOWN=$(redact_endpoint "$SOAK_WS")
 case $SOAK_RPC in http://* | https://*) ;; *) cannot_start "SOAK_RPC must be an http(s) URL, not '$RPC_SHOWN'" ;; esac
 case $SOAK_WS in ws://* | wss://*) ;; *) cannot_start "SOAK_WS must be a ws(s) URL, not '$WS_SHOWN'" ;; esac
+# The client refuses these too (Main), but only after the build and the validator's start.
+[ "$RPC_SHOWN" != '(unparsed endpoint)' ] || cannot_start "SOAK_RPC must be a URL with a host"
+[ "$WS_SHOWN" != '(unparsed endpoint)' ] || cannot_start "SOAK_WS must be a URL with a host"
+case $SOAK_WS in *'#'*) cannot_start "SOAK_WS must not carry a fragment, not '$WS_SHOWN'" ;; esac
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 resolve SOAK_OUT "$flag_out" "$SCRIPT_DIR/runs/$PROFILE-$STAMP"

@@ -93,8 +93,10 @@ public final class Main {
   /// @return 0 when every submission settled without a throw, 1 when the run completed with
   /// pending or thrown transactions; a run that fails before its workload throws instead
   private static int run() throws Exception {
-    final var rpcUri = URI.create(setting("SOAK_RPC", "http://127.0.0.1:8899"));
-    final var wsUri = URI.create(setting("SOAK_WS", "ws://127.0.0.1:8900"));
+    // An endpoint the JDK client refuses is refused here first: the client's own message would
+    // repeat the whole URL, key included, into client.log and soak.jfr on every attempt.
+    final var rpcUri = ServiceConfigUtil.requireHost("SOAK_RPC", URI.create(setting("SOAK_RPC", "http://127.0.0.1:8899")));
+    final var wsUri = WebSocketManager.checkEndpoint(URI.create(setting("SOAK_WS", "ws://127.0.0.1:8900")));
     final long durationSeconds = Long.parseLong(setting("SOAK_DURATION_SECONDS", "600"));
     final double ratePerSecond = Double.parseDouble(setting("SOAK_RATE_PER_SECOND", "2"));
     final boolean webSocketEnabled = Boolean.parseBoolean(setting("SOAK_WEBSOCKET", "true"));
