@@ -407,4 +407,31 @@ final class WebHookClientImplTests {
     assertEquals(1, invocations.size());
     assertSame(response, invocations.getFirst());
   }
+
+  /// However the client is built, an endpoint the JDK client could never post to is refused up
+  /// front, and the refusal shows no more than the redacted form: for a missing host the JDK's own
+  /// message would repeat the whole URI into the notify client's failure log.
+  @Test
+  void anEndpointTheClientCannotPostIsRefusedWithoutEchoingIt() {
+    final var httpClient = new CapturingHttpClient(new CompletableFuture<>());
+    for (final var endpoint : new String[]{
+        "https://user:not-a-real-secret@bad_host/hook",
+        "//hooks.example.com/not-a-real-secret",
+        "hooks.example.com/not-a-real-secret",
+        "ftp://hooks.example.com/not-a-real-secret"
+    }) {
+      final var refused = assertThrows(IllegalArgumentException.class,
+          () -> WebHookClient.createClient(URI.create(endpoint), httpClient, null, "%s"));
+      assertTrue(refused.getMessage().startsWith("A webhook endpoint must be an http(s) URL with a host, not "), refused.getMessage());
+      assertFalse(refused.getMessage().contains("not-a-real-secret"), refused.getMessage());
+    }
+    for (final var endpoint : new String[]{
+        "http://hooks.example.com/hook",
+        "HTTP://hooks.example.com/hook",
+        "https://hooks.example.com/hook",
+        "HTTPS://hooks.example.com/hook"
+    }) {
+      assertEquals(URI.create(endpoint), WebHookClient.createClient(URI.create(endpoint), httpClient, null, "%s").endpoint());
+    }
+  }
 }

@@ -1,5 +1,7 @@
 package software.sava.services.core.net.http;
 
+import software.sava.services.core.config.ServiceConfigUtil;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -48,13 +50,27 @@ final class WebHookClientImpl implements WebHookClient {
                     final BiPredicate<HttpResponse<?>, byte[]> applyResponse,
                     final String bodyFormat,
                     final ScheduledExecutorService deadlineScheduler) {
-    this.endpoint = endpoint;
+    this.endpoint = checkEndpoint(endpoint);
     this.httpClient = httpClient;
     this.requestTimeout = requestTimeout;
     this.extendRequest = extendRequest == null ? UnaryOperator.identity() : extendRequest;
     this.applyResponse = applyResponse;
     this.bodyFormat = bodyFormat;
     this.deadlineScheduler = deadlineScheduler == null ? ExchangeDeadline.defaultScheduler() : deadlineScheduler;
+  }
+
+  /// The JDK client refuses an endpoint without a host or an http(s) scheme on every post, and for
+  /// a missing host its message repeats the whole URI, which the notify client's failure log then
+  /// carries as its throwable. Every webhook client is built through here, so such an endpoint is
+  /// refused once, up front, by a message that shows no more than its redacted form.
+  static URI checkEndpoint(final URI endpoint) {
+    final var scheme = endpoint.getScheme();
+    if (endpoint.getHost() == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+      throw new IllegalArgumentException(
+          "A webhook endpoint must be an http(s) URL with a host, not " + ServiceConfigUtil.redactEndpoint(endpoint)
+      );
+    }
+    return endpoint;
   }
 
   @Override

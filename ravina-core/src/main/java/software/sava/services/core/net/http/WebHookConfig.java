@@ -140,16 +140,9 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
       if (bodyFormat == null) {
         bodyFormat = Objects.requireNonNull(provider, "bodyFormat or provider must be configured.").defaultTemplate();
       }
-      final var uri = URI.create(endpoint);
+      // refused at parse rather than when the client is built
+      final var uri = WebHookClientImpl.checkEndpoint(URI.create(endpoint));
       final var host = uri.getHost();
-      // The JDK client refuses such an endpoint on every post, and for a missing host its message
-      // repeats the whole URI into the failure log; refuse it here without echoing it.
-      final var scheme = uri.getScheme();
-      if (host == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
-        throw new IllegalArgumentException(
-            "A webhook endpoint must be an http(s) URL with a host, not " + ServiceConfigUtil.redactEndpoint(uri)
-        );
-      }
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor(host);
       return new WebHookConfig(uri, bodyFormat, capacityMonitor, backoff);
     }
