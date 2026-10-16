@@ -2,6 +2,7 @@ package software.sava.kms.http;
 
 import software.sava.core.accounts.PublicKey;
 import software.sava.kms.core.signing.BaseKMSClient;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.net.http.ExchangeDeadline;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.request_capacity.ErrorTrackedCapacityMonitor;
@@ -71,6 +72,9 @@ final class HttpKMSClient extends BaseKMSClient {
     this.httpClient = httpClient;
     this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
     this.deadlineScheduler = deadlineScheduler == null ? ExchangeDeadline.defaultScheduler() : deadlineScheduler;
+    // Without a host the request builder below throws with the whole endpoint in its message;
+    // every factory path, parsed or not, builds its client here.
+    ServiceConfigUtil.requireHost("An HTTP KMS endpoint", endpoint);
     this.getPublicKey = HttpRequest.newBuilder(endpoint.resolve("v0/publicKey"))
         .timeout(requestTimeout)
         .GET()

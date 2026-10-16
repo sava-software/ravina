@@ -299,4 +299,22 @@ final class HttpKMSClientFactoryTests {
       second.close();
     }
   }
+
+  /// Every way to build the client refuses an endpoint the URI parser gave no host: the request
+  /// builder would otherwise throw with the whole endpoint, key included, in its message.
+  @Test
+  void testAnEndpointWithoutAHostIsRefused() {
+    final var hostless = "https://my_kms.example.com/not-a-real-secret/";
+    final var expected = "An HTTP KMS endpoint must be a URL with a host, not (unparsed endpoint)";
+    final var json = "{\"endpoint\": \"" + hostless + "\", \"capacity\": {\"minCapacity\": 1, \"maxCapacity\": 10, "
+        + "\"resetDuration\": \"PT5S\", \"rateLimitedBackOffDuration\": \"PT1S\"}}";
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> new HttpKMSClientFactory().createService(
+          executor, Backoff.single(1), JsonIterator.parse(json.getBytes(StandardCharsets.UTF_8)))).getMessage());
+      final var httpClient = java.net.http.HttpClient.newBuilder().executor(executor).build();
+      assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> HttpKMSClientFactory.createService(
+          executor, httpClient, java.net.URI.create(hostless), Backoff.single(1),
+          (java.util.function.BiPredicate<Throwable, Void>) null)).getMessage());
+    }
+  }
 }
