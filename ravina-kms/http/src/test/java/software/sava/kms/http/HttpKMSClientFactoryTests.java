@@ -354,4 +354,26 @@ final class HttpKMSClientFactoryTests {
       }
     }
   }
+
+  /// A string the URI parser refuses is refused without being quoted, as JSON or as properties:
+  /// [java.net.URI#create]'s message repeats the whole string, key included, and its cause keeps
+  /// it again.
+  @Test
+  void testAMalformedEndpointIsRefusedWithoutQuotingIt() {
+    final var malformed = "https://kms.example.com/not-a-real-secret /";
+    final var expected = "An HTTP KMS endpoint is not a valid URI: Illegal character in path at index 41";
+    final var properties = new Properties();
+    properties.setProperty("endpoint", malformed);
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      for (final var refused : new IllegalArgumentException[]{
+          assertThrows(IllegalArgumentException.class, () -> new HttpKMSClientFactory().createService(executor,
+              Backoff.single(1), JsonIterator.parse(("{\"endpoint\": \"" + malformed + "\"}").getBytes(StandardCharsets.UTF_8)))),
+          assertThrows(IllegalArgumentException.class,
+              () -> new HttpKMSClientFactory().createService(executor, Backoff.single(1), "", properties))
+      }) {
+        assertEquals(expected, refused.getMessage());
+        assertNull(refused.getCause());
+      }
+    }
+  }
 }

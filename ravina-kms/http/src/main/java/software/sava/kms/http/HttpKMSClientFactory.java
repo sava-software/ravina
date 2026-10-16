@@ -146,7 +146,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
     final var p = PropertiesParser.propertyPrefix(prefix);
     final var endpointStr = PropertiesParser.getProperty(properties, p, "endpoint");
     if (endpointStr != null) {
-      this.endpoint = URI.create(endpointStr);
+      this.endpoint = ServiceConfigUtil.parseEndpoint(HttpKMSClient.WHAT, endpointStr);
     }
     final var capacityPrefix = p + "capacity.";
     if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
@@ -170,7 +170,7 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
   @Override
   public boolean test(final char[] buf, final int offset, final int len, final JsonIterator ji) {
     if (fieldEquals("endpoint", buf, offset, len)) {
-      endpoint = URI.create(ji.readString());
+      endpoint = ServiceConfigUtil.parseEndpoint(HttpKMSClient.WHAT, ji.readString());
     } else if (fieldEquals("capacity", buf, offset, len)) {
       capacityConfig = CapacityConfig.parse(ji);
     } else if (fieldEquals("requestTimeout", buf, offset, len)) {

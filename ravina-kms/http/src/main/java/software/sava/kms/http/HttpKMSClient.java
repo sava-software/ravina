@@ -32,6 +32,7 @@ final class HttpKMSClient extends BaseKMSClient {
   /// the future for good.
   static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(8);
 
+  static final String WHAT = "An HTTP KMS endpoint";
   private static final String ENCODING_HEADER = "X-ENCODING";
   private static final Function<HttpResponse<String>, PublicKey> PUBLIC_KEY_PARSER = response -> {
     final var encoding = response.headers().firstValue(ENCODING_HEADER).orElse("base58");
@@ -74,7 +75,7 @@ final class HttpKMSClient extends BaseKMSClient {
     this.deadlineScheduler = deadlineScheduler == null ? ExchangeDeadline.defaultScheduler() : deadlineScheduler;
     // Without a host the request builder below throws with the whole endpoint in its message;
     // every factory path, parsed or not, builds its client here.
-    ServiceConfigUtil.requireHost("An HTTP KMS endpoint", endpoint);
+    ServiceConfigUtil.requireHost(WHAT, endpoint);
     this.getPublicKey = HttpRequest.newBuilder(endpoint.resolve("v0/publicKey"))
         .timeout(requestTimeout)
         .GET()
