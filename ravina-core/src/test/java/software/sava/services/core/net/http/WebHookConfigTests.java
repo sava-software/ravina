@@ -167,7 +167,12 @@ final class WebHookConfigTests {
         {"endpoint": "ftp://hooks.example.com/hook", "provider": "slack"}""")));
     assertEquals("A webhook endpoint must be an http(s) URL with a host, not ftp://hooks.example.com/(redacted)", ftp.getMessage());
     // either scheme, in either case, is what the JDK client accepts
-    for (final var endpoint : new String[]{"http://hooks.example.com/hook", "HTTPS://hooks.example.com/hook"}) {
+    for (final var endpoint : new String[]{
+        "http://hooks.example.com/hook",
+        "HTTP://hooks.example.com/hook",
+        "https://hooks.example.com/hook",
+        "HTTPS://hooks.example.com/hook"
+    }) {
       final var config = WebHookConfig.parseConfig(JsonIterator.parse("{\"endpoint\": \"" + endpoint
           + "\", \"provider\": \"slack\", \"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"));
       assertEquals(URI.create(endpoint), config.endpoint());
