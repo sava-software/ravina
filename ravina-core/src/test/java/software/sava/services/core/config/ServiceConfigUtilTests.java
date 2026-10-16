@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 import systems.comodal.jsoniter.JsonIterator;
 
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -358,5 +359,41 @@ final class ServiceConfigUtilTests {
     assertEquals(Duration.ofSeconds(5), ServiceConfigUtil.parseDuration(JsonIterator.parse("\"PT5S\"")));
     assertEquals(Duration.ofSeconds(7), ServiceConfigUtil.parseDuration(JsonIterator.parse("\"7S\"")));
     assertNull(ServiceConfigUtil.parseDuration(JsonIterator.parse("\"\"")));
+  }
+
+  private static String redact(final String endpoint) {
+    return ServiceConfigUtil.redactEndpoint(URI.create(endpoint));
+  }
+
+  @Test
+  void testRedactEndpoint() {
+    assertEquals("null", ServiceConfigUtil.redactEndpoint((URI) null));
+    // nothing to hide: no path, the root path, a port
+    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com"));
+    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com/"));
+    assertEquals("http://127.0.0.1:8080", redact("http://127.0.0.1:8080/"));
+    assertEquals("http://localhost:0", redact("http://localhost:0"));
+    assertEquals("ws://[::1]:8900", redact("ws://[::1]:8900"));
+    // each component that can carry a secret, on its own
+    assertEquals("https://hooks.slack.com/(redacted)", redact("https://hooks.slack.com/services/T0000/B0000/not-a-real-secret"));
+    assertEquals("https://hooks.example.com:8443/(redacted)", redact("https://hooks.example.com:8443/hook"));
+    assertEquals("https://mainnet.helius-rpc.com/(redacted)", redact("https://mainnet.helius-rpc.com/?api-key=not-a-real-secret"));
+    assertEquals("https://hooks.example.com/(redacted)", redact("https://user:not-a-real-secret@hooks.example.com"));
+    assertEquals("https://hooks.example.com/(redacted)", redact("https://hooks.example.com#not-a-real-secret"));
+    // no scheme, or no host the URI parser accepts: never the raw authority
+    assertEquals("(unparsed endpoint)", redact("//hooks.example.com/hook"));
+    assertEquals("(unparsed endpoint)", redact("mailto:ops@example.com"));
+    assertEquals("(unparsed endpoint)", redact("https://user:not-a-real-secret@bad_host/hook"));
+  }
+
+  /// The text form parses first, and a string the parser refuses is not echoed: the parser's own
+  /// message would quote it whole.
+  @Test
+  void testRedactEndpointText() {
+    assertEquals("null", ServiceConfigUtil.redactEndpoint((String) null));
+    assertEquals("http://127.0.0.1:8899", ServiceConfigUtil.redactEndpoint("http://127.0.0.1:8899"));
+    assertEquals("https://rpc.example.com/(redacted)", ServiceConfigUtil.redactEndpoint("https://rpc.example.com/v2/not-a-real-secret"));
+    assertEquals("(unparsed endpoint)", ServiceConfigUtil.redactEndpoint("https://rpc.example.com/not a real secret"));
+    assertEquals("(unparsed endpoint)", ServiceConfigUtil.redactEndpoint(""));
   }
 }

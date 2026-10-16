@@ -206,4 +206,15 @@ final class UriCapacityConfigTests {
     final var noCapacity = new UriCapacityConfig(URI.create("https://api.example.com"), null, null);
     assertEquals(100, noCapacity.createMonitor("fallback", defaultConfig).capacityState().capacityConfig().maxCapacity());
   }
+
+  /// An RPC provider's key sits in the endpoint's path or query, so `toString()` shows scheme and
+  /// host only, while the config keeps the full endpoint.
+  @Test
+  void toStringRedactsTheEndpoint() {
+    final var secret = "https://rpc.example.com/v2/not-a-real-secret?api-key=also-not-real";
+    final var config = UriCapacityConfig.parseConfig(properties("url", secret));
+    assertEquals(URI.create(secret), config.endpoint());
+    assertEquals("UriCapacityConfig[endpoint=https://rpc.example.com/(redacted), capacityConfig=null, backoff=null]",
+        config.toString());
+  }
 }

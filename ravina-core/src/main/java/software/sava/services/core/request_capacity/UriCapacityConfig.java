@@ -1,6 +1,7 @@
 package software.sava.services.core.request_capacity;
 
 import software.sava.services.core.config.PropertiesParser;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.Backoff;
 import software.sava.services.core.remote.call.BackoffConfig;
 import systems.comodal.jsoniter.FieldBufferPredicate;
@@ -96,5 +97,13 @@ public record UriCapacityConfig(URI endpoint,
       }
       return true;
     }
+  }
+
+  /// The generated form would print the endpoint whole, and an RPC provider's key sits in its
+  /// path or query.
+  @Override
+  public String toString() {
+    return "UriCapacityConfig[endpoint=" + ServiceConfigUtil.redactEndpoint(endpoint)
+        + ", capacityConfig=" + capacityConfig + ", backoff=" + backoff + ']';
   }
 }

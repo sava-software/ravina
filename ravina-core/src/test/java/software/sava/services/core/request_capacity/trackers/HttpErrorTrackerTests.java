@@ -13,10 +13,14 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static org.junit.jupiter.api.Assertions.*;
@@ -334,6 +338,49 @@ final class HttpErrorTrackerTests {
       final var ok = new StubHttpResponse(200, "https://api.example.com/rpc", "fine".getBytes());
       assertTrue(tracker.test(ok, ok.body()));
       assertEquals(0, ok.logFormatAccesses, "successful responses are never logged");
+    }
+  }
+
+  /// This tracker serves every HTTP client, and a hosted endpoint's key sits in its path or its
+  /// query, so the DEBUG line names the endpoint redacted. A recording handler stands in for the
+  /// console so the line itself is asserted.
+  @Test
+  void debugLoggingRedactsTheEndpoint() {
+    final var logger = Logger.getLogger(HttpErrorTracker.class.getName());
+    final var records = new ArrayList<LogRecord>();
+    final var handler = new Handler() {
+      @Override
+      public void publish(final LogRecord record) {
+        records.add(record);
+      }
+
+      @Override
+      public void flush() {
+      }
+
+      @Override
+      public void close() {
+      }
+    };
+    final boolean useParentHandlers = logger.getUseParentHandlers();
+    logger.setUseParentHandlers(false);
+    logger.addHandler(handler);
+    try (var ignored = LogSilencer.forceLevel(HttpErrorTracker.class, Level.FINE)) {
+      final var tracker = createMonitor().errorTracker();
+      final var response = new StubHttpResponse(
+          502, "https://rpc.example.com/v2/not-a-real-secret?api-key=also-not-real", "bad gateway".getBytes()
+      );
+      assertTrue(tracker.test(response, response.body()));
+
+      assertEquals(1, records.size());
+      final var message = records.getFirst().getMessage();
+      assertTrue(message.startsWith("502 https://rpc.example.com/(redacted):"), message);
+      assertFalse(message.contains("not-a-real-secret"), message);
+      assertFalse(message.contains("also-not-real"), message);
+      assertTrue(message.contains("bad gateway"), message);
+    } finally {
+      logger.removeHandler(handler);
+      logger.setUseParentHandlers(useParentHandlers);
     }
   }
 }

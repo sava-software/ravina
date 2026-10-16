@@ -1,5 +1,6 @@
 package software.sava.services.core.request_capacity.trackers;
 
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.request_capacity.CapacityState;
 
 import java.net.http.HttpResponse;
@@ -54,7 +55,8 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>, byte[]> 
                     - %s
                 """,
             response.statusCode(),
-            response.uri(),
+            // a hosted endpoint's credential sits in its path or query
+            ServiceConfigUtil.redactEndpoint(response.uri()),
             response.headers().map().entrySet().stream()
                 .map(e -> String.format("%s: %s", e.getKey(), e.getValue()))
                 .collect(Collectors.joining("\n    - ")),

@@ -76,10 +76,17 @@ public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
       } else {
         throw new IllegalStateException(String.format(
             "Unknown RemoteResourceConfig field [%s] [endpoint=%s]",
-            new String(buf, offset, len), endpoint
+            new String(buf, offset, len), ServiceConfigUtil.redactEndpoint(endpoint)
         ));
       }
       return true;
     }
+  }
+
+  /// The generated form would print the endpoint whole, and an RPC provider's key sits in its
+  /// path or query.
+  @Override
+  public String toString() {
+    return "RemoteResourceConfig[endpoint=" + ServiceConfigUtil.redactEndpoint(endpoint) + ", backoff=" + backoff + ']';
   }
 }

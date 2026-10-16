@@ -165,4 +165,24 @@ final class RemoteResourceConfigTests {
     assertEquals(URI.create("https://only-endpoint.example.com"), config.endpoint());
     assertNotNull(config.backoff());
   }
+
+  /// An RPC provider's key sits in the endpoint's path or query: neither `toString()` nor the
+  /// unknown-field failure prints it, while the config keeps the full endpoint.
+  @Test
+  void testEndpointIsRedactedWhereverItIsRendered() {
+    final var secret = "https://rpc.example.com/v2/not-a-real-secret?api-key=also-not-real";
+    final var config = RemoteResourceConfig.parseConfig(JsonIterator.parse(
+        "{\"endpoint\": \"" + secret + "\"}"), DEFAULT_ENDPOINT, DEFAULT_BACKOFF);
+    assertEquals(URI.create(secret), config.endpoint());
+    assertEquals("RemoteResourceConfig[endpoint=https://rpc.example.com/(redacted), backoff=" + DEFAULT_BACKOFF + ']',
+        config.toString());
+
+    final var ji = JsonIterator.parse("{\"endpoint\": \"" + secret + "\", \"bogusField\": 1}");
+    final var exception = assertThrows(
+        IllegalStateException.class,
+        () -> RemoteResourceConfig.parseConfig(ji, DEFAULT_ENDPOINT, DEFAULT_BACKOFF)
+    );
+    assertEquals("Unknown RemoteResourceConfig field [bogusField] [endpoint=https://rpc.example.com/(redacted)]",
+        exception.getMessage());
+  }
 }

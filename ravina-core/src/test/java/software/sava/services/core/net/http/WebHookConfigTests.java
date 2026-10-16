@@ -141,28 +141,37 @@ final class WebHookConfigTests {
     assertEquals(secret, config.createClient(HttpClient.newHttpClient()).endpoint());
   }
 
-  private static String redact(final String endpoint) {
-    return WebHookConfig.redactEndpoint(URI.create(endpoint));
-  }
-
+  /// The JDK client refuses an endpoint without a host or an http(s) scheme on every post, and for
+  /// a missing host its message carries the whole URI into the failure log. Parsing refuses one
+  /// instead, and its message shows no more than the redacted form.
   @Test
-  void testRedactEndpoint() {
-    assertEquals("null", WebHookConfig.redactEndpoint(null));
-    // nothing to hide: no path, the root path, a port
-    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com"));
-    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com/"));
-    assertEquals("http://127.0.0.1:8080", redact("http://127.0.0.1:8080/"));
-    assertEquals("http://localhost:0", redact("http://localhost:0"));
-    // each component that can carry a secret, on its own
-    assertEquals("https://hooks.slack.com/(redacted)", redact("https://hooks.slack.com/services/T0000/B0000/not-a-real-secret"));
-    assertEquals("https://hooks.example.com:8443/(redacted)", redact("https://hooks.example.com:8443/hook"));
-    assertEquals("https://hooks.example.com/(redacted)", redact("https://hooks.example.com/?token=not-a-real-secret"));
-    assertEquals("https://hooks.example.com/(redacted)", redact("https://user:not-a-real-secret@hooks.example.com"));
-    assertEquals("https://hooks.example.com/(redacted)", redact("https://hooks.example.com#not-a-real-secret"));
-    // no scheme, or no host the URI parser accepts: never the raw authority
-    assertEquals("(unparsed endpoint)", redact("//hooks.example.com/hook"));
-    assertEquals("(unparsed endpoint)", redact("mailto:ops@example.com"));
-    assertEquals("(unparsed endpoint)", redact("https://user:not-a-real-secret@bad_host/hook"));
+  void testParseRefusesAnEndpointTheClientCannotPost() {
+    for (final var endpoint : new String[]{
+        "https://user:not-a-real-secret@bad_host/hook",
+        "//hooks.example.com/not-a-real-secret",
+        "hooks.example.com/not-a-real-secret",
+        "ftp://hooks.example.com/not-a-real-secret"
+    }) {
+      final var json = JsonIterator.parse("{\"endpoint\": \"" + endpoint + "\", \"provider\": \"slack\"}");
+      final var jsonFailure = assertThrows(IllegalArgumentException.class, () -> WebHookConfig.parseConfig(json));
+      assertFalse(jsonFailure.getMessage().contains("not-a-real-secret"), jsonFailure.getMessage());
+      assertTrue(jsonFailure.getMessage().startsWith("A webhook endpoint must be an http(s) URL with a host, not "), jsonFailure.getMessage());
+
+      final var properties = new Properties();
+      properties.setProperty("endpoint", endpoint);
+      properties.setProperty("provider", "slack");
+      final var propertiesFailure = assertThrows(IllegalArgumentException.class, () -> WebHookConfig.parse(properties));
+      assertEquals(jsonFailure.getMessage(), propertiesFailure.getMessage());
+    }
+    final var ftp = assertThrows(IllegalArgumentException.class, () -> WebHookConfig.parseConfig(JsonIterator.parse("""
+        {"endpoint": "ftp://hooks.example.com/hook", "provider": "slack"}""")));
+    assertEquals("A webhook endpoint must be an http(s) URL with a host, not ftp://hooks.example.com/(redacted)", ftp.getMessage());
+    // either scheme, in either case, is what the JDK client accepts
+    for (final var endpoint : new String[]{"http://hooks.example.com/hook", "HTTPS://hooks.example.com/hook"}) {
+      final var config = WebHookConfig.parseConfig(JsonIterator.parse("{\"endpoint\": \"" + endpoint
+          + "\", \"provider\": \"slack\", \"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"));
+      assertEquals(URI.create(endpoint), config.endpoint());
+    }
   }
 
   @Test

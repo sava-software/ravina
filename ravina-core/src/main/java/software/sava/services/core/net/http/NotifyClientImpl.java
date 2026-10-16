@@ -1,5 +1,6 @@
 package software.sava.services.core.net.http;
 
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.ClientCaller;
 import software.sava.services.core.request_capacity.context.CallContext;
 
@@ -67,7 +68,7 @@ final class NotifyClientImpl implements NotifyClient {
                 Failed to POST event to %s:
                 
                 %s
-                """, WebHookConfig.redactEndpoint(caller.client().endpoint()), msg
+                """, ServiceConfigUtil.redactEndpoint(caller.client().endpoint()), msg
             ), throwable
         );
         return null;
