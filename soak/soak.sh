@@ -333,10 +333,10 @@ fi
 SOAK_WEBSOCKET=$(printf '%s' "$SOAK_WEBSOCKET" | tr '[:upper:]' '[:lower:]')
 case $SOAK_WEBSOCKET in true | false) ;; *) cannot_start "SOAK_WEBSOCKET must be true or false, not '$SOAK_WEBSOCKET'" ;; esac
 [ "$SOAK_WEBSOCKET" = false ] || METHOD_TIMING_ENTRIES+=("$WEBSOCKET_TIMING_ENTRY")
-case $SOAK_RPC in http://* | https://*) ;; *) cannot_start "SOAK_RPC must be an http(s) URL, not '$(redact_endpoint "$SOAK_RPC")'" ;; esac
-case $SOAK_WS in ws://* | wss://*) ;; *) cannot_start "SOAK_WS must be a ws(s) URL, not '$(redact_endpoint "$SOAK_WS")'" ;; esac
 RPC_SHOWN=$(redact_endpoint "$SOAK_RPC")
 WS_SHOWN=$(redact_endpoint "$SOAK_WS")
+case $SOAK_RPC in http://* | https://*) ;; *) cannot_start "SOAK_RPC must be an http(s) URL, not '$RPC_SHOWN'" ;; esac
+case $SOAK_WS in ws://* | wss://*) ;; *) cannot_start "SOAK_WS must be a ws(s) URL, not '$WS_SHOWN'" ;; esac
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 resolve SOAK_OUT "$flag_out" "$SCRIPT_DIR/runs/$PROFILE-$STAMP"

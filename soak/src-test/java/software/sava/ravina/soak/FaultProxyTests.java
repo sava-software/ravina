@@ -2,6 +2,8 @@ package software.sava.ravina.soak;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -19,19 +21,31 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /// The proxy's upstream is SOAK_RPC, and its two log lines land in `logs/client.log`, so they name
 /// the upstream as scheme, host and port only (regression: both printed it whole, a hosted
-/// provider's key included). The proxy and its upstream are loopback only: the upstream port is
-/// one just released, so the forward fails to connect and the failure line is logged.
+/// provider's key included). The proxy and its upstream are loopback only: the upstream accepts
+/// each connection and closes it unanswered, so the forward fails and the failure line is logged,
+/// and the port stays bound for the whole test so nothing else can answer on it.
 final class FaultProxyTests {
 
   @Test
   void bothLogLinesNameTheUpstreamWithoutItsKey() throws Exception {
-    final int closedPort;
-    try (final var socket = new ServerSocket(0)) {
-      closedPort = socket.getLocalPort();
+    try (final var hangUp = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+      Thread.ofVirtual().start(() -> {
+        try {
+          for (; ; ) {
+            hangUp.accept().close();
+          }
+        } catch (final IOException closed) {
+          // the test is over
+        }
+      });
+      assertLogLinesRedact(hangUp.getLocalPort());
     }
+  }
+
+  private static void assertLogLinesRedact(final int upstreamPort) throws Exception {
     final var upstream = URI.create(
-        "http://127.0.0.1:" + closedPort + "/not-a-real-key?api-key=not-a-real-key#not-a-real-key");
-    final var redacted = "http://127.0.0.1:" + closedPort + "/(redacted)";
+        "http://127.0.0.1:" + upstreamPort + "/not-a-real-key?api-key=not-a-real-key#not-a-real-key");
+    final var redacted = "http://127.0.0.1:" + upstreamPort + "/(redacted)";
 
     final var logger = Logger.getLogger(FaultProxy.class.getName());
     final var records = new CopyOnWriteArrayList<LogRecord>();
@@ -59,7 +73,7 @@ final class FaultProxyTests {
       final var response = client.send(
           HttpRequest.newBuilder(proxy.endpoint())
               .header("Content-Type", "application/json")
-              .timeout(Duration.ofSeconds(30))
+              .timeout(Duration.ofSeconds(10))
               .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"getHealth\"}"))
               .build(),
           HttpResponse.BodyHandlers.ofString()
