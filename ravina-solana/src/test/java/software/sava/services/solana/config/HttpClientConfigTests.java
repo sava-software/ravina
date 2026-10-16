@@ -478,4 +478,14 @@ final class HttpClientConfigTests {
     assertEquals(Duration.ofMillis(500).toNanos(), backoff.initialDelay(TimeUnit.NANOSECONDS));
     assertEquals(Duration.ofSeconds(10).toNanos(), backoff.maxDelay(TimeUnit.NANOSECONDS));
   }
+
+  /// An endpoint the URI parser gave no host is refused at parse: the JDK client would refuse it
+  /// on every request with the whole URI, Helius's API key included, in its message.
+  @Test
+  void testHeliusRefusesAnEndpointWithoutAHost() {
+    final var expected = "A Helius endpoint must be a URL with a host, not (unparsed endpoint)";
+    assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> HeliusConfig.parseConfig(JsonIterator.parse(
+        "{\"url\": \"https://my_node.helius-rpc.com/?api-key=not-a-real-secret\", "
+            + "\"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"))).getMessage());
+  }
 }

@@ -3,6 +3,7 @@ package software.sava.services.solana.websocket;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.NanoClock;
+import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.Backoff;
 
 import java.net.URI;
@@ -70,6 +71,20 @@ public interface WebSocketManager extends AutoCloseable {
         onNewWebSocket,
         NanoClock.SYSTEM
     );
+  }
+
+  /// Refuses a websocket endpoint the JDK client would refuse on every connect attempt with the
+  /// whole URI, key included, in its message: one the URI parser gave no host, or one with a
+  /// fragment. The refusal shows the endpoint only redacted; `null` passes. Every factory applies
+  /// it to the prototype's [SolanaRpcWebsocket.Builder#wsUri()].
+  static URI checkEndpoint(final URI webSocketURI) {
+    ServiceConfigUtil.requireHost("A websocket endpoint", webSocketURI);
+    if (webSocketURI != null && webSocketURI.getRawFragment() != null) {
+      throw new IllegalArgumentException(
+          "A websocket endpoint must not carry a fragment, not " + ServiceConfigUtil.redactEndpoint(webSocketURI)
+      );
+    }
+    return webSocketURI;
   }
 
   static WebSocketManager createManager(final HttpClient httpClient,

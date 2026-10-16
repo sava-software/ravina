@@ -127,6 +127,8 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
                        final RetryScheduler retryScheduler) {
     this.clock = Objects.requireNonNull(clock);
     final var suppliedPrototype = Objects.requireNonNull(builderPrototype);
+    // refused once here rather than by the JDK on every connect attempt, URI and key in its message
+    WebSocketManager.checkEndpoint(suppliedPrototype.wsUri());
     this.backoff = Objects.requireNonNull(backoff);
     this.onNewWebSocket = onNewWebSocket;
     this.retryScheduler = Objects.requireNonNull(retryScheduler);

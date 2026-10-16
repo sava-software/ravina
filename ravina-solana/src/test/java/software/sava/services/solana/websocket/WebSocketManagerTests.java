@@ -4065,4 +4065,26 @@ final class WebSocketManagerTests {
     manager.checkConnection();
     assertEquals(2, fake.connectCount, "and the retained wrapper reconnects at that deadline");
   }
+
+  /// The JDK client refuses a websocket endpoint without a host, or with a fragment, on every
+  /// connect attempt with the whole URI in its message; every factory refuses one up front,
+  /// naming it only redacted. An absent endpoint passes.
+  @Test
+  void anEndpointTheJdkWouldRefuseIsRefusedUpFront() {
+    assertNull(WebSocketManager.checkEndpoint(null));
+    assertSame(WS_URI, WebSocketManager.checkEndpoint(WS_URI));
+    try (final var httpClient = HttpClient.newHttpClient()) {
+      final var hostless = URI.create("wss://my_node.example.com/not-a-real-secret");
+      assertEquals("A websocket endpoint must be a URL with a host, not (unparsed endpoint)",
+          assertThrows(IllegalArgumentException.class,
+              () -> WebSocketManager.createManager(httpClient, hostless, BACKOFF)).getMessage());
+      final var fragment = URI.create("wss://ws.example.com/?api-key=not-a-real-secret#x");
+      assertEquals("A websocket endpoint must not carry a fragment, not wss://ws.example.com/(redacted)",
+          assertThrows(IllegalArgumentException.class,
+              () -> WebSocketManager.createManager(httpClient, fragment, BACKOFF)).getMessage());
+      // the builder factories check the prototype's endpoint too
+      final var prototype = SolanaRpcWebsocket.build().uri(fragment).webSocketBuilder(httpClient);
+      assertThrows(IllegalArgumentException.class, () -> WebSocketManager.createManager(BACKOFF, prototype, null));
+    }
+  }
 }
