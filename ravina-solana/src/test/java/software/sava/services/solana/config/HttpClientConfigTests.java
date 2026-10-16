@@ -488,4 +488,15 @@ final class HttpClientConfigTests {
         "{\"url\": \"https://my_node.helius-rpc.com/?api-key=not-a-real-secret\", "
             + "\"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}"))).getMessage());
   }
+
+  /// A string the URI parser refuses is refused without being quoted: [URI#create]'s message
+  /// repeats the whole string, Helius's API key included, and its cause keeps it again.
+  @Test
+  void testHeliusRefusesAMalformedEndpointWithoutQuotingIt() {
+    final var refused = assertThrows(IllegalArgumentException.class, () -> HeliusConfig.parseConfig(JsonIterator.parse(
+        "{\"url\": \"https://mainnet.helius-rpc.com/?api-key=not-a-real-secret x\", "
+            + "\"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}}")));
+    assertEquals("A Helius endpoint is not a valid URI: Illegal character in query at index 57", refused.getMessage());
+    assertNull(refused.getCause());
+  }
 }

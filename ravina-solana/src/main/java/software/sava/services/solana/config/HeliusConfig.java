@@ -18,12 +18,14 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
+  private static final String WHAT = "A Helius endpoint";
+
   /// An endpoint without a host is refused here, at parse or construction, rather than by the
   /// JDK client on every request with the whole URI, Helius's API key included, in its message.
   public HeliusConfig(final URI endpoint,
                       final ErrorTrackedCapacityMonitor<HttpResponse<?>, byte[]> capacityMonitor,
                       final Backoff backoff) {
-    super(ServiceConfigUtil.requireHost("A Helius endpoint", endpoint), capacityMonitor, backoff);
+    super(ServiceConfigUtil.requireHost(WHAT, endpoint), capacityMonitor, backoff);
   }
 
   public static HeliusConfig parse(final Properties properties) {
@@ -77,7 +79,7 @@ public final class HeliusConfig extends BaseHttpClientConfig<HeliusClient> {
 
     private HeliusConfig create() {
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor("Helius");
-      return new HeliusConfig(URI.create(endpoint), capacityMonitor, backoff);
+      return new HeliusConfig(ServiceConfigUtil.parseEndpoint(WHAT, endpoint), capacityMonitor, backoff);
     }
 
     @Override
