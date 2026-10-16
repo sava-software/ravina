@@ -67,7 +67,7 @@ final class NotifyClientImpl implements NotifyClient {
                 Failed to POST event to %s:
                 
                 %s
-                """, caller.client().endpoint(), msg
+                """, WebHookConfig.redactEndpoint(caller.client().endpoint()), msg
             ), throwable
         );
         return null;

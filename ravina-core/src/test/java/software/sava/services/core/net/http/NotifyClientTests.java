@@ -28,6 +28,8 @@ final class NotifyClientTests {
 
   private static final URI ENDPOINT_A = URI.create("https://a.example.com/hook");
   private static final URI ENDPOINT_B = URI.create("https://b.example.com/hook");
+  /// Shaped like a Slack incoming webhook, whose last path segment is the secret.
+  private static final URI SECRET_ENDPOINT = URI.create("https://hooks.slack.com/services/T0000/B0000/not-a-real-secret");
 
   /// Records what was posted; never performs any I/O.
   private static final class RecordingWebHookClient implements WebHookClient {
@@ -239,10 +241,11 @@ final class NotifyClientTests {
   }
 
   /// Failures are never silent: the hook failure must reach the log, with the
-  /// throwable and the failing endpoint. A recording handler stands in for the
-  /// console so the contract is asserted rather than suppressed; the executor
-  /// is drained before asserting because the `exceptionally` stage runs on
-  /// whichever thread completes the post.
+  /// throwable and the failing endpoint's host, but never the endpoint's path,
+  /// which for a Slack webhook is its secret. A recording handler stands in for
+  /// the console so the contract is asserted rather than suppressed; the
+  /// executor is drained before asserting because the `exceptionally` stage
+  /// runs on whichever thread completes the post.
   @Test
   void failedHookLogsAWarningWithTheThrowable() throws InterruptedException {
     final var logger = Logger.getLogger(NotifyClientImpl.class.getName());
@@ -266,7 +269,7 @@ final class NotifyClientTests {
     logger.addHandler(handler);
     final var executorService = Executors.newSingleThreadExecutor();
     try (var ignored = LogSilencer.forceLevel(NotifyClientImpl.class, Level.WARNING)) {
-      final var hook = new RecordingWebHookClient(ENDPOINT_A, true);
+      final var hook = new RecordingWebHookClient(SECRET_ENDPOINT, true);
       final var notifyClient = NotifyClient.createClient(
           executorService,
           List.of(new DirectCaller(hook)),
@@ -280,8 +283,11 @@ final class NotifyClientTests {
       assertEquals(1, records.size());
       final var record = records.getFirst();
       assertEquals(Level.WARNING, record.getLevel());
-      assertTrue(record.getMessage().contains(ENDPOINT_A.toString()), record.getMessage());
-      assertTrue(record.getMessage().contains("boom"), record.getMessage());
+      final var message = record.getMessage();
+      assertTrue(message.contains("Failed to POST event to https://hooks.slack.com/(redacted):"), message);
+      assertFalse(message.contains("not-a-real-secret"), message);
+      assertFalse(message.contains("/services/"), message);
+      assertTrue(message.contains("boom"), message);
       final var thrown = record.getThrown();
       assertNotNull(thrown);
       assertInstanceOf(IllegalStateException.class, thrown.getCause());

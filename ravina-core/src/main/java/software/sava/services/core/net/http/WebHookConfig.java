@@ -178,10 +178,35 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
     return Objects.hash(endpoint, bodyFormat, capacityMonitor, backoff);
   }
 
+  /// The endpoint as it may appear in a log record or in `toString()`: scheme, host and port,
+  /// with `/(redacted)` in place of a path, query, user info or fragment left out. A Slack
+  /// incoming-webhook URL carries its secret in the path, so the full URI is a credential.
+  /// Without a scheme and a parsed host it renders as `(unparsed endpoint)`, never as the raw
+  /// authority, which can hold user info; `null` renders as `null`, as formatting it did. The
+  /// soak harness's `Report.redactEndpoint` renders the same shape.
+  static String redactEndpoint(final URI endpoint) {
+    if (endpoint == null) {
+      return "null";
+    }
+    final var scheme = endpoint.getScheme();
+    final var host = endpoint.getHost();
+    if (scheme == null || host == null) {
+      return "(unparsed endpoint)";
+    }
+    // a URI with a host is hierarchical, so its raw path is never null
+    final var path = endpoint.getRawPath();
+    final boolean hidden = !(path.isEmpty() || path.equals("/"))
+        || endpoint.getRawQuery() != null
+        || endpoint.getRawUserInfo() != null
+        || endpoint.getRawFragment() != null;
+    final int port = endpoint.getPort();
+    return scheme + "://" + host + (port < 0 ? "" : ":" + port) + (hidden ? "/(redacted)" : "");
+  }
+
   @Override
   public String toString() {
     return "WebHookConfig[" +
-        "endpoint=" + endpoint + ", " +
+        "endpoint=" + redactEndpoint(endpoint) + ", " +
         "bodyFormat=" + bodyFormat + ", " +
         "capacityConfig=" + capacityMonitor + ", " +
         "backoff=" + backoff + ']';

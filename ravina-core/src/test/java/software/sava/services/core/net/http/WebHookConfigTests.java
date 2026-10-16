@@ -126,6 +126,45 @@ final class WebHookConfigTests {
     assertTrue(config.toString().contains(WebHookConfig.Provider.SLACK.defaultTemplate()));
   }
 
+  /// A Slack webhook's path is its secret, so `toString()` shows scheme and host only, while the
+  /// config and the client it builds keep the full endpoint.
+  @Test
+  void testToStringRedactsTheEndpoint() {
+    final var secret = URI.create("https://hooks.slack.com/services/T0000/B0000/not-a-real-secret");
+    final var monitor = CAPACITY_CONFIG.createHttpResponseMonitor("hooks.slack.com");
+    final var config = new WebHookConfig(secret, "%s", monitor, Backoff.single(1));
+    final var rendered = config.toString();
+    assertTrue(rendered.startsWith("WebHookConfig[endpoint=https://hooks.slack.com/(redacted), bodyFormat=%s, "), rendered);
+    assertFalse(rendered.contains("not-a-real-secret"), rendered);
+    assertFalse(rendered.contains("/services/"), rendered);
+    assertEquals(secret, config.endpoint());
+    assertEquals(secret, config.createClient(HttpClient.newHttpClient()).endpoint());
+  }
+
+  private static String redact(final String endpoint) {
+    return WebHookConfig.redactEndpoint(URI.create(endpoint));
+  }
+
+  @Test
+  void testRedactEndpoint() {
+    assertEquals("null", WebHookConfig.redactEndpoint(null));
+    // nothing to hide: no path, the root path, a port
+    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com"));
+    assertEquals("https://hooks.slack.com", redact("https://hooks.slack.com/"));
+    assertEquals("http://127.0.0.1:8080", redact("http://127.0.0.1:8080/"));
+    assertEquals("http://localhost:0", redact("http://localhost:0"));
+    // each component that can carry a secret, on its own
+    assertEquals("https://hooks.slack.com/(redacted)", redact("https://hooks.slack.com/services/T0000/B0000/not-a-real-secret"));
+    assertEquals("https://hooks.example.com:8443/(redacted)", redact("https://hooks.example.com:8443/hook"));
+    assertEquals("https://hooks.example.com/(redacted)", redact("https://hooks.example.com/?token=not-a-real-secret"));
+    assertEquals("https://hooks.example.com/(redacted)", redact("https://user:not-a-real-secret@hooks.example.com"));
+    assertEquals("https://hooks.example.com/(redacted)", redact("https://hooks.example.com#not-a-real-secret"));
+    // no scheme, or no host the URI parser accepts: never the raw authority
+    assertEquals("(unparsed endpoint)", redact("//hooks.example.com/hook"));
+    assertEquals("(unparsed endpoint)", redact("mailto:ops@example.com"));
+    assertEquals("(unparsed endpoint)", redact("https://user:not-a-real-secret@bad_host/hook"));
+  }
+
   @Test
   void testParseJsonLowerCaseProvider() {
     final var config = WebHookConfig.parseConfig(JsonIterator.parse("""
