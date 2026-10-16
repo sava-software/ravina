@@ -317,4 +317,41 @@ final class HttpKMSClientFactoryTests {
           (java.util.function.BiPredicate<Throwable, Void>) null)).getMessage());
     }
   }
+
+  /// A parsed config the client refuses leaves no `HttpClient` of the factory's own open: one
+  /// left behind keeps its selector thread until a collection happens to reclaim it. Each case
+  /// gets a fresh factory, since a factory keeps what it parsed for the next call.
+  @Test
+  void aRefusedParsedConfigLeavesNoHttpClientOpen() {
+    final var capacity = "\"capacity\": {\"minCapacity\": 1, \"maxCapacity\": 10, "
+        + "\"resetDuration\": \"PT5S\", \"rateLimitedBackOffDuration\": \"PT1S\"}";
+    final var built = new java.util.ArrayList<java.net.http.HttpClient>();
+    final java.util.function.Supplier<HttpKMSClientFactory> recording = () -> new HttpKMSClientFactory(executor -> {
+      final var httpClient = java.net.http.HttpClient.newBuilder().executor(executor).build();
+      built.add(httpClient);
+      return httpClient;
+    });
+    try (final var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      try {
+        final var hostless = "{\"endpoint\": \"https://my_kms.example.com/not-a-real-secret/\", " + capacity + '}';
+        assertEquals(
+            "An HTTP KMS endpoint must be a URL with a host, not (unparsed endpoint)",
+            assertThrows(IllegalArgumentException.class, () -> recording.get().createService(
+                executor, Backoff.single(1), JsonIterator.parse(hostless.getBytes(StandardCharsets.UTF_8)))).getMessage()
+        );
+        final var noEndpoint = "{" + capacity + '}';
+        assertThrows(NullPointerException.class, () -> recording.get().createService(
+            executor, Backoff.single(1), JsonIterator.parse(noEndpoint.getBytes(StandardCharsets.UTF_8))));
+        final var noCapacity = "{\"endpoint\": \"https://kms.example.com/api\"}";
+        assertThrows(NullPointerException.class, () -> recording.get().createService(
+            executor, Backoff.single(1), JsonIterator.parse(noCapacity.getBytes(StandardCharsets.UTF_8))));
+
+        for (final var httpClient : built) {
+          assertTrue(httpClient.isTerminated(), "a refused config must close the client it built");
+        }
+      } finally {
+        built.forEach(java.net.http.HttpClient::shutdownNow);
+      }
+    }
+  }
 }

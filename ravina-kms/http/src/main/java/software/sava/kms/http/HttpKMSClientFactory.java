@@ -18,6 +18,7 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiPredicate;
+import java.util.function.Function;
 
 import static software.sava.kms.http.HttpKMSClient.DEFAULT_REQUEST_TIMEOUT;
 import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
@@ -30,11 +31,18 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 /// doing.
 public final class HttpKMSClientFactory implements SigningServiceFactory, FieldBufferPredicate {
 
+  // package-private so same-package tests can see each client a parsed config builds
+  final Function<ExecutorService, HttpClient> httpClients;
   private URI endpoint;
   private CapacityConfig capacityConfig;
   private Duration requestTimeout;
 
   public HttpKMSClientFactory() {
+    this(executorService -> HttpClient.newBuilder().executor(executorService).build());
+  }
+
+  HttpKMSClientFactory(final Function<ExecutorService, HttpClient> httpClients) {
+    this.httpClients = httpClients;
   }
 
   public static SigningService createService(final ExecutorService executorService,
@@ -94,18 +102,25 @@ public final class HttpKMSClientFactory implements SigningServiceFactory, FieldB
   private SigningService createService(final ExecutorService executorService,
                                        final Backoff backoff,
                                        final ErrorTrackerFactory<Throwable, Void> errorTrackerFactory) {
-    final var httpClient = HttpClient.newBuilder().executor(executorService).build();
     final var capacityMonitor = capacityConfig.createMonitor("HTTP KMS", errorTrackerFactory);
-    return new HttpKMSClient(
-        executorService,
-        backoff,
-        capacityMonitor,
-        capacityMonitor.errorTracker(),
-        httpClient,
-        endpoint,
-        requestTimeout == null ? DEFAULT_REQUEST_TIMEOUT : requestTimeout,
-        null
-    );
+    // The client is ours until the KMS client holds it: one its constructor refuses, for a
+    // missing or hostless endpoint, would keep its selector thread until collected.
+    final var httpClient = httpClients.apply(executorService);
+    try {
+      return new HttpKMSClient(
+          executorService,
+          backoff,
+          capacityMonitor,
+          capacityMonitor.errorTracker(),
+          httpClient,
+          endpoint,
+          requestTimeout == null ? DEFAULT_REQUEST_TIMEOUT : requestTimeout,
+          null
+      );
+    } catch (final Throwable refused) {
+      httpClient.close();
+      throw refused;
+    }
   }
 
   @Override
