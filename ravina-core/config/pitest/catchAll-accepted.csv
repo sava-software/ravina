@@ -1,4 +1,4 @@
 !sava-hardening-baseline-schema,1
 software.sava.services.core.net.http.NotifyClientImpl,lambda$postMsg$1,EmptyObjectReturnValsMutator,SURVIVED # discarded-handler # line 74
 software.sava.services.core.request_capacity.UriCapacityConfig$Parser,parseProperties,RemoveConditionalMutator_EQUAL_IF,SURVIVED # unreachable-guard # line 67
-software.sava.services.core.request_capacity.trackers.HttpErrorTracker,lambda$logResponse$0,EmptyObjectReturnValsMutator,SURVIVED # log-text-only # line 61
+software.sava.services.core.request_capacity.trackers.HttpErrorTracker,lambda$logResponse$0,EmptyObjectReturnValsMutator,SURVIVED # log-text-only # line 84

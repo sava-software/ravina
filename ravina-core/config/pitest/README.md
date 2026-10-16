@@ -407,13 +407,13 @@ reason. Without that barrier the handler can run after the test finishes, and
 its stack trace gets attributed to whichever test Gradle prints next.
 
 **Log-message-only values** `# log-text-only` (`catchAll`) —
-`HttpErrorTracker.lambda$logResponse$0` line 61 `EmptyObjectReturnVals`: the
+`HttpErrorTracker.lambda$logResponse$0` line 84 `EmptyObjectReturnVals`: the
 header-formatting lambda's value reaches only the DEBUG message text.
 Asserting it would couple the test to message wording, the same principle as
 the `logger.log` removals.
 
 **Unreachable-false guard** `# unreachable-guard` (`catchAll`) — `UriCapacityConfig$Parser`
-`parseProperties` line 68, the `!url.isBlank()` conjunct:
+`parseProperties` line 76, the `!url.isBlank()` conjunct:
 `PropertiesParser.getProperty` already maps a blank value to `null` and strips
 the rest, so `isBlank()` is never true when reached.
 
