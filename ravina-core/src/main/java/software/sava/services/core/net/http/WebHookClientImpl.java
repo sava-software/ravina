@@ -18,6 +18,8 @@ final class WebHookClientImpl implements WebHookClient {
   /// The JDK request timeout, which on JDK 25 bounds only the wait for the response headers; the
   /// whole exchange is bounded at twice it by [ExchangeDeadline].
   static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(8);
+  // names the endpoint in a refusal, here and when WebHookConfig parses one
+  static final String WHAT = "A webhook endpoint";
 
   private static final Function<HttpResponse<byte[]>, String> RESPONSE_PARSER = httpResponse -> {
     final var body = httpResponse.body();
@@ -67,7 +69,7 @@ final class WebHookClientImpl implements WebHookClient {
     final var scheme = endpoint.getScheme();
     if (endpoint.getHost() == null || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
       throw new IllegalArgumentException(
-          "A webhook endpoint must be an http(s) URL with a host, not " + ServiceConfigUtil.redactEndpoint(endpoint)
+          WHAT + " must be an http(s) URL with a host, not " + ServiceConfigUtil.redactEndpoint(endpoint)
       );
     }
     return endpoint;

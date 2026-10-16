@@ -15,5 +15,8 @@ public interface ErrorTracker<R, D> extends BiPredicate<R, D> {
 
   boolean hasExceededMaxAllowedGroupedErrorResponses();
 
+  /// The unexpired error records by group. A key names a group and nothing more: an HTTP tracker
+  /// keys an empty or `/` request path by itself and any other path by an opaque digest, since a
+  /// path can hold an endpoint's credential.
   Map<String, List<ErrorResponseRecord>> produceErrorResponseSnapshot();
 }

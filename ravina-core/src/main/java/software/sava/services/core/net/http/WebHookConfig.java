@@ -141,7 +141,7 @@ public final class WebHookConfig extends BaseHttpClientConfig<WebHookClient> {
         bodyFormat = Objects.requireNonNull(provider, "bodyFormat or provider must be configured.").defaultTemplate();
       }
       // refused at parse rather than when the client is built
-      final var uri = WebHookClientImpl.checkEndpoint(ServiceConfigUtil.parseEndpoint("A webhook endpoint", endpoint));
+      final var uri = WebHookClientImpl.checkEndpoint(ServiceConfigUtil.parseEndpoint(WebHookClientImpl.WHAT, endpoint));
       final var host = uri.getHost();
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor(host);
       return new WebHookConfig(uri, bodyFormat, capacityMonitor, backoff);
