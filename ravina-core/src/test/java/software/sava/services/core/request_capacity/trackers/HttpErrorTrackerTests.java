@@ -261,7 +261,7 @@ final class HttpErrorTrackerTests {
     assertEquals(3, tracker.maxGroupedErrorCount());
     assertEquals(-100, monitor.capacityState().capacity());
 
-    assertEquals(List.of("/rpc"), List.copyOf(tracker.produceErrorResponseSnapshot().keySet()));
+    assertEquals(1, tracker.produceErrorResponseSnapshot().size());
   }
 
   @Test
@@ -278,6 +278,45 @@ final class HttpErrorTrackerTests {
     assertEquals(3, tracker.produceErrorResponseSnapshot().size());
   }
 
+  /// A path-keyed provider (QuickNode, Alchemy, a Slack webhook) carries its credential in the
+  /// request path, the path names the response's error group, and the snapshot hands the group
+  /// keys out, to be logged with the records whose own text is already redacted. The key stands
+  /// in for the path without holding it, and one path is still one group (regression: the key
+  /// was the decoded path itself).
+  @Test
+  void aPathKeyedEndpointsKeyNeverNamesItsGroup() {
+    for (final var endpoint : new String[]{
+        "https://example.quiknode.pro/not-a-real-key/",
+        "https://solana-mainnet.g.alchemy.com/v2/not-a-real-key",
+        "https://hooks.slack.com/services/T000/B000/not-a-real-key"
+    }) {
+      final var monitor = createMonitor();
+      final var tracker = monitor.errorTracker();
+      for (int i = 0; i < 3; ++i) {
+        assertTrue(tracker.test(new StubHttpResponse(400, endpoint, null), null));
+      }
+      assertEquals(-100, monitor.capacityState().capacity(), "three errors on one keyed path are one group");
+
+      final var snapshot = tracker.produceErrorResponseSnapshot();
+      assertEquals(1, snapshot.size());
+      assertEquals(3, snapshot.values().iterator().next().size());
+      final var key = snapshot.keySet().iterator().next();
+      assertFalse(key.contains("not-a-real-key"), key);
+      assertNotEquals(URI.create(endpoint).getPath(), key);
+      assertFalse(snapshot.toString().contains("not-a-real-key"), snapshot.toString());
+    }
+  }
+
+  /// An empty or root path holds no credential, a query-keyed provider's (Helius
+  /// `/?api-key=...`) included, and keeps its readable key; the two stay distinct groups.
+  @Test
+  void anEmptyOrRootPathKeepsItsKey() {
+    final var tracker = createMonitor().errorTracker();
+    assertTrue(tracker.test(new StubHttpResponse(400, "https://mainnet.helius-rpc.com/?api-key=not-a-real-key", null), null));
+    assertTrue(tracker.test(new StubHttpResponse(400, "https://rpc.example.com", null), null));
+    assertEquals(java.util.Set.of("/", ""), tracker.produceErrorResponseSnapshot().keySet());
+  }
+
   @Test
   void errorRecordsCarryTheHttpStatusCodeAndClockTimestamp() {
     final var monitor = createMonitor();
@@ -286,7 +325,9 @@ final class HttpErrorTrackerTests {
     assertTrue(tracker.test(response(400, "/rpc"), null));
     assertTrue(tracker.test(response(404, "/rpc"), null));
 
-    final var records = tracker.produceErrorResponseSnapshot().get("/rpc");
+    final var snapshot = tracker.produceErrorResponseSnapshot();
+    assertEquals(1, snapshot.size());
+    final var records = snapshot.values().iterator().next();
     assertEquals(2, records.size());
     assertEquals(400, records.getFirst().errorCode(), "the record's error code is the response status");
     assertEquals(404, records.getLast().errorCode());

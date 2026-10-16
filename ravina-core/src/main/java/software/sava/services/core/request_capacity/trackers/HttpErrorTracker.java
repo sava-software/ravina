@@ -4,6 +4,10 @@ import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.request_capacity.CapacityState;
 
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.stream.Collectors;
 
 import static java.lang.System.Logger.Level.DEBUG;
@@ -38,9 +42,28 @@ public class HttpErrorTracker extends RootErrorTracker<HttpResponse<?>, byte[]> 
                                                           final byte[] body) {
     return updateGroupedErrorResponseCount(
         now,
-        response.request().uri().getPath(),
+        groupKey(response.request().uri().getPath()),
         new HttpErrorResponseRecord(now, response)
     );
+  }
+
+  /// The error group of a request path. A path-keyed provider (QuickNode, Alchemy, a Slack
+  /// webhook) carries its credential in the path, and [#produceErrorResponseSnapshot()] hands
+  /// the group keys out, so a path other than empty or `/` is keyed by `/(redacted)#` and the
+  /// first eight bytes of its SHA-256 in hex: one path is still one group, and distinct paths
+  /// distinct groups, without the key holding the path.
+  static String groupKey(final String path) {
+    if (path.isEmpty() || path.equals("/")) {
+      return path;
+    }
+    final MessageDigest sha256;
+    try {
+      sha256 = MessageDigest.getInstance("SHA-256");
+    } catch (final NoSuchAlgorithmException e) {
+      // every Java platform implements SHA-256
+      throw new IllegalStateException(e);
+    }
+    return "/(redacted)#" + HexFormat.of().formatHex(sha256.digest(path.getBytes(StandardCharsets.UTF_8)), 0, 8);
   }
 
   @Override
