@@ -396,4 +396,23 @@ final class ServiceConfigUtilTests {
     assertEquals("(unparsed endpoint)", ServiceConfigUtil.redactEndpoint("https://rpc.example.com/not a real secret"));
     assertEquals("(unparsed endpoint)", ServiceConfigUtil.redactEndpoint(""));
   }
+
+  /// An endpoint the URI parser gave no host is refused, naming it only redacted: the JDK
+  /// clients' own refusal would repeat it whole. `null` passes, for an optional endpoint.
+  @Test
+  void testRequireHost() {
+    assertNull(ServiceConfigUtil.requireHost("An RPC endpoint", null));
+    final var hosted = URI.create("https://rpc.example.com/v2/not-a-real-secret");
+    assertSame(hosted, ServiceConfigUtil.requireHost("An RPC endpoint", hosted));
+    for (final var hostless : new String[]{
+        "https:///v2/not-a-real-secret",
+        "https://my_rpc.example.com/v2/not-a-real-secret",
+        "https://user:not-a-real-secret@bad_host/rpc",
+        "rpc.example.com/not-a-real-secret"
+    }) {
+      final var refused = assertThrows(IllegalArgumentException.class,
+          () -> ServiceConfigUtil.requireHost("An RPC endpoint", URI.create(hostless)));
+      assertEquals("An RPC endpoint must be a URL with a host, not (unparsed endpoint)", refused.getMessage());
+    }
+  }
 }

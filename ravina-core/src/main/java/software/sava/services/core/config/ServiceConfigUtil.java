@@ -132,6 +132,18 @@ public final class ServiceConfigUtil {
     return scheme + "://" + host + (port < 0 ? "" : ":" + port) + (hidden ? "/(redacted)" : "");
   }
 
+  /// Refuses an endpoint the URI parser gave no host, such as `https:///v2/KEY` from an empty
+  /// template variable or a host name with an underscore. The JDK's HTTP and websocket clients
+  /// refuse one on every request, with a message that repeats the whole URI, key included, into
+  /// whatever logs the failure; this refusal names the endpoint only redacted, with `what` saying
+  /// which endpoint it is. `null` passes, for a config whose endpoint is optional.
+  public static URI requireHost(final String what, final URI endpoint) {
+    if (endpoint != null && endpoint.getHost() == null) {
+      throw new IllegalArgumentException(what + " must be a URL with a host, not " + redactEndpoint(endpoint));
+    }
+    return endpoint;
+  }
+
   /// [#redactEndpoint(URI)] for an endpoint held as text: a string [URI#create] refuses renders
   /// as `(unparsed endpoint)` rather than as itself.
   public static String redactEndpoint(final String endpoint) {

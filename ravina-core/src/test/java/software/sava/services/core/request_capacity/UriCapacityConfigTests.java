@@ -217,4 +217,22 @@ final class UriCapacityConfigTests {
     assertEquals("UriCapacityConfig[endpoint=https://rpc.example.com/(redacted), capacityConfig=null, backoff=null]",
         config.toString());
   }
+
+  /// An endpoint the URI parser gave no host is refused however the config is made: the JDK
+  /// client would refuse it on every request with the whole URI, key included, in its message.
+  @Test
+  void anEndpointWithoutAHostIsRefused() {
+    final var hostless = "https://my_rpc.example.com/v2/not-a-real-secret";
+    final var expected = "A UriCapacityConfig endpoint must be a URL with a host, not (unparsed endpoint)";
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> UriCapacityConfig.parseConfig(properties("url", hostless))).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> UriCapacityConfig.parseConfig(JsonIterator.parse("\"" + hostless + "\""))).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> UriCapacityConfig.parseConfig(JsonIterator.parse("{\"url\": \"" + hostless + "\"}"))).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> new UriCapacityConfig(URI.create(hostless), null, null)).getMessage());
+    // an absent endpoint is still allowed
+    assertNull(new UriCapacityConfig(null, null, null).endpoint());
+  }
 }

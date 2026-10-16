@@ -200,4 +200,19 @@ final class RemoteHttpResourceConfigTests {
             + ", endpoint=https://rpc.example.com/(redacted), backoff=" + DEFAULT_BACKOFF + ']',
         config.toString());
   }
+
+  /// An endpoint the URI parser gave no host is refused, given or defaulted: the JDK client would
+  /// refuse it on every request with the whole URI, key included, in its message.
+  @Test
+  void testAnEndpointWithoutAHostIsRefused() {
+    final var hostless = "https://my_rpc.example.com/v2/not-a-real-secret";
+    final var expected = "A RemoteHttpResourceConfig endpoint must be a URL with a host, not (unparsed endpoint)";
+    final var capacity = "\"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}";
+    assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> RemoteHttpResourceConfig.parseConfig(
+        JsonIterator.parse("{\"endpoint\": \"" + hostless + "\", " + capacity + "}"),
+        DEFAULT_SERVICE_NAME, DEFAULT_ENDPOINT, DEFAULT_BACKOFF)).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> RemoteHttpResourceConfig.parseConfig(
+        JsonIterator.parse("{" + capacity + "}"), DEFAULT_SERVICE_NAME, hostless, DEFAULT_BACKOFF)).getMessage());
+    assertNull(new RemoteHttpResourceConfig(null, null, DEFAULT_BACKOFF).endpoint());
+  }
 }

@@ -185,4 +185,19 @@ final class RemoteResourceConfigTests {
     assertEquals("Unknown RemoteResourceConfig field [bogusField] [endpoint=https://rpc.example.com/(redacted)]",
         exception.getMessage());
   }
+
+  /// An endpoint the URI parser gave no host is refused, given or defaulted: the JDK client would
+  /// refuse it on every request with the whole URI, key included, in its message.
+  @Test
+  void testAnEndpointWithoutAHostIsRefused() {
+    final var hostless = "https://my_rpc.example.com/v2/not-a-real-secret";
+    final var expected = "A RemoteResourceConfig endpoint must be a URL with a host, not (unparsed endpoint)";
+    assertEquals(expected, assertThrows(IllegalArgumentException.class, () -> RemoteResourceConfig.parseConfig(
+        JsonIterator.parse("{\"endpoint\": \"" + hostless + "\"}"), DEFAULT_ENDPOINT, DEFAULT_BACKOFF)).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> RemoteResourceConfig.parseConfig(new Properties(), hostless, DEFAULT_BACKOFF)).getMessage());
+    assertEquals(expected, assertThrows(IllegalArgumentException.class,
+        () -> new RemoteResourceConfig(URI.create(hostless), DEFAULT_BACKOFF)).getMessage());
+    assertNull(new RemoteResourceConfig(null, DEFAULT_BACKOFF).endpoint());
+  }
 }

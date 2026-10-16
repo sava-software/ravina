@@ -19,6 +19,12 @@ public record UriCapacityConfig(URI endpoint,
                                 CapacityConfig capacityConfig,
                                 Backoff backoff) {
 
+  /// An endpoint without a host is refused here, at parse or construction, rather than by the
+  /// JDK client on every request with the whole URI, key included, in its message.
+  public UriCapacityConfig {
+    ServiceConfigUtil.requireHost("A UriCapacityConfig endpoint", endpoint);
+  }
+
   public static UriCapacityConfig parseConfig(final Properties properties) {
     return parseConfig("", properties);
   }
