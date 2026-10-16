@@ -100,6 +100,12 @@ final class HttpErrorTrackerTests {
     public HttpClient.Version version() {
       return HttpClient.Version.HTTP_1_1;
     }
+
+    /// The JDK's own `HttpResponseImpl.toString` shape, which names the full request URI.
+    @Override
+    public String toString() {
+      return "(POST " + uri + ") " + statusCode;
+    }
   }
 
   private static StubHttpResponse response(final int statusCode, final String path) {
@@ -382,5 +388,18 @@ final class HttpErrorTrackerTests {
       logger.removeHandler(handler);
       logger.setUseParentHandlers(useParentHandlers);
     }
+  }
+
+  /// A grouped error record reaches any caller that logs the public error snapshot, and the JDK
+  /// response's own `toString` names the full request URI, so the record names it redacted.
+  @Test
+  void errorResponseRecordRedactsTheEndpoint() {
+    final var response = new StubHttpResponse(
+        429, "https://rpc.example.com/v2/not-a-real-secret?api-key=also-not-real", null
+    );
+    assertEquals(
+        "HttpErrorResponseRecord[timestamp=500000, statusCode=429, uri=https://rpc.example.com/(redacted)]",
+        new HttpErrorResponseRecord(CLOCK_MILLIS, response).toString()
+    );
   }
 }

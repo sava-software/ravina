@@ -413,7 +413,7 @@ Asserting it would couple the test to message wording, the same principle as
 the `logger.log` removals.
 
 **Unreachable-false guard** `# unreachable-guard` (`catchAll`) — `UriCapacityConfig$Parser`
-`parseProperties` line 67, the `!url.isBlank()` conjunct:
+`parseProperties` line 68, the `!url.isBlank()` conjunct:
 `PropertiesParser.getProperty` already maps a blank value to `null` and strips
 the rest, so `isBlank()` is never true when reached.
 
