@@ -474,9 +474,11 @@ swallowed transaction's signature in `detail`. `method` is the JSON-RPC method r
 (`getSigStatusList`), so the two are matched by meaning, not by string.
 
 **`ravina.soak.Run`**: committed at `START` and at `END`, so a recording read on its own says what
-produced it and how it ended: the RPC endpoint, whether the websocket was on, the rate, the
-duration, and the submitted and settled totals. `detail` carries the payer, the RPC capacity, the
-poll floor, the websocket timeout, the peer count and each proxy's fault at start
+produced it and how it ended: the RPC endpoint as scheme, host and port (`/(redacted)` stands in
+for a path, query, user info or fragment, where a hosted provider's key rides), whether the
+websocket was on, the rate, the duration, and the submitted and settled totals. `detail` carries
+the payer, the RPC capacity, the poll floor, the websocket timeout, the peer count and each
+proxy's fault at start
 (`peer-1=rate_limit:on=5,off=15,ms=500`, or `peer-2=pass-through`: the kind prints with an
 underscore and `ms` always shows), and the pending, dropped, notified, timed-out, thrown and
 injected-fault totals at end.

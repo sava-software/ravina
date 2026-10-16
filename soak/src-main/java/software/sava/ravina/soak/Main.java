@@ -413,16 +413,19 @@ public final class Main {
     throw new IllegalStateException("airdrop not confirmed within 30 s: " + signature);
   }
 
-  private static void commitRun(final String phase,
-                                final URI rpcUri,
-                                final boolean webSocketEnabled,
-                                final double ratePerSecond,
-                                final long durationSeconds,
-                                final Counters counters,
-                                final String detail) {
+  /// Package-private for `MainTests`, which reads the committed event back from a recording.
+  static void commitRun(final String phase,
+                        final URI rpcUri,
+                        final boolean webSocketEnabled,
+                        final double ratePerSecond,
+                        final long durationSeconds,
+                        final Counters counters,
+                        final String detail) {
     final var event = new SoakEvents.Run();
     event.phase = phase;
-    event.rpc = rpcUri.toString();
+    // scheme, host and port only: a hosted provider's key rides in the path, query or user
+    // info, and soak.jfr is the file people attach to issues
+    event.rpc = Report.redactEndpoint(rpcUri.toString());
     event.webSocketEnabled = webSocketEnabled;
     event.ratePerSecond = ratePerSecond;
     event.durationSeconds = durationSeconds;
