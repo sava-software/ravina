@@ -235,4 +235,20 @@ final class UriCapacityConfigTests {
     // an absent endpoint is still allowed
     assertNull(new UriCapacityConfig(null, null, null).endpoint());
   }
+
+  /// A string the URI parser refuses is refused without being quoted: [URI#create]'s message
+  /// repeats the whole string, key included, and its cause keeps it again.
+  @Test
+  void aMalformedEndpointIsRefusedWithoutQuotingIt() {
+    final var malformed = "https://rpc.example.com/v2/not-a-real-secret /";
+    final var expected = "A UriCapacityConfig endpoint is not a valid URI: Illegal character in path at index 44";
+    for (final var refused : new IllegalArgumentException[]{
+        assertThrows(IllegalArgumentException.class, () -> UriCapacityConfig.parseConfig(properties("url", malformed))),
+        assertThrows(IllegalArgumentException.class, () -> UriCapacityConfig.parseConfig(JsonIterator.parse("\"" + malformed + "\""))),
+        assertThrows(IllegalArgumentException.class, () -> UriCapacityConfig.parseConfig(JsonIterator.parse("{\"url\": \"" + malformed + "\"}")))
+    }) {
+      assertEquals(expected, refused.getMessage());
+      assertNull(refused.getCause());
+    }
+  }
 }

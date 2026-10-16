@@ -215,4 +215,23 @@ final class RemoteHttpResourceConfigTests {
         JsonIterator.parse("{" + capacity + "}"), DEFAULT_SERVICE_NAME, hostless, DEFAULT_BACKOFF)).getMessage());
     assertNull(new RemoteHttpResourceConfig(null, null, DEFAULT_BACKOFF).endpoint());
   }
+
+  /// A string the URI parser refuses is refused without being quoted, given or defaulted:
+  /// [URI#create]'s message repeats the whole string, key included, and its cause keeps it again.
+  @Test
+  void testAMalformedEndpointIsRefusedWithoutQuotingIt() {
+    final var malformed = "https://rpc.example.com/v2/not-a-real-secret /";
+    final var expected = "A RemoteHttpResourceConfig endpoint is not a valid URI: Illegal character in path at index 44";
+    final var capacity = "\"capacity\": {\"maxCapacity\": 10, \"resetDuration\": \"PT1S\"}";
+    for (final var refused : new IllegalArgumentException[]{
+        assertThrows(IllegalArgumentException.class, () -> RemoteHttpResourceConfig.parseConfig(
+            JsonIterator.parse("{\"endpoint\": \"" + malformed + "\", " + capacity + "}"),
+            DEFAULT_SERVICE_NAME, DEFAULT_ENDPOINT, DEFAULT_BACKOFF)),
+        assertThrows(IllegalArgumentException.class, () -> RemoteHttpResourceConfig.parseConfig(
+            JsonIterator.parse("{" + capacity + "}"), DEFAULT_SERVICE_NAME, malformed, DEFAULT_BACKOFF))
+    }) {
+      assertEquals(expected, refused.getMessage());
+      assertNull(refused.getCause());
+    }
+  }
 }

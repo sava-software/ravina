@@ -19,10 +19,12 @@ public record UriCapacityConfig(URI endpoint,
                                 CapacityConfig capacityConfig,
                                 Backoff backoff) {
 
+  private static final String WHAT = "A UriCapacityConfig endpoint";
+
   /// An endpoint without a host is refused here, at parse or construction, rather than by the
   /// JDK client on every request with the whole URI, key included, in its message.
   public UriCapacityConfig {
-    ServiceConfigUtil.requireHost("A UriCapacityConfig endpoint", endpoint);
+    ServiceConfigUtil.requireHost(WHAT, endpoint);
   }
 
   public static UriCapacityConfig parseConfig(final Properties properties) {
@@ -42,7 +44,7 @@ public record UriCapacityConfig(URI endpoint,
       return null;
     } else if (next == ValueType.STRING) {
       final var endpoint = ji.readString();
-      return new UriCapacityConfig(URI.create(endpoint), null, null);
+      return new UriCapacityConfig(ServiceConfigUtil.parseEndpoint(WHAT, endpoint), null, null);
     } else {
       final var parser = new Parser();
       ji.testObject(parser);
@@ -72,7 +74,7 @@ public record UriCapacityConfig(URI endpoint,
       final var p = propertyPrefix(prefix);
       final var url = getProperty(properties, p, "url");
       if (url != null && !url.isBlank()) {
-        this.endpoint = URI.create(url);
+        this.endpoint = ServiceConfigUtil.parseEndpoint(WHAT, url);
       }
       final var capacityPrefix = p + "capacity.";
       if (properties.stringPropertyNames().stream().anyMatch(k -> k.startsWith(capacityPrefix))) {
@@ -89,7 +91,7 @@ public record UriCapacityConfig(URI endpoint,
       if (fieldEquals("url", buf, offset, len)) {
         final var endpoint = ji.readString();
         if (endpoint != null && !endpoint.isBlank()) {
-          this.endpoint = URI.create(endpoint);
+          this.endpoint = ServiceConfigUtil.parseEndpoint(WHAT, endpoint);
         }
       } else if (fieldEquals("capacity", buf, offset, len)) {
         capacityConfig = CapacityConfig.parse(ji);

@@ -13,10 +13,12 @@ import static systems.comodal.jsoniter.JsonIterator.fieldEquals;
 
 public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
 
+  private static final String WHAT = "A RemoteResourceConfig endpoint";
+
   /// An endpoint without a host is refused here, at parse or construction, rather than by the
   /// JDK client on every request with the whole URI, key included, in its message.
   public RemoteResourceConfig {
-    ServiceConfigUtil.requireHost("A RemoteResourceConfig endpoint", endpoint);
+    ServiceConfigUtil.requireHost(WHAT, endpoint);
   }
 
   public static RemoteResourceConfig parseConfig(final Properties properties,
@@ -65,7 +67,7 @@ public record RemoteResourceConfig(URI endpoint, Backoff backoff) {
 
     private RemoteResourceConfig create(final String defaultEndpoint, final Backoff defaultBackoff) {
       return new RemoteResourceConfig(
-          URI.create(requireNonNullElse(endpoint, defaultEndpoint)),
+          ServiceConfigUtil.parseEndpoint(WHAT, requireNonNullElse(endpoint, defaultEndpoint)),
           requireNonNullElse(backoff, defaultBackoff)
       );
     }

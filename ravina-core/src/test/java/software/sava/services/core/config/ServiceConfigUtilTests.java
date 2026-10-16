@@ -415,4 +415,25 @@ final class ServiceConfigUtilTests {
       assertEquals("An RPC endpoint must be a URL with a host, not (unparsed endpoint)", refused.getMessage());
     }
   }
+
+  /// Parses as [URI#create] does, and refuses a malformed endpoint by name, reason and index
+  /// alone, with no cause: [URI#create]'s message and its cause both quote the string whole.
+  @Test
+  void testParseEndpoint() {
+    final var endpoint = "https://rpc.example.com/v2/not-a-real-secret?x=1#y";
+    assertEquals(URI.create(endpoint), ServiceConfigUtil.parseEndpoint("An RPC endpoint", endpoint));
+    // a registry authority parses, as with URI.create: refusing it is requireHost's part
+    assertNull(ServiceConfigUtil.parseEndpoint("An RPC endpoint", "https://my_rpc.example.com/").getHost());
+    assertThrows(NullPointerException.class, () -> ServiceConfigUtil.parseEndpoint("An RPC endpoint", null));
+    for (final var malformed : new String[][]{
+        {"https://rpc.example.com/not-a-real-secret /", "Illegal character in path at index 41"},
+        {"https://rpc.example.com/?api-key=not-a-real-secret%zz", "Malformed escape pair at index 50"},
+        {"https://", "Expected authority at index 8"}
+    }) {
+      final var refused = assertThrows(IllegalArgumentException.class,
+          () -> ServiceConfigUtil.parseEndpoint("An RPC endpoint", malformed[0]));
+      assertEquals("An RPC endpoint is not a valid URI: " + malformed[1], refused.getMessage());
+      assertNull(refused.getCause());
+    }
+  }
 }

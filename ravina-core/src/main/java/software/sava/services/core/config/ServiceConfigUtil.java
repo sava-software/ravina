@@ -5,6 +5,7 @@ import systems.comodal.jsoniter.JsonIterator;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -144,16 +145,36 @@ public final class ServiceConfigUtil {
     return endpoint;
   }
 
-  /// [#redactEndpoint(URI)] for an endpoint held as text: a string [URI#create] refuses renders
-  /// as `(unparsed endpoint)` rather than as itself.
+  /// [#redactEndpoint(URI)] for an endpoint held as text: a string the URI parser refuses renders
+  /// as `(unparsed endpoint)` rather than as itself. It is parsed as [#parseEndpoint] does, so no
+  /// exception quoting it is built on the way.
   public static String redactEndpoint(final String endpoint) {
     if (endpoint == null) {
       return "null";
     }
     try {
-      return redactEndpoint(URI.create(endpoint));
-    } catch (final IllegalArgumentException malformed) {
+      return redactEndpoint(new URI(endpoint));
+    } catch (final URISyntaxException malformed) {
       return "(unparsed endpoint)";
+    }
+  }
+
+  /// Parses a configured endpoint, as [URI#create] does, without quoting it when it is refused.
+  /// [URI#create] wraps the parser's exception in one whose message repeats the whole string, a
+  /// hosted provider's key included, and keeps the parser's exception, which also repeats it, as
+  /// the cause; Flight Recorder's `jdk.JavaExceptionThrow` event records such a message as the
+  /// exception is constructed, so catching it afterwards is too late. The refusal here names the
+  /// endpoint by `what` and gives the parser's reason and index (-1 when the JVM withholds it,
+  /// see `jdk.includeInExceptions`), with no cause. The parser's exception records only its
+  /// reason: the string is kept apart, and joined only by its `getMessage()`, which is never
+  /// called here. A `null` endpoint throws [NullPointerException], as [URI#create] does.
+  public static URI parseEndpoint(final String what, final String endpoint) {
+    try {
+      return new URI(endpoint);
+    } catch (final URISyntaxException malformed) {
+      throw new IllegalArgumentException(
+          what + " is not a valid URI: " + malformed.getReason() + " at index " + malformed.getIndex()
+      );
     }
   }
 

@@ -18,10 +18,12 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
                                        URI endpoint,
                                        Backoff backoff) {
 
+  private static final String WHAT = "A RemoteHttpResourceConfig endpoint";
+
   /// An endpoint without a host is refused here, at parse or construction, rather than by the
   /// JDK client on every request with the whole URI, key included, in its message.
   public RemoteHttpResourceConfig {
-    ServiceConfigUtil.requireHost("A RemoteHttpResourceConfig endpoint", endpoint);
+    ServiceConfigUtil.requireHost(WHAT, endpoint);
   }
 
   public static RemoteHttpResourceConfig parseConfig(final String prefix,
@@ -67,7 +69,7 @@ public record RemoteHttpResourceConfig(ErrorTrackedCapacityMonitor<HttpResponse<
       final var capacityMonitor = capacityConfig.createHttpResponseMonitor(requireNonNullElse(name, defaultServiceName));
       return new RemoteHttpResourceConfig(
           capacityMonitor,
-          URI.create(requireNonNullElse(endpoint, defaultEndpoint)),
+          ServiceConfigUtil.parseEndpoint(WHAT, requireNonNullElse(endpoint, defaultEndpoint)),
           requireNonNullElse(backoff, defaultBackoff)
       );
     }

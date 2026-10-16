@@ -372,4 +372,23 @@ final class WebHookConfigTests {
     final var exception = assertThrows(IllegalStateException.class, () -> WebHookConfig.parseConfig(ji));
     assertTrue(exception.getMessage().contains("bogusField"));
   }
+
+  /// A string the URI parser refuses is refused without being quoted: [URI#create]'s message
+  /// repeats the whole string, a Slack webhook's secret path included, and its cause keeps it.
+  @Test
+  void testParseRefusesAMalformedEndpointWithoutQuotingIt() {
+    final var malformed = "https://hooks.example.com/services/not-a-real-secret /";
+    final var expected = "A webhook endpoint is not a valid URI: Illegal character in path at index 52";
+    final var properties = new Properties();
+    properties.setProperty("endpoint", malformed);
+    properties.setProperty("provider", "slack");
+    for (final var refused : new IllegalArgumentException[]{
+        assertThrows(IllegalArgumentException.class, () -> WebHookConfig.parseConfig(
+            JsonIterator.parse("{\"endpoint\": \"" + malformed + "\", \"provider\": \"slack\"}"))),
+        assertThrows(IllegalArgumentException.class, () -> WebHookConfig.parse(properties))
+    }) {
+      assertEquals(expected, refused.getMessage());
+      assertNull(refused.getCause());
+    }
+  }
 }
