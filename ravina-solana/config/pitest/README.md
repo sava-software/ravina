@@ -410,7 +410,7 @@ a running minimum (`TxExpirationMonitorService.processTransactions`, the
 earliest-gate scan): the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
-`WebSocketManager.createManager` line 39, `.commitment(Commitment.CONFIRMED)`.
+`WebSocketManager.createManager` line 97, `.commitment(Commitment.CONFIRMED)`.
 `SolanaRpcWebsocketBuilder` initialises its commitment field to `CONFIRMED`,
 so dropping the call leaves the identical prototype state — verified against
 the builder's getter, which the factory test now asserts. The explicit call
