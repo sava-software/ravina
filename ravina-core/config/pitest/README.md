@@ -305,12 +305,15 @@ return that unit). Rewriting it as `<` would only mirror the mutant.
 
 **Logging removals** `# log-removal` — `logger.log(...)` `VoidMethodCallMutator` removals
 anywhere: log output is not part of any behavioral contract, and asserting on
-it would couple tests to message wording. One deliberate exception:
+it would couple tests to message wording. Two deliberate exceptions:
 `NotifyClientImpl`'s hook-failure warning is itself the contract ("failures
 are never silent"), so `failedHookLogsAWarningWithTheThrowable` records the
 JUL handler and asserts presence, level, endpoint and throwable — substrings,
 not wording — and that mutant is killed, not family-accepted (its stale row
-was pruned 2026-07-24).
+was pruned 2026-07-24). And `HttpErrorTracker.logResponse`'s DEBUG line must
+name the endpoint redacted, a credential contract, so
+`debugLoggingRedactsTheEndpoint` records it and asserts the redacted prefix and
+the absent key; that mutant is killed too, and its row was pruned 2026-10-16.
 
 **Saturation absorbs the off-by-one** `# saturation-sweep` (`backoff`) — surviving
 `ConditionalsBoundaryMutator`/`RemoveConditionalMutator_ORDER_IF` on a
@@ -395,7 +398,7 @@ accepted: it is killed by
 `courteousBalancedCallReSortsBeforeSelectingTheFailoverItem`.
 
 **Discarded `exceptionally` handler** `# discarded-handler` (`catchAll`) —
-`NotifyClientImpl.lambda$postMsg$1` line 73 `EmptyObjectReturnVals`: the future
+`NotifyClientImpl.lambda$postMsg$1` line 74 `EmptyObjectReturnVals`: the future
 derived from `exceptionally(...)` is never stored or returned, so the handler's
 return value is unobservable. The path is covered by
 `failedHookStillYieldsAFutureInTheReturnedList`, which drains the executor
@@ -404,7 +407,7 @@ reason. Without that barrier the handler can run after the test finishes, and
 its stack trace gets attributed to whichever test Gradle prints next.
 
 **Log-message-only values** `# log-text-only` (`catchAll`) —
-`HttpErrorTracker.lambda$logResponse$0` line 59 `EmptyObjectReturnVals`: the
+`HttpErrorTracker.lambda$logResponse$0` line 61 `EmptyObjectReturnVals`: the
 header-formatting lambda's value reaches only the DEBUG message text.
 Asserting it would couple the test to message wording, the same principle as
 the `logger.log` removals.
