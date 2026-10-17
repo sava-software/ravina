@@ -1,5 +1,31 @@
 # Changelog
 
+## [25.6.7](https://github.com/sava-software/ravina/compare/25.6.6...25.6.7) (2026-10-17)
+
+
+### Bug Fixes
+
+* **core:** keep the webhook secret out of the failure log and WebHookConfig.toString() ([04425bc](https://github.com/sava-software/ravina/commit/04425bc17a8ef78b5656db3d87ac55813768901f))
+* **core:** key HTTP error groups by a digest of a non-root request path ([695b751](https://github.com/sava-software/ravina/commit/695b751992d1ef0f1b4279fd80eea758ae7f3c91))
+* **core:** redact credential-bearing endpoints in every log line, message and toString ([05bf905](https://github.com/sava-software/ravina/commit/05bf905e792779a68fb35acb769ec55fd04c7aef))
+* **core:** redact the endpoint in HttpErrorResponseRecord.toString ([8604b4c](https://github.com/sava-software/ravina/commit/8604b4c5a1eabb2abf9d562f7872a1b5c4a93251))
+* **core:** redact the endpoint in RemoteHttpResourceConfig.toString ([e494bc8](https://github.com/sava-software/ravina/commit/e494bc802d3e1531c0be9ac33245b2d751a476ee))
+* **core:** refuse a malformed endpoint without quoting it ([990dfc8](https://github.com/sava-software/ravina/commit/990dfc842cc99e7aa93cc13f78467df55912c4cf))
+* **core:** refuse an endpoint without a host in the URI capacity and remote resource configs ([0bb6ccf](https://github.com/sava-software/ravina/commit/0bb6ccf5c19081357d22d44960f6c7fff58b68e6))
+* **core:** refuse an unpostable webhook endpoint wherever the client is built ([0850371](https://github.com/sava-software/ravina/commit/08503712840d4bba5e547ec9d5eda4defb55c312))
+* **gradle:** bump gradle-wrapper and solanaBOM versions ([7cd8a2f](https://github.com/sava-software/ravina/commit/7cd8a2f38debab42502d1ba573b264af003cc387))
+* **kms:** close the HttpClient a parsed HTTP KMS config builds when the client refuses it ([33572e1](https://github.com/sava-software/ravina/commit/33572e1a284ec2213b5684c12a0e26415bcf676d))
+* **kms:** refuse a malformed HTTP KMS endpoint without quoting it ([f8791fd](https://github.com/sava-software/ravina/commit/f8791fd4f123d64ea100933aab640daae3b2d2ef))
+* **kms:** refuse an HTTP KMS endpoint without a host before building its first request ([16df494](https://github.com/sava-software/ravina/commit/16df49493145cccbe6594d3bd2bbd2e0f4d8e118))
+* **soak:** keep a keyed SOAK_RPC and SOAK_WS out of the run directory and the logs ([9f4b36c](https://github.com/sava-software/ravina/commit/9f4b36ccbfa3c2fc08b1c0a8f98ab29993ee8739))
+* **soak:** keep a malformed SOAK_RPC or SOAK_WS out of soak.jfr ([8029fed](https://github.com/sava-software/ravina/commit/8029feda4d11088a498f212644a12e6994137673))
+* **soak:** print only a URI-shaped host from redact_endpoint, and redact echoed arguments ([029f3bd](https://github.com/sava-software/ravina/commit/029f3bd79a32620a254989d50d08c586acfbbda9))
+* **soak:** record the RPC endpoint redacted in the Run event ([99a4c85](https://github.com/sava-software/ravina/commit/99a4c851df25b6b1eb7f43b69a93a7e155505556))
+* **soak:** refuse a SOAK_RPC or SOAK_WS the JDK client would refuse with its URL ([b4cb01c](https://github.com/sava-software/ravina/commit/b4cb01c2cff0f66fe9953f1876a28f96d3d1a903))
+* **solana:** redact the endpoint in HeliusConfig.toString and the send-response mismatch ([140b98b](https://github.com/sava-software/ravina/commit/140b98bf86d4406cacffeaa362cecb0e287006de))
+* **solana:** refuse a Helius or websocket endpoint the JDK client would refuse with its URL ([c732b43](https://github.com/sava-software/ravina/commit/c732b4366c0834502c8588ea2a37387863151e55))
+* **solana:** refuse a malformed Helius endpoint without quoting it ([301b614](https://github.com/sava-software/ravina/commit/301b614506a22da125a773a90ed644158014f15d))
+
 ## [25.6.6](https://github.com/sava-software/ravina/compare/25.6.5...25.6.6) (2026-10-09)
 
 
