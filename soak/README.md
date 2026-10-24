@@ -159,10 +159,12 @@ measured so far is 4.2.2. The binary comes from `--validator`, then `SOAK_VALIDA
 <validator> --alpenglow --ledger build/ledger --reset --quiet --rpc-port 8899 --faucet-port 9900
 ```
 
-`--alpenglow` is passed when the binary's `--help` lists it (4.2.x through 4.4.x; from 4.5
-Alpenglow is on at genesis and the flag is gone). Without it those releases run TowerBFT, where
-ravina's `FINALIZED` settlement lags confirmation by about 32 slots and every websocket await
-falls back to polling. Every figure recorded under `soak/` before 2026-10-24 was measured on a
+`--alpenglow` is passed when the binary's `--help` lists it, as every release from 4.2.0 through
+4.5.0-alpha.2 does. Without it every release before 4.5.0-alpha.2 runs TowerBFT, where ravina's
+`FINALIZED` reads and subscriptions lag confirmation by about 32 slots and every websocket await
+runs out its timeout and falls back to polling; from 4.5.0-alpha.2 Alpenglow is on at genesis and
+the flag is a deprecated no-op that prints a warning. Every figure recorded under `soak/` before
+2026-10-24 was measured on a
 TowerBFT validator started without the flag, with ravina settling at `CONFIRMED`; none has been
 re-measured under Alpenglow.
 

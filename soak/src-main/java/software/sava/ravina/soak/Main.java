@@ -411,7 +411,7 @@ public final class Main {
       }
       Thread.sleep(250);
     }
-    throw new IllegalStateException("airdrop not confirmed within 30 s: " + signature);
+    throw new IllegalStateException("airdrop not finalized within 30 s: " + signature);
   }
 
   /// SOAK_RPC as the run uses it. An endpoint the JDK client refuses is refused here first: the

@@ -156,10 +156,10 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
           continue;
         } else {
           logger.log(WARNING, String.format("""
-                      Transaction erred at commitment level %s, awaiting %s.
+                      Transaction erred at commitment level %s, awaiting a confirmed or finalized status.
                       %s
                       """,
-                  commitment, Settlement.awaiting(awaitCommitmentOnError),
+                  commitment,
                   formatter.formatSigStatus(sig, sigStatus)
               )
           );
@@ -171,10 +171,10 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
           continue;
         } else {
           logger.log(INFO, String.format("""
-                      Transaction has been successfully %s, awaiting %s.
+                      Transaction has been successfully %s, awaiting a confirmed or finalized status.
                       %s
                       """,
-                  commitment, Settlement.awaiting(awaitCommitment),
+                  commitment,
                   formatter.formatSig(sig)
               )
           );

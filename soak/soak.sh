@@ -465,9 +465,10 @@ if [ "$EXTERNAL" = 0 ]; then
   LEDGER_DIR=$SCRIPT_DIR/build/ledger
   mkdir -p "$LEDGER_DIR"
   # Alpenglow consensus, which every public cluster has run since October 2026 and ravina
-  # settles at FINALIZED for: 4.2.x through 4.4.x test validators start on TowerBFT unless asked,
-  # where a FINALIZED await lags confirmation by about 32 slots and every soak settlement would
-  # fall back to polling; from 4.5 Alpenglow is on at genesis and the flag is gone.
+  # settles at FINALIZED for: 4.2.0 through 4.5.0-alpha.1 test validators start on TowerBFT unless
+  # asked, where a FINALIZED await lags confirmation by about 32 slots and every soak settlement
+  # would fall back to polling; from 4.5.0-alpha.2 Alpenglow is on at genesis and --alpenglow is a
+  # deprecated no-op that prints a warning.
   ALPENGLOW_FLAG=()
   if "$SOAK_VALIDATOR" --help 2>/dev/null | grep -q -- '--alpenglow'; then
     ALPENGLOW_FLAG=(--alpenglow)

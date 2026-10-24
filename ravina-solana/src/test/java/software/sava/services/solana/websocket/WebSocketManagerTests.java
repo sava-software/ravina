@@ -722,7 +722,7 @@ final class WebSocketManagerTests {
   }
 
   @Test
-  void theUriFactoryConfiguresAConfirmedPrototype() {
+  void theUriFactoryConfiguresAFinalizedPrototype() {
     try (final var httpClient = HttpClient.newHttpClient()) {
       try (final var manager = WebSocketManager.createManager(httpClient, WS_URI, BACKOFF, ws -> {
       })) {

@@ -194,9 +194,9 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
           // The context's block height is the block hash's last valid block
           // height as RPC reports it, and the hash is still accepted one
           // block later: a bank registers its hash at its final tick. Handing
-          // off once the confirmed height passes it is therefore exact, not
+          // off once the settled height passes it is therefore exact, not
           // early — the last block that could hold the transaction is then
-          // confirmed. The status poll ran before this height read, so a
+          // settled. The status poll ran before this height read, so a
           // landing in that last block can be missed here; the expiration
           // monitor's settle buffer, not this check, decides "never landed".
           final var bigBlockHeight = txContext.bigBlockHeight();

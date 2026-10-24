@@ -413,9 +413,14 @@ them, because the list is the argument for the effort.
   TowerBFT (started without `--alpenglow`): six subscriptions made only after
   `getSignatureStatuses` already reported `confirmed` were each notified about one slot later,
   no slower than subscriptions made right after the send (`soak/README.md` has the table). The
-  mechanism is the same under Alpenglow, where settled subscriptions are notified from the
-  optimistically-confirmed bank tracker when votor sets a root, but the timing has not been
-  re-measured there. The websocket timeout in `TxMonitorConfig` is therefore margin for a dead
+  status-cache lookup is the same under Alpenglow, but the channel depends on the level: a
+  `finalized` subscription, which is what ravina subscribes at above `PROCESSED`, is re-checked
+  on every commitment-service pass (`notify_subscribers`, sent after votor's `Notarize` and
+  `Rooted` updates alike) against the bank at `highest_super_majority_root`, which only a
+  `Rooted` update advances, so a late subscription is found on the next pass; a `confirmed`
+  subscription is notified from the optimistically-confirmed bank tracker. The measurement
+  above subscribed at `confirmed` on TowerBFT, so it did not exercise the `finalized` path, and
+  neither path has been timed under Alpenglow. The websocket timeout in `TxMonitorConfig` is therefore margin for a dead
   connection, not for this ordering.
 - **Give the websocket manager a positive reconnect delay.** A constant zero backoff
   (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
@@ -457,7 +462,8 @@ them, because the list is the argument for the effort.
   size alone. `FeePayerSigningSpan` locates the fee payer's signing span for all
   three formats: a v1 message comes *before* its signatures, with no count
   prefix.
-- **A settled transaction is finalized.** `transactions.Settlement` is the
+- **A confirmed or finalized transaction is settled; settled state is read at finalized.**
+  `transactions.Settlement` is the
   decision point for the transactions package. `CONFIRMED` and `FINALIZED` are
   one settled level, met by either observed status, and ravina reads settled
   state (block heights, block hashes, simulations, signature subscriptions) at
@@ -465,10 +471,13 @@ them, because the list is the argument for the effort.
   which every public cluster has been since October 2026, both levels move on
   the same root event, so a `FINALIZED` read costs no extra wait, and the
   Solana Foundation's Alpenglow guide says `confirmed` is removed in a later
-  release. On a TowerBFT environment (an agave test validator before 4.5
-  started without `--alpenglow`, a Surfpool surfnet) a `FINALIZED` read and
-  subscription lag confirmation by about 32 slots; that is the accepted cost,
-  and the soak passes `--alpenglow` for it. Logs report the level actually
+  release. Where `finalized` trails `confirmed` (an agave test validator on
+  TowerBFT, before 4.5.0-alpha.2 and started without `--alpenglow`, or a
+  Surfpool surfnet, which reports `finalized` 30 slots behind) a `FINALIZED`
+  read and subscription lag confirmation by about 32 slots, so a settled
+  websocket await runs out its timeout and polling settles it on `CONFIRMED`,
+  while the next finalized simulation does not yet see the transaction; that
+  is the accepted cost, and the soak passes `--alpenglow` for it. Logs report the level actually
   observed (`Settlement.reached`), so a settled await released by a
   `CONFIRMED` status on such an environment is not reported as finalized.
   `WebSocketManager` and `HeliusJsonRpcClient` pass `FINALIZED` as client

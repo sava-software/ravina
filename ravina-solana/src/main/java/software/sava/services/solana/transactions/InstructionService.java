@@ -20,6 +20,15 @@ import java.util.function.Function;
 /// at the finalized commitment. Over the websocket a `PROCESSED` await with a
 /// higher on-error commitment waits for the settled level (see
 /// [TxMonitorService#tryAwaitCommitmentViaWebSocket]).
+///
+/// On an agave test validator running TowerBFT (before 4.5.0-alpha.2, started
+/// without `--alpenglow`) an await is released by a `confirmed` status about 32
+/// slots before the root bank that finalized simulations read contains the
+/// transaction, so a dependent follow-up can fail simulation, and that result is
+/// returned rather than retried. Start the validator with `--alpenglow`, or set
+/// `TxMonitorConfig.webSocketConfirmationTimeout` above the rooting time so the
+/// finalized subscription releases the await; the polling fallback still
+/// releases at `confirmed`.
 public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,
