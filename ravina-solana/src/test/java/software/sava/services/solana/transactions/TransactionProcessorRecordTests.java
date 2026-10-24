@@ -1256,7 +1256,7 @@ final class TransactionProcessorRecordTests {
     assertEquals(8_642L, context.blockHeight());
     // The published payload is the signed transaction, not the unsigned one.
     assertEquals(transaction.base64EncodeToString(), handler.sendBase64);
-    assertEquals(Commitment.CONFIRMED, handler.sendCommitment);
+    assertEquals(Commitment.FINALIZED, handler.sendCommitment);
   }
 
   // --------------------------------------------- simulate and estimate ---
@@ -1326,12 +1326,12 @@ final class TransactionProcessorRecordTests {
   }
 
   @Test
-  void theDefaultCommitmentIsConfirmed() {
+  void theDefaultCommitmentIsFinalized() {
     final var harness = harness(simulation(150_000));
     final var futures = harness.processor().simulateAndEstimate(List.of(ix(key(10))));
-    assertEquals(Commitment.CONFIRMED, futures.commitment());
+    assertEquals(Commitment.FINALIZED, futures.commitment());
     futures.simulationFuture().join();
-    assertEquals(Commitment.CONFIRMED, harness.rpc().simulateCommitment);
+    assertEquals(Commitment.FINALIZED, harness.rpc().simulateCommitment);
   }
 
   @Test

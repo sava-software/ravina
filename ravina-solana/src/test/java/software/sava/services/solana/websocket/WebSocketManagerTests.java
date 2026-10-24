@@ -730,7 +730,7 @@ final class WebSocketManagerTests {
         final var impl = assertInstanceOf(WebSocketManagerImpl.class, manager);
         final var prototype = impl.builderPrototype;
         assertEquals(WS_URI, prototype.wsUri());
-        assertEquals(Commitment.CONFIRMED, prototype.commitment());
+        assertEquals(Commitment.FINALIZED, prototype.commitment());
         assertEquals(0L, prototype.reConnectDelay(), "the manager owns retry backoff");
         assertEquals(3_000L, prototype.subscriptionResendDelay(),
             "changing reconnect pacing must not change subscription escalation");

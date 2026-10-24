@@ -20,8 +20,8 @@ import static software.sava.services.solana.transactions.BaseTxMonitorServiceTes
 
 /// The expiration monitor is the terminal stage: a transaction reaches it only
 /// once its block hash is already too old to land. A missing signature is
-/// given up on only once the confirmed block height is a finalization depth
-/// past the transaction's `lastValidBlockHeight`: a history-searching nil is
+/// given up on only once the settled block height is the settle buffer past
+/// the transaction's `lastValidBlockHeight`: a history-searching nil is
 /// one node's view, and a false "never landed" verdict makes the caller
 /// re-sign and re-execute instructions that may have landed — so the evidence
 /// gate is monotonic chain progress, not a count of correlated polls, and
@@ -36,8 +36,8 @@ import static software.sava.services.solana.transactions.BaseTxMonitorServiceTes
 final class TxExpirationMonitorServiceTests {
 
   /// `lastValidBlockHeight` of the transactions under test; the settle gate
-  /// opens 32 blocks later, TowerBFT's finalization depth, which the monitor
-  /// keeps as its settle buffer.
+  /// opens 32 blocks later, the monitor's settle buffer, which began as
+  /// TowerBFT's finalization depth and is kept as margin for backend lag.
   private static final long EXPIRED_HEIGHT = 10;
   private static final long GATE = EXPIRED_HEIGHT + 32;
 
@@ -53,8 +53,9 @@ final class TxExpirationMonitorServiceTests {
   @Test
   void aSignatureTheClusterCannotSeeIsGivenUpOnOncePastTheSettleBuffer() {
     final var rpcClient = new FakeRpcClient();
-    // Exactly at the gate: every block that could contain the transaction is
-    // finalized, so a node still answering nil has searched settled history.
+    // Exactly at the gate: the settle buffer has passed every block that could
+    // contain the transaction, so a node still answering nil has searched
+    // settled history.
     rpcClient.blockHeight = GATE;
     final var service = service(rpcClient);
 

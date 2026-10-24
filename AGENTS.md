@@ -409,11 +409,14 @@ them, because the list is the argument for the effort.
   `Bank::get_signature_status_processed_since_parent` on each commitment update
   (`rpc/src/rpc_subscriptions.rs`, `notify_watchers`), and that reads the status cache across
   the bank's ancestors, so a signature that landed before the subscription registered is found
-  on the next update. Measured on a local Agave 4.2.2 test validator on 2026-09-26: six
-  subscriptions made only after `getSignatureStatuses` already reported `confirmed` were each
-  notified about one slot later, no slower than subscriptions made right after the send
-  (`soak/README.md` has the table). The websocket timeout in `TxMonitorConfig` is therefore
-  margin for a dead connection, not for this ordering.
+  on the next update. Measured on a local Agave 4.2.2 test validator on 2026-09-26, running
+  TowerBFT (started without `--alpenglow`): six subscriptions made only after
+  `getSignatureStatuses` already reported `confirmed` were each notified about one slot later,
+  no slower than subscriptions made right after the send (`soak/README.md` has the table). The
+  mechanism is the same under Alpenglow, where settled subscriptions are notified from the
+  optimistically-confirmed bank tracker when votor sets a root, but the timing has not been
+  re-measured there. The websocket timeout in `TxMonitorConfig` is therefore margin for a dead
+  connection, not for this ordering.
 - **Give the websocket manager a positive reconnect delay.** A constant zero backoff
   (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
   unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
@@ -454,19 +457,24 @@ them, because the list is the argument for the effort.
   size alone. `FeePayerSigningSpan` locates the fee payer's signing span for all
   three formats: a v1 message comes *before* its signatures, with no count
   prefix.
-- **A confirmed transaction is settled.** `transactions.Settlement` is the
-  decision point for the transactions package (`WebSocketManager` and
-  `HeliusJsonRpcClient` pass `CONFIRMED` as client defaults, mirroring sava's
-  builders, and move with them). `CONFIRMED` and `FINALIZED` are one settled
-  level, so an await on `FINALIZED` is released at confirmation, and ravina
-  reads settled state (block heights, block hashes, simulations, signature
-  subscriptions) at `Settlement.COMMITMENT`. Under Alpenglow the two levels are
-  one finalization event; before activation this is a policy that accepts
-  optimistic confirmation as final. Keep `COMMITMENT` at `CONFIRMED` until
-  Alpenglow is active, because a `FINALIZED` read on TowerBFT lags about 32
-  slots, then move it to `FINALIZED` ahead of RPC retiring `confirmed`. The
-  expiration monitor's 32-block settle buffer is margin for backend lag, not
-  finality depth: faster finality is no reason to trim it.
+- **A settled transaction is finalized.** `transactions.Settlement` is the
+  decision point for the transactions package. `CONFIRMED` and `FINALIZED` are
+  one settled level, met by either observed status, and ravina reads settled
+  state (block heights, block hashes, simulations, signature subscriptions) at
+  `Settlement.COMMITMENT`, `FINALIZED` since 2026-10-24. On an Alpenglow node,
+  which every public cluster has been since October 2026, both levels move on
+  the same root event, so a `FINALIZED` read costs no extra wait, and the
+  Solana Foundation's Alpenglow guide says `confirmed` is removed in a later
+  release. On a TowerBFT environment (an agave test validator before 4.5
+  started without `--alpenglow`, a Surfpool surfnet) a `FINALIZED` read and
+  subscription lag confirmation by about 32 slots; that is the accepted cost,
+  and the soak passes `--alpenglow` for it. Logs report the level actually
+  observed (`Settlement.reached`), so a settled await released by a
+  `CONFIRMED` status on such an environment is not reported as finalized.
+  `WebSocketManager` and `HeliusJsonRpcClient` pass `FINALIZED` as client
+  defaults, mirroring the defaults sava's builders adopted the same day, and
+  move with them. The expiration monitor's 32-block settle buffer is margin
+  for backend lag, not finality depth: faster finality is no reason to trim it.
 - **Never share a sava-core `Signer` between threads.** `KeyPairSigner` wraps one
   `java.security.Signature`; concurrent `sign` calls interleave, and each returns a
   signature that is not over its own message: a validator drops such a transaction without

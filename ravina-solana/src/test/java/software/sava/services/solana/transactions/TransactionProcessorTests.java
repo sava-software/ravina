@@ -293,31 +293,31 @@ final class TransactionProcessorTests {
   }
 
   @Test
-  void thePublishDefaultUsesAConfirmedPreflight() {
+  void thePublishDefaultUsesAFinalizedPreflight() {
     final var processor = new RecordingProcessor();
 
     final var context = processor.publish(null, "base64", 4_321L);
 
     assertNotNull(context);
     assertSame(processor.sendTxContext, context);
-    assertEquals(Commitment.CONFIRMED, processor.requestedPreflightCommitment);
+    assertEquals(Commitment.FINALIZED, processor.requestedPreflightCommitment);
     assertEquals(4_321L, processor.requestedBlockHeight);
   }
 
   @Test
-  void theSimulateDefaultFillsInAConfirmedCommitment() {
+  void theSimulateDefaultFillsInAFinalizedCommitment() {
     final var instructions = List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1}));
 
     final var explicitCommitment = new RecordingProcessor();
-    final var futures = explicitCommitment.simulateAndEstimate(Commitment.FINALIZED, instructions);
+    final var futures = explicitCommitment.simulateAndEstimate(Commitment.CONFIRMED, instructions);
     assertSame(explicitCommitment.simulationFutures, futures);
-    assertEquals(Commitment.FINALIZED, explicitCommitment.requestedSimulationCommitment);
+    assertEquals(Commitment.CONFIRMED, explicitCommitment.requestedSimulationCommitment);
     assertSame(instructions, explicitCommitment.requestedInstructions);
 
     final var defaulted = new RecordingProcessor();
     final var defaultedFutures = defaulted.simulateAndEstimate(instructions);
     assertSame(defaulted.simulationFutures, defaultedFutures);
-    assertEquals(Commitment.CONFIRMED, defaulted.requestedSimulationCommitment);
+    assertEquals(Commitment.FINALIZED, defaulted.requestedSimulationCommitment);
     assertSame(instructions, defaulted.requestedInstructions);
   }
 }

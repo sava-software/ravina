@@ -94,7 +94,7 @@ public interface WebSocketManager extends AutoCloseable {
     final var builderPrototype = SolanaRpcWebsocket.build()
         .uri(webSocketURI)
         .webSocketBuilder(httpClient)
-        .commitment(Commitment.CONFIRMED);
+        .commitment(Commitment.FINALIZED);
     return createManager(
         backoff,
         builderPrototype,

@@ -32,7 +32,7 @@ final class HeliusClientTests {
     );
     assertNotNull(client);
     assertEquals(ENDPOINT, client.endpoint());
-    assertEquals(Commitment.CONFIRMED, client.defaultCommitment());
+    assertEquals(Commitment.FINALIZED, client.defaultCommitment());
   }
 
   @Test
@@ -42,7 +42,7 @@ final class HeliusClientTests {
     );
     assertNotNull(client);
     assertEquals(ENDPOINT, client.endpoint());
-    assertEquals(Commitment.CONFIRMED, client.defaultCommitment());
+    assertEquals(Commitment.FINALIZED, client.defaultCommitment());
   }
 
   @Test
@@ -52,7 +52,7 @@ final class HeliusClientTests {
     );
     assertNotNull(client);
     assertEquals(ENDPOINT, client.endpoint());
-    assertEquals(Commitment.CONFIRMED, client.defaultCommitment());
+    assertEquals(Commitment.FINALIZED, client.defaultCommitment());
   }
 
   @Test
@@ -62,7 +62,7 @@ final class HeliusClientTests {
     );
     assertNotNull(client);
     assertEquals(ENDPOINT, client.endpoint());
-    assertEquals(Commitment.CONFIRMED, client.defaultCommitment());
+    assertEquals(Commitment.FINALIZED, client.defaultCommitment());
   }
 
   @Test
@@ -70,7 +70,7 @@ final class HeliusClientTests {
     final var client = HeliusClient.createHttpClient(ENDPOINT, new FakeHttpClient(FEE_LEVELS_RESPONSE));
     assertNotNull(client);
     assertEquals(ENDPOINT, client.endpoint());
-    assertEquals(Commitment.CONFIRMED, client.defaultCommitment());
+    assertEquals(Commitment.FINALIZED, client.defaultCommitment());
   }
 
   private static Transaction transaction() {

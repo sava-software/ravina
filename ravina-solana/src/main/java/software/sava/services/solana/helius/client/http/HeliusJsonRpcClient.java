@@ -44,7 +44,7 @@ final class HeliusJsonRpcClient extends BaseSolanaJsonRpcClient implements Heliu
                       final Duration requestTimeout,
                       final UnaryOperator<HttpRequest.Builder> extendRequest,
                       final BiPredicate<HttpResponse<?>, byte[]> testResponse) {
-    super(endpoint, httpClient, requestTimeout, extendRequest, testResponse, Commitment.CONFIRMED);
+    super(endpoint, httpClient, requestTimeout, extendRequest, testResponse, Commitment.FINALIZED);
     this.id = new AtomicLong(System.currentTimeMillis());
   }
 

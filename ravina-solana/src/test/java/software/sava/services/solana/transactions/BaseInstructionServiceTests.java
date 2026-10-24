@@ -1033,7 +1033,7 @@ final class BaseInstructionServiceTests {
     assertNotNull(result);
     assertNull(result.error());
     assertSame(ixs, processor.simulatedBatches.getFirst());
-    assertEquals(List.of(CONFIRMED), processor.simulatedCommitments);
+    assertEquals(List.of(FINALIZED), processor.simulatedCommitments);
   }
 
   private static TransactionSkeleton decode(final Transaction transaction) {

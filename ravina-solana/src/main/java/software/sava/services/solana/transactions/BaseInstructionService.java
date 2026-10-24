@@ -92,7 +92,7 @@ public class BaseInstructionService implements InstructionService {
       blockHeight = transactionProcessor.setBlockHash(transaction, blockHash);
     } catch (final RuntimeException ex) {
       logger.log(WARNING,
-          "Failed to retrieve or apply a fresh confirmed block hash; transaction was not signed or published.",
+          "Failed to retrieve or apply a fresh finalized block hash; transaction was not signed or published.",
           ex);
       return null;
     }
@@ -204,8 +204,12 @@ public class BaseInstructionService implements InstructionService {
       );
 
       final TransactionError error;
+      // The level the await is known to have reached, for the log below: a websocket notification
+      // arrives at the subscription's level, a polled status carries its own.
+      final Commitment reached;
       if (txResult != null) {
         error = txResult.error();
+        reached = Settlement.awaiting(awaitCommitment);
       } else {
         final var sigStatus = txMonitorService.queueResult(
             awaitCommitment,
@@ -238,6 +242,7 @@ public class BaseInstructionService implements InstructionService {
           continue; // block hash expired, retry batch.
         }
         error = sigStatus.error();
+        reached = Settlement.reached(awaitCommitment, sigStatus.confirmationStatus());
       }
 
       final var transaction = sendContext.transaction();
@@ -264,7 +269,7 @@ public class BaseInstructionService implements InstructionService {
                     %s %d %s instructions:
                     %s
                     """,
-                Settlement.reached(awaitCommitment), instructions.size(), logContext, formattedSig
+                reached, instructions.size(), logContext, formattedSig
             )
         );
         return TransactionResult.createResult(

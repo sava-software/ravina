@@ -91,9 +91,9 @@ public interface TxMonitorService extends Worker {
   /// Completes with the signature's status once it meets `awaitCommitment`,
   /// or `awaitCommitmentOnError` if the transaction failed. `PROCESSED` is
   /// met by any status. `CONFIRMED` and `FINALIZED` are one settled level,
-  /// met by either: under Alpenglow they are the same event, and before
-  /// activation ravina accepts a confirmed transaction as final, so an await
-  /// on `FINALIZED` is released at confirmation.
+  /// met by either: on an Alpenglow cluster they are the same event, and on a
+  /// TowerBFT environment ravina accepts a confirmed transaction as final, so
+  /// an await on `FINALIZED` is released by a `CONFIRMED` status too.
   ///
   /// One signature has one pending entry. A second queue of a pending
   /// signature is handed the pending future, provided the pending settings

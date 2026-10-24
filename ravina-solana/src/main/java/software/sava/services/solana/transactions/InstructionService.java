@@ -13,11 +13,13 @@ import java.util.function.Function;
 
 /// Builds, sends and awaits transactions for lists of instructions. The
 /// commitment arguments follow [TxMonitorService#queueResult]: `CONFIRMED`
-/// and `FINALIZED` are one settled level, so the overloads that take no
-/// commitment, which await `FINALIZED`, are released at confirmation today
-/// and keep their meaning once RPC retires `confirmed`. Over the websocket a
-/// `PROCESSED` await with a higher on-error commitment waits for the settled
-/// level (see [TxMonitorService#tryAwaitCommitmentViaWebSocket]).
+/// and `FINALIZED` are one settled level, met by either observed status, so
+/// the overloads that take no commitment await `FINALIZED` and are released
+/// once the transaction is settled, which on an Alpenglow cluster is the same
+/// event as its confirmation. Block hashes are read and transactions simulated
+/// at the finalized commitment. Over the websocket a `PROCESSED` await with a
+/// higher on-error commitment waits for the settled level (see
+/// [TxMonitorService#tryAwaitCommitmentViaWebSocket]).
 public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,
@@ -191,7 +193,7 @@ public interface InstructionService {
   }
 
   /// Processes and publishes a SIMD-0385 v1 transaction. `beforeSend` receives the
-  /// transaction after a fresh confirmed blockhash is installed and may mutate
+  /// transaction after a fresh finalized blockhash is installed and may mutate
   /// or replace it. The returned transaction is then signed and published, so
   /// it must preserve that blockhash; the accompanying last-valid block height
   /// describes that hash. The transaction carries its compute unit limit,

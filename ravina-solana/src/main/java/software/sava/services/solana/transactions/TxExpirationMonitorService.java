@@ -15,25 +15,26 @@ import java.util.Map;
 /// Deliberately non-final: `takeOver` is a package-private interleaving seam.
 class TxExpirationMonitorService extends BaseTxMonitorService {
 
-  /// A missing signature settles as "never landed" only once the confirmed
+  /// A missing signature settles as "never landed" only once the settled
   /// block height is this far past the transaction's `lastValidBlockHeight`. A
   /// history-searching nil is still one node's view. A false verdict makes the
   /// caller re-sign and re-execute instructions that may have landed — so the
   /// gate is chain progress, which is monotonic and immune to poll scheduling,
-  /// rather than a count of correlated polls. The depth is TowerBFT's
-  /// finalization depth, 32 blocks: by then every block that could contain the
-  /// transaction is rooted, so a node still answering nil has searched settled
-  /// history. Under Alpenglow a block is final once it is confirmed, so the
-  /// depth no longer buys finality, only margin for the backend lag below; it
-  /// keeps its size until measurements after activation justify a smaller one.
-  /// The settled-history argument binds the height reading to the nil, which is
+  /// rather than a count of correlated polls. The depth, 32 blocks, began as
+  /// TowerBFT's finalization depth: by then every block that could contain the
+  /// transaction was rooted, so a node still answering nil had searched settled
+  /// history. Under Alpenglow, live on every public cluster since October 2026,
+  /// a block is final as soon as it is confirmed, so the depth buys no finality
+  /// and is kept as margin for the backend lag below; faster finality is no
+  /// reason to trim it. The settled-history argument binds the height reading
+  /// to the nil, which is
   /// why each pass reads both from the same balanced client. The pairing is
   /// best-effort, though: one client is one URL, and a provider may balance
   /// that URL across backends of differing lag — the buffer, not the co-located
   /// read, is what carries the argument, so it must not be trimmed on the
   /// strength of the pairing.
   ///
-  /// If the confirmed height stalls — a cluster halt — pending futures wait
+  /// If the settled height stalls — a cluster halt — pending futures wait
   /// rather than settle: the transaction's fate is unknowable mid-halt, and a
   /// false "never landed" would re-execute it after the restart; the gate
   /// opens within this many blocks of the chain resuming. Callers needing a

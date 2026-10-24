@@ -584,9 +584,10 @@ final class BaseTxMonitorServiceTests {
     assertTrue(service.pendingTransactions.containsKey(context), "an unsettled transaction keeps being polled");
   }
 
-  /// The confirmation count means nothing under Alpenglow, where agave
-  /// reports 0 for a status that is confirmed but not yet finalized, so a
-  /// confirmed status settles whatever its count, or with none at all.
+  /// The confirmation count no longer measures depth under Alpenglow, where
+  /// agave reports 0 for a status that is not yet finalized and nothing once
+  /// it is, so a confirmed status settles whatever its count, or with none at
+  /// all.
   @Test
   void aConfirmedStatusSettlesAFinalizedAwaitWhateverItsConfirmationCount() {
     final var service = monitor();

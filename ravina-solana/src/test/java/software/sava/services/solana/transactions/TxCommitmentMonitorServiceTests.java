@@ -740,15 +740,15 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void anAcceptedTransactionIsAwaitedOverTheWebSocket() throws InterruptedException {
     final var service = service();
-    final var confirmed = new TxResult(null, "sig", null);
-    webSocket.notifications.put(CONFIRMED, confirmed);
+    final var settled = new TxResult(null, "sig", null);
+    webSocket.notifications.put(FINALIZED, settled);
     final var context = new SendTxContext(
         null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
 
     final var result = service.validateResponseAndAwaitCommitmentViaWebSocket(context, CONFIRMED, PROCESSED, "sig");
 
-    assertSame(confirmed, result);
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+    assertSame(settled, result);
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions);
   }
 
   // ------------------------------------------------------- web socket wait --
@@ -764,7 +764,7 @@ final class TxCommitmentMonitorServiceTests {
 
     assertTrue(future.isDone(), "no notification can come: the caller must not wait for the timeout");
     assertNull(future.join());
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions, "the subscription was asked for");
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions, "the subscription was asked for");
     assertTrue(webSocket.unsubscribes.isEmpty(), "nothing to unsubscribe");
   }
 
@@ -782,19 +782,21 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   @Test
-  void awaitingConfirmationStopsAtTheConfirmedSubscription() {
+  void awaitingConfirmationSubscribesAtTheSettledLevel() {
     final var service = service();
-    final var confirmed = new TxResult(null, "sig", null);
-    webSocket.notifications.put(CONFIRMED, confirmed);
+    final var settled = new TxResult(null, "sig", null);
+    webSocket.notifications.put(FINALIZED, settled);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(CONFIRMED, PROCESSED, "sig", 5, MINUTES);
 
     // Subscriptions are recorded synchronously, so this is checked before
-    // joining: escalating to finalization here would otherwise be observed
-    // only by waiting out a timeout.
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions,
-        "awaiting CONFIRMED must not subscribe to finalization");
-    assertSame(confirmed, future.join());
+    // joining: a second subscription here would otherwise be observed only
+    // by waiting out a timeout. CONFIRMED and FINALIZED are one settled
+    // level, subscribed at FINALIZED, which an Alpenglow node publishes
+    // together with confirmation.
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions,
+        "awaiting CONFIRMED subscribes once, at the settled level");
+    assertSame(settled, future.join());
     assertTrue(webSocket.unsubscribes.isEmpty());
   }
 
@@ -819,85 +821,83 @@ final class TxCommitmentMonitorServiceTests {
   void aNotificationWithoutAResultYieldsNoResult() {
     final var service = service();
     // The settled subscription notifies with no result at all.
-    webSocket.notifications.put(CONFIRMED, null);
+    webSocket.notifications.put(FINALIZED, null);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
 
     assertNotNull(future);
     assertNull(future.join());
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions,
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions,
         "one subscription, and no result to report");
   }
 
   @Test
   void awaitingFinalizationSettlesAtTheSettledSubscription() {
     final var service = service();
-    final var confirmed = new TxResult(null, "sig", null);
-    webSocket.notifications.put(CONFIRMED, confirmed);
-    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
+    final var settled = new TxResult(null, "sig", null);
+    webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", null));
+    webSocket.notifications.put(FINALIZED, settled);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
 
-    // CONFIRMED and FINALIZED are one settled level: the confirmation
-    // releases a FINALIZED await, with no second subscription.
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
-    assertSame(confirmed, future.join());
+    // CONFIRMED and FINALIZED are one settled level, subscribed at FINALIZED:
+    // one subscription releases the await, nothing is escalated.
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions);
+    assertSame(settled, future.join());
     assertEquals(1, webSocketManager.webSocketCalls, "the connection is read once");
   }
 
   @Test
   void awaitingProcessedWithASettledErrorCommitmentSubscribesAtSettlement() {
     final var service = service();
-    final var confirmed = new TxResult(null, "sig", null);
+    final var settled = new TxResult(null, "sig", null);
     webSocket.notifications.put(PROCESSED, new TxResult(null, "sig", TX_ERROR));
-    webSocket.notifications.put(CONFIRMED, confirmed);
+    webSocket.notifications.put(FINALIZED, settled);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(PROCESSED, CONFIRMED, "sig", 5, MINUTES);
 
     // A PROCESSED notification cannot say whether an error has settled, so
     // the one subscription is at the level errors must reach.
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
-    assertSame(confirmed, future.join());
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions);
+    assertSame(settled, future.join());
   }
 
   @Test
   void aFailureIsReportedImmediatelyWhenProcessedSatisfiesTheErrorCommitment() {
     final var service = service();
     final var errored = new TxResult(null, "sig", TX_ERROR);
-    webSocket.notifications.put(CONFIRMED, errored);
-    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
+    webSocket.notifications.put(FINALIZED, errored);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, PROCESSED, "sig", 5, MINUTES);
 
     assertSame(errored, future.join());
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions,
-        "there is no point finalizing a transaction that already failed");
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions,
+        "one subscription at the settled level carries the failure too");
   }
 
   @Test
   void aFailureIsReportedImmediatelyWhenConfirmedSatisfiesTheErrorCommitment() {
     final var service = service();
     final var errored = new TxResult(null, "sig", TX_ERROR);
-    webSocket.notifications.put(CONFIRMED, errored);
-    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", null));
+    webSocket.notifications.put(FINALIZED, errored);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, CONFIRMED, "sig", 5, MINUTES);
 
     assertSame(errored, future.join());
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions);
   }
 
   @Test
   void aFailureAwaitingFinalizationSettlesAtTheSettledSubscription() {
     final var service = service();
     final var errored = new TxResult(null, "sig", TX_ERROR);
-    webSocket.notifications.put(CONFIRMED, errored);
-    webSocket.notifications.put(FINALIZED, new TxResult(null, "sig", TX_ERROR));
+    webSocket.notifications.put(CONFIRMED, new TxResult(null, "sig", TX_ERROR));
+    webSocket.notifications.put(FINALIZED, errored);
 
     final var future = service.tryAwaitCommitmentViaWebSocket(FINALIZED, FINALIZED, "sig", 5, MINUTES);
 
-    assertSame(errored, future.join(), "an error observed at CONFIRMED is settled for a FINALIZED await");
-    assertEquals(List.of(new Subscription(CONFIRMED, "sig")), webSocket.subscriptions);
+    assertSame(errored, future.join(), "an error observed at the settled subscription settles a FINALIZED await");
+    assertEquals(List.of(new Subscription(FINALIZED, "sig")), webSocket.subscriptions);
   }
 
   /// A zero timeout abandons the subscription at once, so the fallback runs
@@ -916,7 +916,7 @@ final class TxCommitmentMonitorServiceTests {
     assertNull(processed.get(2, SECONDS));
 
     assertEquals(
-        List.of(new Subscription(CONFIRMED, "sig"), new Subscription(PROCESSED, "other")),
+        List.of(new Subscription(FINALIZED, "sig"), new Subscription(PROCESSED, "other")),
         webSocket.unsubscribes
     );
   }

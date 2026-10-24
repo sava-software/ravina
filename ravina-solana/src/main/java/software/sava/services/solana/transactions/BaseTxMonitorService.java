@@ -159,7 +159,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
                       Transaction erred at commitment level %s, awaiting %s.
                       %s
                       """,
-                  commitment, Settlement.reached(awaitCommitmentOnError),
+                  commitment, Settlement.awaiting(awaitCommitmentOnError),
                   formatter.formatSigStatus(sig, sigStatus)
               )
           );
@@ -174,7 +174,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
                       Transaction has been successfully %s, awaiting %s.
                       %s
                       """,
-                  commitment, Settlement.reached(awaitCommitment),
+                  commitment, Settlement.awaiting(awaitCommitment),
                   formatter.formatSig(sig)
               )
           );
