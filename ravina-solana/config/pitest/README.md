@@ -413,10 +413,18 @@ earliest-gate scan): the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
 `WebSocketManager.createManager` line 97, `.commitment(Commitment.CONFIRMED)`.
-`SolanaRpcWebsocketBuilder` initialises its commitment field to `CONFIRMED`,
-so dropping the call leaves the identical prototype state — verified against
-the builder's getter, which the factory test now asserts. The explicit call
-stays because the default lives in another repo and is not a contract.
+`SolanaRpcWebsocketBuilder` initialised its commitment field to `CONFIRMED`,
+so dropping the call left the identical prototype state — verified against
+the builder's getter, which the factory test asserts. The explicit call
+stayed because the default lives in another repo and is not a contract —
+**retired 2026-10-25 through the selective prune protocol** (two matching
+history-free previews, then `pitestCatchAllBaselinePrune`), when
+`createManager` moved to `.commitment(Commitment.FINALIZED)` while the
+resolved sava-rpc 25.12.0 builder still defaults to `CONFIRMED`: the call is
+load-bearing and `theUriFactoryConfiguresAFinalizedPrototype` kills the
+mutant. It becomes a restated default again once the BOM adopts a sava-rpc
+release whose builder defaults to `FINALIZED`; if PIT then reports it
+surviving, re-accept it under this family with the same argument.
 
 ## Uncovered by testing convention (accepted, and *not* an equivalence claim)
 
