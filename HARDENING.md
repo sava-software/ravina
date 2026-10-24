@@ -710,8 +710,11 @@ confirmation.**
   PIT", and each README's provenance section has its per-suite split. Three
   consequences follow:
   - Populations compare only between runs that agree on the certificate.
-  - Accepted rows naming mutants that only open PIT generates are kept, and
-    the READMEs list them as prune candidates.
+  - Accepted rows naming subsumed mutants can retire through guarded Prune
+    after repeated history-free solo/gate absence under the committed
+    provenance. This is population retirement, not a test kill. Switching
+    engine or certificate requires a reviewed rebase and fresh triage of
+    returning mutants, including their historical load-dependent behavior.
   - Timeout members retired along with their mutants are owed again the day a
     run goes without the certificate.
 - **The certificate expires.** The `expires=` line in `arcmutate-licence.txt`

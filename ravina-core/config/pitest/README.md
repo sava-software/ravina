@@ -123,10 +123,10 @@ armed. Both members were retired, and the first correction is worth keeping:
   with the mutant itself.** It was a load flip of the same family as the
   `ConditionalsBoundaryMutator` measurement this file's timeout-mode note
   opens with (`SURVIVED` solo, `TIMED_OUT` alongside other suites) — a
-  different mutant on the same line, flipping the same way — and its
-  `# saturation-sweep` baseline row still stands, but the
+  different mutant on the same line, flipping the same way. The
   licensed ArcMutate engine subsumes the line-14 `ORDER_IF` operands, so no
-  such mutant is generated any more: the loop guard's remaining
+  such mutant is generated any more; its accepted row is also retired under
+  that licensed population. The loop guard's remaining
   `ORDER_ELSE`/`ConditionalsBoundary`/`Math` siblings carry the line. Its
   line-14 sibling `ConditionalsBoundaryMutator` had already been retired on
   2026-08-02 for a different reason: 21 consecutive quiet runs on the
@@ -138,9 +138,10 @@ armed. Both members were retired, and the first correction is worth keeping:
   licensed engine and still carries its two `# saturation-sweep` rows. Only
   the `ORDER_IF` retirement is conditional on the toolchain: without
   `arcmutate-licence.txt` the open-PIT
-  population puts that mutant back (94 mutants instead of 79), where it still
-  reads `SURVIVED` solo and `TIMED_OUT` under load. Either recurrence warns as
-  an unaudited newcomer; re-add then, with the fresh observation.
+  population put that mutant back in the 2026-08-04 measurement (94 mutants
+  instead of 79), with `SURVIVED` solo and `TIMED_OUT` under load. Changing
+  that toolchain requires rebase and fresh triage; recurrence under the
+  licensed engine must likewise be reviewed from its fresh observation.
 
 **calls** — **the whole set was retired 2026-08-06; the file is armed but
 empty.** Every member deleted or inverted an exit of a retry/wait loop, leaving
@@ -262,29 +263,13 @@ The three `TIMED_OUT` rows are `ExceptionUtil`'s cause-chain walks: replacing
 
 ## Triaged equivalent mutants (accepted with reasons)
 
-### Kept prune candidates (2026-08-04, 2026-09-24)
+### Licensed-engine subsumption
 
-The licensed engine generates fewer mutants, so four already-argued rows now
-match no mutant in a licensed run and the plugin prints them as prune
-candidates. All four are **kept**: a rebase removes no acceptance, and
-pruning is owed repeated evidence. They are not new debt, and the arguments
-below still stand.
-
-- `ExponentialBackoffErrorHandler.<init>` `RemoveConditionalMutator_ORDER_IF`
-  (`backoff`, `# saturation-sweep`) — the mutant itself is no longer generated
-  at all, the same subsumption that retired its timeout-audit member above.
-- `CourteousBalancedCall.call` `RemoveConditionalMutator_ORDER_IF` (`calls`,
-  `# single-item-pool`) — the key still exists, but its surviving sibling is
-  subsumed; the remaining siblings read `KILLED`.
-- `UriCapacityConfig$Parser.parseProperties`
-  `RemoveConditionalMutator_EQUAL_IF` (`catchAll`, `# unreachable-guard`) —
-  the mutant itself is no longer generated at all.
-- `Backoff.fibonacci` `RemoveConditionalMutator_ORDER_ELSE` (`backoff`,
-  `# overflow-guard-sweep`), since the 2026-09-24 move to PIT 1.30.0 and base
-  1.7.2 — the one `ORDER_ELSE` still generated in the size loop's condition is
-  killed by `fibonacciRunsInSecondsForWholeSecondDelays`, which asserts only
-  delay values the differential sweep showed the argued mutant leaves unchanged,
-  so it is the sibling; the argued survivor is no longer generated.
+A rebase preserves acceptance, but an accepted operand subsumed by the licensed
+engine can retire through guarded Prune after matching history-free solo/gate
+previews under the committed provenance. A killed sibling at the same key is
+not proof that the accepted operand was killed. An engine or certificate change
+requires rebase and fresh triage rather than dormant cross-engine acceptance.
 
 **Dropped `toAbsolutePath` normalisation** `# absolute-path-equivalent` (`config`) — `NakedReceiverMutator`
 on `NetConfigRecord$Parser` lines 95/129, `Path.of(keyStorePath).toAbsolutePath()`.
@@ -316,7 +301,7 @@ name the endpoint redacted, a credential contract, so
 the absent key; that mutant is killed too, and its row was pruned 2026-10-16.
 
 **Saturation absorbs the off-by-one** `# saturation-sweep` (`backoff`) — surviving
-`ConditionalsBoundaryMutator`/`RemoveConditionalMutator_ORDER_IF` on a
+`ConditionalsBoundaryMutator` on a
 *max-error-count* computation: `Backoff.fibonacci` lines 61 and 93,
 `ExponentialBackoffErrorHandler.<init>` line 14. Each shifts the saturation
 index, but the delay at that index is already clamped — `min(maxDelay, …)` for
@@ -353,28 +338,24 @@ The lesson: this family's membership test is the sweep, not the prose.
 2026-07-21 so `Backoff.fibonacci` saturates at F(92) (the largest fibonacci
 that fits in a long) instead of hanging or walking wrapped values:
 
-- Lines 71, 87 and 93 `ConditionalsBoundaryMutator` (`current < 0` → `<= 0`,
-  `current > 0` → `>= 0`): `current == 0` is unreachable — pre-wrap fibonacci
-  values are ≥ 2 and the first wrapped sum lands in [2^63, 2^64), so it is
-  strictly negative.
-- Line 93 `RemoveConditionalMutator_ORDER_ELSE` — forces the size loop to run
-  until the wrap regardless of `maxRetryDelay`. The array grows to the full
-  representable fibonacci walk, but every extra entry is min-clamped to
-  `maxRetryDelay` and the forced tail is unchanged, so the delay function is
-  identical: allocation-size only.
+Lines 71, 87 and 93 `ConditionalsBoundaryMutator` (`current < 0` → `<= 0`,
+`current > 0` → `>= 0`): `current == 0` is unreachable — pre-wrap fibonacci
+values are ≥ 2 and the first wrapped sum lands in [2^63, 2^64), so it is
+strictly negative.
 
-All four **verified by differential sweep** (2026-07-21): both variants diffed
+**Verified by differential sweep** (2026-07-21): both variants diffed
 over 2 787 configs — small exhaustive plus F(92)±1, 8e18 and `Long.MAX_VALUE`
 on both parameters — across error counts through every saturation point plus
 the unsigned extremes; zero differences. The same sweep checked the fixed
 original satisfies 0 ≤ delay ≤ maxDelay at every point.
 
-Line 71 `RemoveConditionalMutator_ORDER_ELSE` (removing the start-loop wrap
-guard entirely) is `TIMED_OUT`, not accepted: deleting a termination guard
-reintroduces the constructor hang, and a hang is only observable as a timeout
-— there is no collaborator to turn it into a deterministic assertion. It is
-detected, so it never enters the baseline; if it ever flips to `SURVIVED`
-under load, union it with this paragraph as the reason.
+The same sweep also covered the former line-93 `ORDER_ELSE` acceptance: forcing
+the size walk to continue until wrap merely added entries min-clamped to
+`maxRetryDelay`. That operand is subsumed by the licensed engine since the
+2026-09-24 move to PIT 1.30.0 and base 1.7.2, rather than newly killed by a
+test. The line-71 `ORDER_ELSE` wrap-guard deletion is instead killed by
+`anInitialDelayJustPastTheLargestFibonacciStartsAtThatFibonacciAndClampsToTheCap`;
+its former timeout argument is corrected in the audit discussion above.
 
 **Index paths that coincide** `# index-coincidence-sweep` (`backoff`) —
 `FibonacciBackoffErrorHandler.calculateDelay` line 21 `errorCount < 1` → `<=`:
@@ -382,7 +363,7 @@ at `errorCount == 1` both branches resolve to `sequence[0]`. Covered by the
 same sweep: zero differences over the domain above.
 
 **Degenerate single-item pool** `# single-item-pool` (`calls`) — `CourteousBalancedCall.call`,
-the failover guard `size() > 1` → `>= 1` and the forced-true variant. At size 1 the
+the failover guard `size() > 1` → `>= 1`. At size 1 the
 balancer is a `SingletonLoadBalancer`: `sort()` is a no-op, `withContext()`
 re-returns `previous`, and the `items()` scan skips its only element, so
 control falls through identically.
@@ -411,11 +392,6 @@ its stack trace gets attributed to whichever test Gradle prints next.
 header-formatting lambda's value reaches only the DEBUG message text.
 Asserting it would couple the test to message wording, the same principle as
 the `logger.log` removals.
-
-**Unreachable-false guard** `# unreachable-guard` (`catchAll`) — `UriCapacityConfig$Parser`
-`parseProperties` line 76, the `!url.isBlank()` conjunct:
-`PropertiesParser.getProperty` already maps a blank value to `null` and strips
-the rest, so `isBlank()` is never true when reached.
 
 **Unobservable timers** `# timer-unobservable` — call-time measurement mutants on paths where
 `measureCallTime` is false: the measured value is never read.

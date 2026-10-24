@@ -83,22 +83,24 @@ offset; position 0 cannot occur and the boundary is unreachable. The `< 0`
 form is the not-yet-marked sentinel.
 
 **Converging dispatch paths** `# converging-dispatch` — `SigningServiceConfig$Parser.test` line 125
-`RemoveConditionalMutator_EQUAL_IF` / `_EQUAL_ELSE` on
+`RemoveConditionalMutator_EQUAL_ELSE` on
 `if (factoryClass == null || backoff == null)`. The two arms are built to
 produce the same signing service: the deferred arm records a mark, skips, and
 re-parses the same span via `ji.reset(configMark)` in `createConfig`, while
-the direct arm parses in place. Forcing either direction changes only which
-path is taken and the intermediate mark bookkeeping, not the constructed
-service — which is why field order in the JSON document does not matter.
-The baseline carries *two* `EQUAL_ELSE` rows at this coordinate (2026-07-23):
-the compound condition yields one mutant per `== null` operand, and the
-multiset comparison materialized the sibling the old set-based compare
-collapsed. The same converging-paths argument covers both operands; the one
-`_EQUAL_IF` this run *did* kill (`testJsonDeferredConfigBeforeFactoryClass`)
-is the config-before-factoryClass ordering, whose forced direct dispatch is
-observable — the accepted rows are the directions that still converge.
-Under the licensed engine the accepted `_EQUAL_IF` row matches no mutant:
-ArcMutate subsumed the survivor and the key's remaining siblings read
-`KILLED`. The row is kept and the plugin lists it as a prune candidate — a
-rebase removes no acceptance, and pruning is owed repeated evidence, so this
-is not new debt and the argument above still stands.
+the direct arm parses in place. Forcing either operand's `EQUAL_ELSE`
+direction changes only which path is taken and the intermediate mark
+bookkeeping, not the constructed service. This is the property and oracle for
+the two remaining `EQUAL_ELSE` rows at this coordinate (2026-07-23): the
+compound condition yields one mutant per `== null` operand, and the multiset
+comparison materialized the sibling the old set-based compare collapsed.
+
+The previously accepted `RemoveConditionalMutator_EQUAL_IF` row at this
+coordinate was removed after guarded prune observations showed no unmatched
+survivor: the licensed ArcMutate engine subsumed that survivor. This is a
+change in the engine's mutant population, not a test kill. In particular,
+`testJsonDeferredConfigBeforeFactoryClass` continues to kill a generated
+`EQUAL_IF` mutation because forcing direct dispatch when config precedes
+`factoryClass` is observable; those killed mutants elsewhere in the method
+are distinct from the absent survivor at this coordinate. If a future
+toolchain changes the licensed population, rebase and triage the newly
+observed records before changing this argument.

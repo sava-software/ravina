@@ -33,17 +33,19 @@ advisory — re-read the family argument here (the code the acceptance argues
 about moved, or a new mutant sits under an old acceptance), then refresh the
 tag with `pitest<Suite>BaselineRetag`.
 
-Since the licensed engine generates fewer mutants (below), a few already-argued
-rows now match no mutant in a run and the plugin prints them as prune
-candidates. In `epochService` they are **kept**: a rebase removes no acceptance,
-pruning is owed repeated evidence, and in each case the key still exists with its
-remaining siblings `KILLED` — ArcMutate subsumed the surviving one. They are not
-new debt, and their arguments below still stand.
+The licensed engine generates fewer mutants (below). The following
+`epochService` acceptances were retired on 2026-10-24 after matching fresh,
+history-free solo/gate previews and guarded `BaselinePrune` observations:
 
 - `epochService` `EpochInfoServiceImpl.checkCycle` `EQUAL_IF`
   (`# fetch-disjunction-converging`) and `ORDER_IF` (`# idle-spin-only`).
 - `epochService` `EpochInfoServiceImpl.getAndSetEpochInfo` `EQUAL_IF`
   (`# stats-recompute-guard`, two rows).
+
+ArcMutate subsumed those accepted operands; the generated siblings at their
+keys are killed. Their absence is not a new test kill. A certificate or engine
+change requires a reviewed `BaselineRebase` and fresh triage of any returning
+mutants, rather than reusing these dormant acceptances.
 
 `catchAll` held one such row until 2026-08-12,
 `LookupTableCacheMap.getOrFetchTables` `ORDER_IF`, kept as insurance against a
@@ -456,7 +458,7 @@ in-memory fakes — a `java.lang.reflect.Proxy`-backed `SolanaRpcClient`, a
 scripted websocket, and running the loops synchronously on the test thread. Only
 the two classes below retain real debt.
 
-**`EpochInfoServiceImpl` (17)** — still the largest single block. The
+**`EpochInfoServiceImpl`** — still the largest single block. The
 *log-text-only* group that used to dominate it is gone: `logEpoch` both
 formatted a message and logged it, and returned its own argument, so eleven
 branch-selection and arithmetic mutants were unkillable purely because their
@@ -486,22 +488,23 @@ What remains, verified by hand-applying each mutant:
 - *Only observable as a longer or shorter `await`* (`# await-pacing-only`):
   the pacing `sleep` feeds only `await(Math.max(mean, sleep))`, and `await`
   is deliberately not clock-routed because it is signallable.
-- *The fetch-disjunction remnants at line 273*: forcing an operand true
-  (`# fetch-disjunction-converging`) is indistinguishable when every wake
-  fetches anyway, and the `now > endsAt` ORDER/boundary forms
-  (`# idle-spin-only`) are evaluated only when the prior terms are false,
-  where nothing advances the clock.
+- *The fetch-disjunction remnants*: forcing an operand false
+  (`# fetch-disjunction-converging`) still fetches through another true
+  operand in the covered cycles. The `now > endsAt` boundary mutant
+  (`# idle-spin-only`) matters only when the prior terms are false,
+  where nothing advances the test clock. Revisit these acceptances if a
+  deterministic idle-wake seam makes those cases observable.
 - *Logging removals* on the relocated `logger.log` call sites and the exit
   message — the documented equivalent family.
 
-Several rows are `# note`-marked duplicates from 2026-07-23: the 21.5.10
-plugin's multiset comparison materialized sibling mutants the old set-based
+On 2026-07-23, the 21.5.10 plugin's multiset comparison materialized sibling
+mutants the old set-based
 compare collapsed — compound conditions and multi-op expressions emit one
 mutant per operand at a single PIT coordinate (`class,method,line,mutator`;
 the baseline key that indexes them is line-less). Each
 sibling was accepted into the family above that already covers its line (the
 `sleep` expression feeding only `await`, the fetch disjunction, the
-`getAndSetEpochInfo` stats-recompute guard — `# stats-recompute-guard`,
+since-retired `getAndSetEpochInfo` stats-recompute guard — `# stats-recompute-guard`,
 forcing the `slotStats == null && samplesFuture != null` conjuncts recomputes
 the stats from the same completed samples future, which joins to the same
 samples and so the same stats); no new behaviour class was introduced. Two of the

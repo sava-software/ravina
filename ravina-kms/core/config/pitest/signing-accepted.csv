@@ -3,4 +3,3 @@ software.sava.kms.core.signing.MemorySignerFromFilePointerFactory,signerFromFile
 software.sava.kms.core.signing.SigningServiceConfig$Parser,createConfig,ConditionalsBoundaryMutator,SURVIVED # mark-sentinel # line 95
 software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch # line 125
 software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # converging-dispatch # line 125
-software.sava.kms.core.signing.SigningServiceConfig$Parser,test,RemoveConditionalMutator_EQUAL_IF,SURVIVED # converging-dispatch # line 125
