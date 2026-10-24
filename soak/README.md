@@ -156,8 +156,15 @@ measured so far is 4.2.2. The binary comes from `--validator`, then `SOAK_VALIDA
 `solana-test-validator` on `PATH`. It is started as
 
 ```sh
-<validator> --ledger build/ledger --reset --quiet --rpc-port 8899 --faucet-port 9900
+<validator> --alpenglow --ledger build/ledger --reset --quiet --rpc-port 8899 --faucet-port 9900
 ```
+
+`--alpenglow` is passed when the binary's `--help` lists it (4.2.x through 4.4.x; from 4.5
+Alpenglow is on at genesis and the flag is gone). Without it those releases run TowerBFT, where
+ravina's `FINALIZED` settlement lags confirmation by about 32 slots and every websocket await
+falls back to polling. Every figure recorded under `soak/` before 2026-10-24 was measured on a
+TowerBFT validator started without the flag, with ravina settling at `CONFIRMED`; none has been
+re-measured under Alpenglow.
 
 The ledger sits under `build/`, reset on every start, not under the run directory: a validator
 writes tens of megabytes a minute of ledger and account files that no report reads (43 MB for a
@@ -645,8 +652,9 @@ The plan this harness came from proposed a `getSignatureStatuses` check right af
 confirmed when its subscription registers is never notified and waits out the websocket timeout.
 The premise was measured before anything changed.
 
-Measured 2026-09-26 on a local Agave 4.2.2 test validator with sava-rpc 25.11.2, by a scratch
-program that is not part of the harness. Each round's transaction was a faucet airdrop to a fresh
+Measured 2026-09-26 on a local Agave 4.2.2 test validator running TowerBFT (started without
+`--alpenglow`) with sava-rpc 25.11.2, by a scratch program that is not part of the harness; the
+mechanism is unchanged under Alpenglow but the timing has not been re-measured there. Each round's transaction was a faucet airdrop to a fresh
 random key, watched on one websocket at `CONFIRMED`. Odd rounds subscribed right after the airdrop
 returned ("early"); even rounds polled `getSignatureStatuses` until confirmed and only then
 subscribed ("late"). `slotAtSubscribe` is `getSlot(CONFIRMED)`, read just before subscribing on late

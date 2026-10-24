@@ -178,7 +178,7 @@ public final class Main {
             .endpoint(peerUri)
             .httpClient(httpClient)
             .testResponse(peerMonitor.errorTracker())
-            .defaultCommitment(Commitment.CONFIRMED)
+            .defaultCommitment(Commitment.FINALIZED)
             .createClient();
         final var peerClient = RecordingRpcClient.wrap(rawPeer, peerName, counters, ledger);
         final var peerBackoff = new RecordingBackoff("rpc-" + peerName, Backoff.exponential(MILLISECONDS, 250, 8_000));
@@ -196,7 +196,7 @@ public final class Main {
       final var rpcClient = SolanaRpcClient.build()
           .endpoint(rpcUri)
           .httpClient(httpClient)
-          .defaultCommitment(Commitment.CONFIRMED)
+          .defaultCommitment(Commitment.FINALIZED)
           .createClient();
 
       final var epochInfoService = EpochInfoService.createService(EpochServiceConfig.createDefault(), rpcCaller);
@@ -222,7 +222,7 @@ public final class Main {
           final var prototype = SolanaRpcWebsocket.build()
               .uri(wsUri)
               .webSocketBuilder(webSocketFaults.webSocketBuilder())
-              .commitment(Commitment.CONFIRMED)
+              .commitment(Commitment.FINALIZED)
               .onOpen(webSocketFaults::opened);
           rawManager = WebSocketManager.createManager(wsBackoff, prototype, webSocketFaults);
         }
@@ -404,7 +404,7 @@ public final class Main {
     final var signature = rpcClient.requestAirdrop(payer, lamports).get(30, TimeUnit.SECONDS);
     logger.log(INFO, "Airdrop " + signature + " requested for " + payer);
     for (int i = 0; i < 120; ++i) {
-      final var balance = rpcClient.getBalance(Commitment.CONFIRMED, payer).get(10, TimeUnit.SECONDS);
+      final var balance = rpcClient.getBalance(Commitment.FINALIZED, payer).get(10, TimeUnit.SECONDS);
       if (balance.lamports() >= lamports) {
         logger.log(INFO, "Payer funded: " + balance.lamports() + " lamports");
         return;

@@ -464,8 +464,16 @@ if [ "$EXTERNAL" = 0 ]; then
   # next start. The run keeps the validator's log.
   LEDGER_DIR=$SCRIPT_DIR/build/ledger
   mkdir -p "$LEDGER_DIR"
-  log "starting $SOAK_VALIDATOR (ledger $LEDGER_DIR, reset)"
-  (cd "$RUN_DIR" && exec "$SOAK_VALIDATOR" --ledger "$LEDGER_DIR" --reset --quiet \
+  # Alpenglow consensus, which every public cluster has run since October 2026 and ravina
+  # settles at FINALIZED for: 4.2.x through 4.4.x test validators start on TowerBFT unless asked,
+  # where a FINALIZED await lags confirmation by about 32 slots and every soak settlement would
+  # fall back to polling; from 4.5 Alpenglow is on at genesis and the flag is gone.
+  ALPENGLOW_FLAG=()
+  if "$SOAK_VALIDATOR" --help 2>/dev/null | grep -q -- '--alpenglow'; then
+    ALPENGLOW_FLAG=(--alpenglow)
+  fi
+  log "starting $SOAK_VALIDATOR ${ALPENGLOW_FLAG[*]:-} (ledger $LEDGER_DIR, reset)"
+  (cd "$RUN_DIR" && exec "$SOAK_VALIDATOR" ${ALPENGLOW_FLAG[@]+"${ALPENGLOW_FLAG[@]}"} --ledger "$LEDGER_DIR" --reset --quiet \
     --rpc-port "$VALIDATOR_RPC_PORT" --faucet-port "$VALIDATOR_FAUCET_PORT") \
     > "$RUN_DIR/logs/validator.log" 2>&1 < /dev/null &
   VALIDATOR_PID=$!

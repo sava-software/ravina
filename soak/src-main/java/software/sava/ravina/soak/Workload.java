@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.System.Logger.Level.INFO;
 import static java.lang.System.Logger.Level.WARNING;
-import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
+import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 
 /// A steady stream of cheap SIMD-0385 v1 memo transactions through `InstructionService`, one
 /// worker thread per in-flight transaction (platform threads, so their joins show as
@@ -125,8 +125,8 @@ final class Workload {
           1.1,
           List.of(memo),
           BigDecimal.ZERO,
-          CONFIRMED,
-          CONFIRMED,
+          FINALIZED,
+          FINALIZED,
           true,
           true,
           3,
