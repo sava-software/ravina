@@ -17,11 +17,11 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 /// `--alpenglow`), where `confirmed` is optimistic confirmation, and on a
 /// Surfpool surfnet, which runs no consensus and reports `finalized` a fixed
 /// 30 slots behind `confirmed`. There this policy still accepts a `CONFIRMED`
-/// status as final while its settled reads moved to `finalized`, so a
-/// transaction released at confirmation is not yet in the bank a finalized
-/// simulation reads for those slots. Logs report the level actually observed,
-/// so a settled await released by a `CONFIRMED` status on such an environment
-/// is never reported as finalized.
+/// status as final while its settled reads moved to `finalized`. On that agave
+/// validator a transaction released at confirmation is also absent from the
+/// root bank a finalized simulation reads; Surfpool simulates against current
+/// state and only delays statuses, block hashes and heights. Logs report the
+/// observed level, so a `CONFIRMED` release there is never logged as finalized.
 final class Settlement {
 
   /// The commitment ravina reads block heights and block hashes at, simulates

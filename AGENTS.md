@@ -475,9 +475,11 @@ them, because the list is the argument for the effort.
   TowerBFT, before 4.5.0-alpha.2 and started without `--alpenglow`, or a
   Surfpool surfnet, which reports `finalized` 30 slots behind) a `FINALIZED`
   read and subscription lag confirmation by about 32 slots, so a settled
-  websocket await runs out its timeout and polling settles it on `CONFIRMED`,
-  while the next finalized simulation does not yet see the transaction; that
-  is the accepted cost, and the soak passes `--alpenglow` for it. Logs report the level actually
+  websocket await runs out its timeout and polling settles it on `CONFIRMED`;
+  on the agave validator the next finalized simulation does not yet see the
+  transaction either, while Surfpool simulates against its current state and
+  only delays statuses, block hashes and heights. That is the accepted cost,
+  and the soak passes `--alpenglow` for it. Logs report the level actually
   observed (`Settlement.reached`), so a settled await released by a
   `CONFIRMED` status on such an environment is not reported as finalized.
   `WebSocketManager` and `HeliusJsonRpcClient` pass `FINALIZED` as client
