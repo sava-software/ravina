@@ -33,10 +33,7 @@ final class TxMonitorConfigTests {
   void testParseJsonDefaults() {
     final var json = "{}";
     final var config = TxMonitorConfig.parseConfig(JsonIterator.parse(json));
-    assertEquals(Duration.ofSeconds(3), config.minSleepBetweenSigStatusPolling());
-    assertEquals(Duration.ofSeconds(5), config.webSocketConfirmationTimeout());
-    assertEquals(Duration.ofSeconds(5), config.retrySendDelay());
-    assertEquals(8, config.minBlocksRemainingToResend());
+    assertEquals(TxMonitorConfig.createDefault(), config, "an empty object is every default");
   }
 
   @Test
@@ -47,8 +44,8 @@ final class TxMonitorConfigTests {
         }
         """;
     final var config = TxMonitorConfig.parseConfig(JsonIterator.parse(json));
-    assertEquals(Duration.ofSeconds(3), config.minSleepBetweenSigStatusPolling());
-    assertEquals(Duration.ofSeconds(5), config.webSocketConfirmationTimeout());
+    assertEquals(Duration.ofSeconds(1), config.minSleepBetweenSigStatusPolling());
+    assertEquals(Duration.ofSeconds(3), config.webSocketConfirmationTimeout());
     assertEquals(Duration.ofSeconds(15), config.retrySendDelay());
     assertEquals(8, config.minBlocksRemainingToResend());
   }
@@ -60,13 +57,26 @@ final class TxMonitorConfigTests {
     assertNull(config);
   }
 
+  /// The defaults pace a 150-block window at 200 ms slots, about 30 s: the
+  /// websocket timeout covers the resend delay, so the first poll of a
+  /// transaction that was not notified resends it at once, and the resend
+  /// period is the delay rounded up to whole polling passes, so the floor
+  /// divides the delay.
   @Test
   void testCreateDefault() {
     final var config = TxMonitorConfig.createDefault();
-    assertEquals(Duration.ofSeconds(3), config.minSleepBetweenSigStatusPolling());
-    assertEquals(Duration.ofSeconds(5), config.webSocketConfirmationTimeout());
-    assertEquals(Duration.ofSeconds(5), config.retrySendDelay());
+    assertEquals(Duration.ofSeconds(1), config.minSleepBetweenSigStatusPolling());
+    assertEquals(Duration.ofSeconds(3), config.webSocketConfirmationTimeout());
+    assertEquals(Duration.ofSeconds(2), config.retrySendDelay());
     assertEquals(8, config.minBlocksRemainingToResend());
+    assertTrue(
+        config.webSocketConfirmationTimeout().compareTo(config.retrySendDelay()) >= 0,
+        "the websocket timeout must cover the resend delay, or the first poll cannot resend"
+    );
+    assertEquals(
+        0, config.retrySendDelay().toMillis() % config.minSleepBetweenSigStatusPolling().toMillis(),
+        "the polling floor must divide the resend delay, or the resend period rounds up past it"
+    );
   }
 
   // Properties Tests
@@ -89,10 +99,7 @@ final class TxMonitorConfigTests {
   @Test
   void testParsePropertiesDefaults() {
     final var config = TxMonitorConfig.parseConfig(new Properties());
-    assertEquals(Duration.ofSeconds(3), config.minSleepBetweenSigStatusPolling());
-    assertEquals(Duration.ofSeconds(5), config.webSocketConfirmationTimeout());
-    assertEquals(Duration.ofSeconds(5), config.retrySendDelay());
-    assertEquals(8, config.minBlocksRemainingToResend());
+    assertEquals(TxMonitorConfig.createDefault(), config, "empty properties are every default");
   }
 
   @Test
@@ -131,8 +138,8 @@ final class TxMonitorConfigTests {
     properties.setProperty("retrySendDelay", "PT15S");
 
     final var config = TxMonitorConfig.parseConfig(properties);
-    assertEquals(Duration.ofSeconds(3), config.minSleepBetweenSigStatusPolling());
-    assertEquals(Duration.ofSeconds(5), config.webSocketConfirmationTimeout());
+    assertEquals(Duration.ofSeconds(1), config.minSleepBetweenSigStatusPolling());
+    assertEquals(Duration.ofSeconds(3), config.webSocketConfirmationTimeout());
     assertEquals(Duration.ofSeconds(15), config.retrySendDelay());
     assertEquals(8, config.minBlocksRemainingToResend());
   }
