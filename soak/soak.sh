@@ -473,8 +473,18 @@ if [ "$EXTERNAL" = 0 ]; then
   if "$SOAK_VALIDATOR" --help 2>/dev/null | grep -q -- '--alpenglow'; then
     ALPENGLOW_FLAG=(--alpenglow)
   fi
-  log "starting $SOAK_VALIDATOR ${ALPENGLOW_FLAG[*]:-} (ledger $LEDGER_DIR, reset)"
-  (cd "$RUN_DIR" && exec "$SOAK_VALIDATOR" ${ALPENGLOW_FLAG[@]+"${ALPENGLOW_FLAG[@]}"} --ledger "$LEDGER_DIR" --reset --quiet \
+  # SIMD-0525's 200 ms slots, which mainnet has run since epoch 1053 (2026-10-09). The gate
+  # reduce_slot_time_to_200ms is in 4.2.2's feature set and, like every feature the test
+  # validator knows, active at genesis, but a slot-time gate takes effect one epoch after its
+  # activation epoch, so a validator left at epoch 0 runs 400 ms slots for its whole life
+  # (measured 2026-10-27: 75 slots in 30 s). Warping the ledger to the first slot of epoch 1
+  # puts the run under the gate, 200 ms slots and a 150-block hash window of about 30 s, through
+  # the mechanism mainnet uses (64 ticks per slot, a shorter tick); --ticks-per-slot 32 would
+  # give the same slot time by a different one. run.txt records getEpochInfo for this.
+  WARP_SLOT=432000
+  log "starting $SOAK_VALIDATOR ${ALPENGLOW_FLAG[*]:-} --warp-slot $WARP_SLOT (ledger $LEDGER_DIR, reset)"
+  (cd "$RUN_DIR" && exec "$SOAK_VALIDATOR" ${ALPENGLOW_FLAG[@]+"${ALPENGLOW_FLAG[@]}"} --warp-slot "$WARP_SLOT" \
+    --ledger "$LEDGER_DIR" --reset --quiet \
     --rpc-port "$VALIDATOR_RPC_PORT" --faucet-port "$VALIDATOR_FAUCET_PORT") \
     > "$RUN_DIR/logs/validator.log" 2>&1 < /dev/null &
   VALIDATOR_PID=$!
@@ -514,6 +524,7 @@ if [ -n "$git_changes" ]; then git_dirty=true; else git_dirty=false; fi
   fi
   echo "rpc: $RPC_SHOWN"
   echo "rpc getVersion: $(rpc_request "$SOAK_RPC" getVersion || true)"
+  echo "rpc getEpochInfo: $(rpc_request "$SOAK_RPC" getEpochInfo || true)"
   echo "ws: $WS_SHOWN"
   echo "method-timing entries:"
   printf '  %s\n' "${METHOD_TIMING_ENTRIES[@]}"

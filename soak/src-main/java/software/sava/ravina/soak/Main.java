@@ -102,8 +102,12 @@ public final class Main {
     final long airdropSol = Long.parseLong(setting("SOAK_AIRDROP_SOL", "100"));
     final long drainSeconds = Long.parseLong(setting("SOAK_DRAIN_SECONDS", "60"));
     final int rpcCapacityPerSecond = Integer.parseInt(setting("SOAK_RPC_CAPACITY", "50"));
-    final var pollFloor = Duration.ofMillis(Long.parseLong(setting("SOAK_POLL_MILLIS", "3000")));
-    final var wsTimeout = Duration.ofMillis(Long.parseLong(setting("SOAK_WS_TIMEOUT_MILLIS", "5000")));
+    // The library's own defaults (TxMonitorConfig.DEFAULT_*), so a run at the soak's defaults
+    // measures what a consumer on TxMonitorConfig.createDefault() gets. These two are string
+    // literals because soak.sh reads the defaults from this source; MainTests pins them to the
+    // constants.
+    final var pollFloor = Duration.ofMillis(Long.parseLong(setting("SOAK_POLL_MILLIS", "1000")));
+    final var wsTimeout = Duration.ofMillis(Long.parseLong(setting("SOAK_WS_TIMEOUT_MILLIS", "3000")));
     final var wsFaultSpec = setting("SOAK_WS_FAULT", "");
     Files.createDirectories(runDir);
 
@@ -269,7 +273,12 @@ public final class Main {
           callWeights,
           webSocketManager
       );
-      final var monitorConfig = new TxMonitorConfig(pollFloor, wsTimeout, Duration.ofSeconds(5), 8);
+      final var monitorConfig = new TxMonitorConfig(
+          pollFloor,
+          wsTimeout,
+          TxMonitorConfig.DEFAULT_RETRY_SEND_DELAY,
+          TxMonitorConfig.DEFAULT_MIN_BLOCKS_REMAINING_TO_RESEND
+      );
       final var txMonitorService = TxMonitorService.createService(
           formatter, rpcCaller, epochInfoService, webSocketManager, monitorConfig, transactionProcessor
       );
@@ -285,6 +294,8 @@ public final class Main {
       }
       commitRun("START", rpcUri, webSocketEnabled, ratePerSecond, durationSeconds, counters,
           "payer=" + feePayer + " rpcCapacity=" + rpcCapacityPerSecond + "/s poll=" + pollFloor + " wsTimeout=" + wsTimeout
+              + " retrySendDelay=" + monitorConfig.retrySendDelay()
+              + " minBlocksRemainingToResend=" + monitorConfig.minBlocksRemainingToResend()
               + " peers=" + peers + proxyDetail
               + (webSocketFaults == null ? "" : " wsFault=" + webSocketFaults.describe()));
       try (final var gauge = new Gauge(counters, ledger, capacityStates, recordingManager, webSocketFaults, runDir.resolve("gauge.csv"))) {

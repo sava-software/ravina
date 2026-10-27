@@ -4,10 +4,13 @@ import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordingFile;
 import org.junit.jupiter.api.Test;
 import software.sava.services.core.config.ServiceConfigUtil;
+import software.sava.services.solana.transactions.TxMonitorConfig;
 
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,6 +49,27 @@ final class MainTests {
     } finally {
       Files.deleteIfExists(file);
     }
+  }
+
+  /// `soak.sh` reads the client's defaults from `Main.java`'s `setting("SOAK_*", "<default>")`
+  /// literals, so the monitor knobs' defaults are string literals. This pins them to the library's
+  /// own constants: a run at the soak's defaults measures what a consumer on
+  /// `TxMonitorConfig.createDefault()` gets, and a library retune that leaves the soak behind fails
+  /// here instead of recording figures for values no consumer runs.
+  @Test
+  void theMonitorKnobsDefaultToTheLibrarysValues() throws Exception {
+    final var source = Files.readString(Path.of("src-main/java/software/sava/ravina/soak/Main.java"));
+    final var defaults = Pattern.compile("setting\\(\"(SOAK_[A-Z0-9_]+)\", \"([^\"]*)\"\\)")
+        .matcher(source).results()
+        .collect(Collectors.toMap(match -> match.group(1), match -> match.group(2)));
+    assertEquals(
+        Long.toString(TxMonitorConfig.DEFAULT_MIN_SLEEP_BETWEEN_SIG_STATUS_POLLING.toMillis()),
+        defaults.get("SOAK_POLL_MILLIS")
+    );
+    assertEquals(
+        Long.toString(TxMonitorConfig.DEFAULT_WEB_SOCKET_CONFIRMATION_TIMEOUT.toMillis()),
+        defaults.get("SOAK_WS_TIMEOUT_MILLIS")
+    );
   }
 
   /// A malformed SOAK_RPC or SOAK_WS is refused without the setting reaching soak.jfr.

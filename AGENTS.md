@@ -501,10 +501,10 @@ them, because the list is the argument for the effort.
   runs a pass sooner, since a pass serves the whole batch. The later of the websocket timeout and the
   resend delay, plus one polling floor, must stay well under the window less
   `minBlocksRemainingToResend`, about 28 s at 200 ms, or a lost transaction is never resent and
-  recovers only through expiry. The soak sets its own values in `soak/src-main/.../Main.java`
-  so that its recorded figures stay comparable, except on the websocket-timeout path, where the
-  wake brings the first poll and resend forward at any values; a re-baseline at the library
-  defaults is a separate campaign.
+  recovers only through expiry. The soak runs at these defaults (`MainTests` pins the `Main.java`
+  literals `soak.sh` reads to the constants) on a validator warped into epoch 1, where
+  SIMD-0525's 200 ms gate is in effect; its figures before 2026-10-27 were taken at the previous
+  values and at 400 ms slots.
 - **Never share a sava-core `Signer` between threads.** `KeyPairSigner` wraps one
   `java.security.Signature`; concurrent `sign` calls interleave, and each returns a
   signature that is not over its own message: a validator drops such a transaction without

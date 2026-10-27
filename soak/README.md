@@ -136,14 +136,21 @@ client would have used on its own.
 | `SOAK_OUT` | `--out` | the run directory |
 | `SOAK_AIRDROP_SOL` | | the faucet airdrop that funds the throwaway payer |
 | `SOAK_RPC_CAPACITY` | | each RPC item's capacity, refilled over one second; its floor is the negative of the same value |
-| `SOAK_POLL_MILLIS` | | `TxMonitorConfig.minSleepBetweenSigStatusPolling`, the monitor's floor between polling passes |
-| `SOAK_WS_TIMEOUT_MILLIS` | | `TxMonitorConfig.webSocketConfirmationTimeout`, how long a signature subscription is awaited before polling takes over |
+| `SOAK_POLL_MILLIS` | | `TxMonitorConfig.minSleepBetweenSigStatusPolling`, the monitor's floor between polling passes; the default is the library's `DEFAULT_MIN_SLEEP_BETWEEN_SIG_STATUS_POLLING` |
+| `SOAK_WS_TIMEOUT_MILLIS` | | `TxMonitorConfig.webSocketConfirmationTimeout`, how long a signature subscription is awaited before polling takes over; the default is the library's `DEFAULT_WEB_SOCKET_CONFIRMATION_TIMEOUT` |
 | `SOAK_FAULT` | | peer 1's fault spec, empty for none; see "Fault injection" |
 | `SOAK_PEERS` | | balanced RPC peers, `1` or `2` |
 | `SOAK_PEER2_FAULT` | | peer 2's fault spec, read only with `SOAK_PEERS=2` |
 | `SOAK_PROXY_PORT` | | peer 1's proxy port; peer 2's is the next one |
 | `SOAK_VALIDATOR` | `--validator` | the runner's, not the client's: the `solana-test-validator` binary |
 | `SOAK_JAVA_HOME` | | `config/generate-jfc.sh`'s; the runner tolerates it |
+
+The monitor's resend delay and `minBlocksRemainingToResend` have no knob: `Main.java` passes the
+library's `DEFAULT_RETRY_SEND_DELAY` and `DEFAULT_MIN_BLOCKS_REMAINING_TO_RESEND`, and `MainTests`
+pins the two knobs' literal defaults to the library's constants, so a run at the soak's defaults
+measures what a consumer on `TxMonitorConfig.createDefault()` gets. The `START` run event's detail
+names all four values as applied. Until 2026-10-27 the soak set its own, 3 s, 5 s and a 5 s resend
+delay, which were the library's defaults before its retune for 200 ms slots.
 
 Above a fixed pending bound (`Workload.MAX_PENDING`) the submitter drops new transactions and
 counts them, so an hour against a stalled pipeline stays bounded in memory and in RPC load.
@@ -156,17 +163,29 @@ measured so far is 4.2.2. The binary comes from `--validator`, then `SOAK_VALIDA
 `solana-test-validator` on `PATH`. It is started as
 
 ```sh
-<validator> --alpenglow --ledger build/ledger --reset --quiet --rpc-port 8899 --faucet-port 9900
+<validator> --alpenglow --warp-slot 432000 --ledger build/ledger --reset --quiet --rpc-port 8899 --faucet-port 9900
 ```
 
 `--alpenglow` is passed when the binary's `--help` lists it, as every release from 4.2.0 through
 4.5.0-alpha.2 does. Without it every release before 4.5.0-alpha.2 runs TowerBFT, where ravina's
 `FINALIZED` reads and subscriptions lag confirmation by about 32 slots and every websocket await
 runs out its timeout and falls back to polling; from 4.5.0-alpha.2 Alpenglow is on at genesis and
-the flag is a deprecated no-op that prints a warning. Every figure recorded under `soak/` before
-2026-10-24 was measured on a
-TowerBFT validator started without the flag, with ravina settling at `CONFIRMED`; none has been
-re-measured under Alpenglow.
+the flag is a deprecated no-op that prints a warning.
+
+`--warp-slot 432000` puts the run in epoch 1, for SIMD-0525's 200 ms slots. The gate
+`reduce_slot_time_to_200ms` is in 4.2.2's feature set and, like every feature the test validator
+knows, active at genesis, but a slot-time gate takes effect one epoch after its activation epoch, so
+a validator left at epoch 0 runs 400 ms slots for its whole life. Measured 2026-10-27 on 4.2.2 with
+`--alpenglow`: 75 slots in 30 s at epoch 0, and after the warp 100 slots in 20 s with
+`getLatestBlockhash` reporting a last valid block height 150 blocks ahead, the 30 s window mainnet
+has had since epoch 1053. The warp keeps the mechanism mainnet uses, 64 ticks per slot with a
+shorter tick; `--ticks-per-slot 32` gives the same slot time by a different one. The 4.3.0 test
+validator also runs 400 ms slots at epoch 0. `run.txt` records the run's `getEpochInfo`, whose
+`epoch` of 1 says the gate was in effect.
+
+Every figure recorded under `soak/` before 2026-10-24 was measured on a TowerBFT validator started
+without the flag, with ravina settling at `CONFIRMED`, and every figure before 2026-10-27 at 400 ms
+slots.
 
 The ledger sits under `build/`, reset on every start, not under the run directory: a validator
 writes tens of megabytes a minute of ledger and account files that no report reads (43 MB for a
@@ -227,7 +246,7 @@ strings, and it must be new or empty.
 | path | writer | what it is |
 |---|---|---|
 | `run.env` | soak.sh | every resolved `SOAK_*` value, `SOAK_RPC` and `SOAK_WS` redacted (a keyed endpoint is supplied again to replay the run) |
-| `run.txt` | soak.sh | the git revision and dirty files, the JDK and its `java -version`, the validator and its version, the endpoints (redacted) and the RPC endpoint's `getVersion`, the method-timing entries and the launch line |
+| `run.txt` | soak.sh | the git revision and dirty files, the JDK and its `java -version`, the validator and its version, the endpoints (redacted) and the RPC endpoint's `getVersion` and `getEpochInfo`, the method-timing entries and the launch line |
 | `config/` | soak.sh | the recording and logging settings the run used |
 | `logs/client.log` | client JVM | its output, closing with `Run finished: submitted=N settled=N pending=N dropped=N notified=N timedOut=N threw=N faultsInjected=N`, or `Run interrupted: …` from the shutdown hook when the run was stopped |
 | `logs/jfr-methodtrace.log` | client JVM | the method tracer's log, which gate 2 reads |
@@ -732,8 +751,8 @@ route with no subscription event in the recording.
 
 - Send to result by polling: p50 1,826 ms, p90 3,013 ms, p99 3,417 ms, max 3,702 ms, against
   347 ms at p50 over the websocket. The polling floor (`minSleepBetweenSigStatusPolling`, 3 s
-  in the soak's own defaults, which `Main.java` sets apart from the library's) sets the shape: a
-  transaction confirms within a slot or two and then waits for the next pass.
+  in the soak's defaults of the time; since 2026-10-27 the soak runs at the library's) sets the
+  shape: a transaction confirms within a slot or two and then waits for the next pass.
 - Monitor passes: `processTransactions` ran 200 times, one per 3-second floor, 2.22 ms on
   average and 33 ms at most; the one sampled poll batch held 7 signatures, which at 2 tx/s
   over a 3 s floor is the expected size. `validateResponse` averaged 0.77 ms.
