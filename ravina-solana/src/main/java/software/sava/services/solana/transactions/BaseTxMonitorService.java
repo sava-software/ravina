@@ -40,6 +40,11 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   final ReentrantLock workLock; // package-private: tests assert the loop never leaks it
   // package-private: tests observe the waiter queue via workLock.hasWaiters.
   final Condition processTransactions;
+  /// A wake that arrives while a pass is running finds no waiter, and a Condition keeps no
+  /// record of a signal, so `notifyWorker` also sets this under `workLock`; the loop clears it
+  /// before it reads its batch and skips the floor after a pass that saw it set. One flag
+  /// serves any number of wakes during a pass: they all ask for the same next pass.
+  private boolean wakeRequested;
 
   protected BaseTxMonitorService(final ChainItemFormatter formatter,
                                  final RpcCaller rpcCaller,
@@ -69,6 +74,15 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
     try {
       epochInfoService.awaitInitialized();
       for (; ; ) {
+        // A wake that lands from here on is for work this pass may not see,
+        // so it carries over to the floor below; one that landed earlier was
+        // answered by the await that ended, or asks for this pass.
+        workLock.lockInterruptibly();
+        try {
+          wakeRequested = false;
+        } finally {
+          workLock.unlock();
+        }
         if (!pendingTransactions.isEmpty()) {
           for (final var txContext : pendingTransactions.values()) {
             batch.put(txContext.sig(), txContext);
@@ -81,12 +95,17 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
           batchSize = 0;
         }
         // Every pass waits the floor: a transaction short of settlement is
-        // a slot or so from confirmation, and a notifyWorker call cuts the
-        // wait short when new work arrives.
+        // a slot or so from confirmation. A notifyWorker call cuts the wait
+        // short for work that is due already, whether it lands while the
+        // worker is parked here or while a pass is running: the commitment
+        // monitor is woken by a queued context whose resend delay has passed,
+        // the expiration monitor by a hand-off.
         workLock.lockInterruptibly();
         try {
-          //noinspection ResultOfMethodCallIgnored
-          processTransactions.await(minSleepMillisBetweenPolling, TimeUnit.MILLISECONDS);
+          if (!wakeRequested) {
+            //noinspection ResultOfMethodCallIgnored
+            processTransactions.await(minSleepMillisBetweenPolling, TimeUnit.MILLISECONDS);
+          }
         } finally {
           workLock.unlock();
         }
@@ -102,6 +121,7 @@ abstract class BaseTxMonitorService implements Runnable, Worker {
   public final void notifyWorker() {
     workLock.lock();
     try {
+      wakeRequested = true;
       processTransactions.signalAll();
     } finally {
       workLock.unlock();

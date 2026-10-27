@@ -276,6 +276,17 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     );
     final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
     if (pending == null) {
+      // A context whose last publish is already a resend delay old, which a timed-out
+      // websocket await is whenever the timeout covers the delay, gets its first status poll,
+      // and with it any resend it opted into, on the next pass rather than after the rest of
+      // the worker's floor; the poll is the useful part, so the wake does not ask whether the
+      // context resends. A fresh context, one whose subscription was refused or had no
+      // socket, is not worth a pass of its own: a pass run at once would rarely find a status
+      // yet and could not resend, and the floor after it would push the first useful poll
+      // out, not bring it in.
+      if (clock.currentTimeMillis() - sendTxContext.publishedAt() >= retrySendDelayMillis) {
+        notifyWorker();
+      }
       return txContext.sigStatusFuture();
     }
     // The key is (block height, signature), so a refused entry means this signature is already

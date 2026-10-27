@@ -1160,4 +1160,74 @@ final class TxCommitmentMonitorServiceTests {
     service.processTransactions(contextMap(context));
     assertEquals(List.of(original), publisher.retried, "exactly the delay is due");
   }
+
+  // ------------------------------------------------------ waking the worker --
+
+  /// A context reaches the queue once its websocket await has run out, so when
+  /// that wait already covers the resend delay a resend is due at once, and the
+  /// worker, parked on its floor, is woken rather than left to finish it. The
+  /// same `signalAll` observation as the expiration hand-off tests: queue
+  /// state, not elapsed time.
+  @Test
+  void queueingAContextWhoseResendIsDueWakesTheParkedWorker() throws InterruptedException {
+    final var clock = new TestClock();
+    final long retryDelayMillis = 1_000;
+    final var service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
+    final var due = sendTxContext(HORIZON + 10, clock.currentTimeMillis() - retryDelayMillis);
+
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(service.workLock, service.processTransactions)) {
+      service.queueResult(FINALIZED, FINALIZED, "sig", due, true, true);
+      assertFalse(waiter.parked(), "a context published a full resend delay ago must wake the worker");
+    }
+    assertEquals(1, service.pendingTransactions.size(), "and is queued like any other");
+  }
+
+  /// A fresh context, one whose subscription was refused or had no socket,
+  /// takes the loop's next pass: a pass of its own could neither settle nor
+  /// resend it, and the floor after that pass would only push the first useful
+  /// poll out. One millisecond short of the delay is fresh.
+  @Test
+  void queueingAFreshContextLeavesTheWorkerParked() throws InterruptedException {
+    final var clock = new TestClock();
+    final long retryDelayMillis = 1_000;
+    final var service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
+    final var fresh = sendTxContext(HORIZON + 10, clock.currentTimeMillis() - retryDelayMillis + 1);
+
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(service.workLock, service.processTransactions)) {
+      service.queueResult(FINALIZED, FINALIZED, "sig", fresh, true, true);
+      assertTrue(waiter.parked(), "a context one millisecond short of its resend delay must not wake the worker");
+    }
+    assertEquals(1, service.pendingTransactions.size(), "but is queued all the same");
+  }
+
+  /// The wake brings the first status poll forward, and a context that opted
+  /// out of resending wants that poll as much as one that opted in, so the
+  /// wake does not ask whether the context resends.
+  @Test
+  void queueingADueContextThatDoesNotResendStillWakesTheParkedWorker() throws InterruptedException {
+    final var clock = new TestClock();
+    final long retryDelayMillis = 1_000;
+    final var service = service(Duration.ofMillis(retryDelayMillis), 3, clock);
+    final var due = sendTxContext(HORIZON + 10, clock.currentTimeMillis() - retryDelayMillis);
+
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(service.workLock, service.processTransactions)) {
+      service.queueResult(FINALIZED, FINALIZED, "sig", due, true, false);
+      assertFalse(waiter.parked(), "a due context that does not resend still has a status poll due");
+    }
+  }
+
+  /// A second queue of a pending signature is handed the pending future and
+  /// adds no work, so it wakes nothing, however old its publish is.
+  @Test
+  void aSecondQueueOfAPendingSignatureLeavesTheWorkerParked() throws InterruptedException {
+    final var clock = new TestClock();
+    final var service = service(Duration.ofMillis(1_000), 3, clock);
+    final var longAgo = sendTxContext(HORIZON + 10, 0);
+    final var first = service.queueResult(FINALIZED, FINALIZED, "sig", longAgo, true, true);
+
+    try (var waiter = new BaseTxMonitorServiceTests.ParkedWaiter(service.workLock, service.processTransactions)) {
+      assertSame(first, service.queueResult(FINALIZED, FINALIZED, "sig", longAgo, true, true));
+      assertTrue(waiter.parked(), "a shared future is no new work, so it must not wake the worker");
+    }
+  }
 }

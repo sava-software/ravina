@@ -430,6 +430,85 @@ final class BaseTxMonitorServiceTests {
     }
   }
 
+  /// Whether the loop is parked on its floor, read from the condition's
+  /// waiter queue under the lock, as [ParkedWaiter] does.
+  private static boolean parkedOnFloor(final RecordingMonitor service) {
+    service.workLock.lock();
+    try {
+      return service.workLock.hasWaiters(service.processTransactions);
+    } finally {
+      service.workLock.unlock();
+    }
+  }
+
+  /// A wake that lands while a pass is running finds no waiter, and a
+  /// condition keeps no record of a signal, so the flag has to carry it: the
+  /// pass after it must start without waiting the floor. The floor here is a
+  /// day, so the loop either ends through the stop on that second pass or
+  /// parks on the floor with it never run; the spin ends on either state and
+  /// no wait decides the outcome. The loop runs on its own thread only
+  /// because the floor must be long enough that a lost wake could not be
+  /// mistaken for a short one.
+  @Test
+  void aWakeDuringAPassIsNotLostToTheFloor() throws InterruptedException {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ofDays(1));
+    service.stopAfterBatches = 2;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    // A queueResult landing mid-pass: the batch is already taken, nobody waits.
+    service.afterBatch = _ -> {
+      if (service.batches.size() == 1) {
+        service.notifyWorker();
+      }
+    };
+
+    final var loop = new Thread(service::run, "monitor-loop");
+    loop.start();
+    try {
+      while (!parkedOnFloor(service) && loop.isAlive()) {
+        Thread.onSpinWait();
+      }
+      assertFalse(loop.isAlive(), "the pass after a mid-pass wake must start without waiting the floor");
+    } finally {
+      loop.interrupt();
+      loop.join(2_000);
+    }
+    assertEquals(2, service.batches.size(), "the wake buys one pass");
+    assertFalse(service.workLock.isLocked(), "the loop must not leak a hold on the work lock");
+  }
+
+  /// The complement: the pass a wake bought consumes it, so the floor after
+  /// that pass is waited. A flag that stayed set would run a third pass and end
+  /// the loop through the stop; a cleared one parks it, which the waiter queue
+  /// shows. The spin ends on either state, never on time.
+  @Test
+  void aWakeIsConsumedByThePassItBuys() throws InterruptedException {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ofDays(1));
+    service.stopAfterBatches = 3;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    service.afterBatch = _ -> {
+      if (service.batches.size() == 1) {
+        service.notifyWorker();
+      }
+    };
+
+    final var loop = new Thread(service::run, "monitor-loop");
+    loop.start();
+    try {
+      while (!parkedOnFloor(service) && loop.isAlive()) {
+        Thread.onSpinWait();
+      }
+      assertTrue(parkedOnFloor(service), "after the pass a wake bought, the loop must wait its floor again");
+      assertEquals(2, service.batches.size(), "one wake buys exactly one pass");
+    } finally {
+      loop.interrupt();
+      loop.join(2_000);
+    }
+    assertFalse(loop.isAlive(), "the interrupted loop must end");
+    assertFalse(service.workLock.isLocked(), "the loop must not leak a hold on the work lock");
+  }
+
   /// Parks a thread on a condition and observes it through
   /// `ReentrantLock.hasWaiters`: `signalAll` transfers every waiter off the
   /// condition queue *synchronously*, so once the signalling call has
