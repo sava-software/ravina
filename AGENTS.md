@@ -539,7 +539,16 @@ them, because the list is the argument for the effort.
   the first peer, in the balancer's order, with capacity for the send weight (a full
   bucket, where the bucket is smaller than the weight), and are deferred a pass when none
   has it (`TxPublisher.retry` returns null). The same signed bytes land at most once,
-  which is what makes both safe. `soak/README.md` measures the before and after.
+  which is what makes both safe. `soak/README.md` measures the before and after. A lost
+  transaction's resends charge the send weight once per resend delay, 5 weight a second at
+  the defaults, and a refused resend is asked for again on every pass, floor or wake, until
+  a peer has the weight, so a burst of losses can ask for more than a bucket sized for the
+  live traffic refills; the pass then hands the refill out in its batch's iteration order,
+  the signatures' hash order and the same on every pass, so the same transactions win while
+  the rest wait for their expiry: the soak's blackhole run of 2026-10-27 resent 401 times
+  and deferred 5,657 against a 50-a-second bucket, 118 of its 200 swallowed transactions
+  never resent and 7 resent the full twelve times. Size the send peers' capacity for the
+  losses a deployment must resend through, not for its live sends alone.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

@@ -180,12 +180,12 @@ a validator left at epoch 0 runs 400 ms slots for its whole life. Measured 2026-
 `getLatestBlockhash` reporting a last valid block height 150 blocks ahead, the 30 s window mainnet
 has had since epoch 1053. The warp keeps the mechanism mainnet uses, 64 ticks per slot with a
 shorter tick; `--ticks-per-slot 32` gives the same slot time by a different one. The 4.3.0 test
-validator also runs 400 ms slots at epoch 0. `run.txt` records the run's `getEpochInfo`, whose
-`epoch` of 1 says the gate was in effect.
+validator measured about the same at epoch 0, 52 slots in 20 s. `run.txt` records the run's
+`getEpochInfo`, whose `epoch` of 1 says the gate was in effect.
 
 Every figure recorded under `soak/` before 2026-10-24 was measured on a TowerBFT validator started
 without the flag, with ravina settling at `CONFIRMED`, and every figure before 2026-10-27 at 400 ms
-slots.
+slots; the 2026-10-27 runs under "Results" are the first at 200 ms.
 
 The ledger sits under `build/`, reset on every start, not under the run directory: a validator
 writes tens of megabytes a minute of ledger and account files that no report reads (43 MB for a
@@ -1118,6 +1118,146 @@ and no creation after the fault, 2 candidates were offered where 4 were expected
 fault was never injected because no candidate was offered to refuse, and 1,079 of 1,200
 transactions settled by polling (send to result p50 1,650 ms against 285-313 ms above). That is
 the production incident the change is for, with its cost measured.
+
+### Alpenglow at 200 ms slots and the library's monitor defaults, 2026-10-27
+
+All four runs below are on ravina at the commit that moved the soak to the library's monitor
+defaults (1 s polling floor, 3 s websocket timeout, 2 s resend delay, 8 blocks; `run.txt` records
+the tree clean), Agave 4.2.2 started with `--alpenglow --warp-slot 432000` (every run's
+`getEpochInfo` reads epoch 1, so SIMD-0525's 200 ms gate was in effect: 150-block hash window,
+about 30 s), 2 tx/s, sava-rpc 25.12.0 from the version catalog (ravina sets `FINALIZED` on both RPC
+clients and the websocket itself, so sava's default commitment does not enter), JDK 25.0.5 (Oracle).
+The machine carried load averages between 7 and 18 on 10 cores at the four launches, from an IDE and this session, with no build
+running. Every earlier figure in this section was taken at 400 ms slots, the TowerBFT ones at the
+soak's previous values of 3 s, 5 s and a 5 s resend delay. The one Alpenglow run before them, a
+10-minute smoke on 2026-10-25 (`smoke-20261025T133726Z`, 4.2.2 with `--alpenglow` at epoch 0, so
+400 ms slots, the previous values, ravina at 5198c38 built against a local sava), passed all six
+gates with 1,200 of 1,200 settled by notification: send to result p50 208 ms, p90 358 ms, p99
+397 ms, max 478 ms, the 400 ms Alpenglow point the smoke below is compared with.
+
+**10-minute control (`control-20261027T123756Z`, websocket off).** All six gates passed, gate 5 as
+every route `NO_WEBSOCKET`: 1,200 submitted, 1,200 settled, every one `OK`, 0 resends.
+
+- Send to result by polling: p50 597 ms, p90 988 ms, p99 1,137 ms, max 1,184 ms, against 1,826,
+  3,013, 3,417 and 3,702 ms at the 3 s floor on 2026-09-26. The floor still sets the shape, a
+  transaction confirms within a slot or two and waits for the next pass, and the shape is a third
+  the size. `processInstructions` as a whole: p50 601 ms, max 1,187 ms.
+- Monitor passes: `processTransactions` ran 597 times, one per 1 s floor, 0.855 ms on average and
+  2.87 ms at most; sampled poll batches held 2 signatures at p50 and 3 at most, against 7 at the
+  3 s floor, which at 2 tx/s is the expected size either way. `validateResponse` averaged 0.244 ms
+  over 1,200 calls.
+- Pending never exceeded 1 (8 on 2026-09-26) and live threads 26 (29): the polling path holds each
+  worker a third as long.
+- Courteous waits: none of 5 ms or longer; `CourteousBalancedCall::call` ran 4,298 times, 0.065 ms
+  on average and 15.6 ms at most, which bounds the longest courteous wait. 3 join parks of 5 ms or
+  longer in `UncheckedBalancedCall.get`, max 31 ms. The report's lowest capacity reading was 0,
+  against −10 on 2026-09-26: `CapacityStateVal.capacity()` is the stored value, refilled only when
+  a claim finds it short, so a reading is the bucket as the last claim left it, and a poll every
+  second draws it to the refill point more often; a shortage would have shown as courteous waits.
+- Heap after the last collection 4.7 to 12.9 MiB (4.7 to 13.3 MiB before), 13 distinct old-object
+  samples, mostly byte arrays, none a ravina type.
+
+**10-minute smoke (`smoke-20261027T124911Z`, websocket on).** All six gates passed: 1,200
+submitted, 1,200 settled, every one `OK` on the `WEBSOCKET` route, 0 timeouts, 0 resends; pending
+never exceeded 1 and live subscriptions 1.
+
+- Send to result: p50 102 ms, p90 181 ms, p99 204 ms, max 212 ms, against 208, 358, 397 and
+  478 ms on the 2026-10-25 Alpenglow smoke at 400 ms slots, and 347, 819, 1,619 and 2,164 ms on
+  TowerBFT. The notification arrived within a millisecond of the result every time, the
+  subscription registered within 5 ms of the send at most, and the whole distribution sits at
+  roughly one slot. `processInstructions` as a whole: p50 106 ms, max 215 ms.
+- The polling pass never ran (`processTransactions` 0 invocations): on this route the retuned floor
+  and resend delay have nothing to do, and the control and blackhole runs are where they show.
+  `validateResponse` ran 1,200 times, 0.245 ms on average.
+- Courteous waits: none of 5 ms or longer; `CourteousBalancedCall::call` ran 3,604 times, 0.059 ms
+  on average, 15.0 ms at most; 3 join parks of 5 ms or longer in `UncheckedBalancedCall.get`, max
+  32.6 ms. No RPC failure, no backoff, no reconnect (`ensureWebSocket` ran 1,321 times, 6.26 ms at
+  most). The capacity gauge's minimum read −10, one send's weight charged as an overdraft, as on
+  every smoke before.
+- Heap after the last collection 4.6 to 13.6 MiB, the 2026-09-26 smoke's figures; 13 distinct
+  old-object samples, mostly byte arrays, none a ravina type.
+
+**Blackhole on sends (`smoke-20261027T125924Z`, one peer,
+`blackhole:on=20,off=100,methods=sendTransaction`, websocket on).** The run that shows the
+resend cadence: inside each 20-second window every `sendTransaction` is answered with its
+signature and dropped, and the resends of a swallowed signature are dropped outside the windows
+too. All six gates passed and the client exited 0 with nothing pending, where the 2026-09-26 run
+ended with 15 pending and the 2026-09-27 one needed its whole drain: 1,200 submitted, 1,200
+settled, every one `OK` by notification, 200 websocket timeouts, 200 expiries and rebuilds, and
+every rebuilt transaction landed.
+
+- The cadence, from the client log: every timed-out subscription was given up at 3.00 s
+  (`SUBSCRIBE` to `UNSUBSCRIBE` p50 3,001 ms, max 3,012 ms); where the bucket allowed it the first
+  resend came at the timeout itself (p50 3.00 s after publish, the wake's pass) and the next ones
+  2.02 s apart (p50; 2.00 min), up to 12 resends, the seven that reached twelve stopping at 10 to
+  15 blocks remaining against the floor of 8; a swallowed transaction was declared expired and
+  rebuilt 37.1 s after its publish (p50; 36.4 to 38.0), the 150-block window plus the 32-block
+  settle buffer plus a pass. Against 5.00 s, 6.93 s, 6.02 s, 10 resends and 91.3 s on 2026-09-26
+  at 400 ms slots and the previous values.
+- The bucket rationed the resends. A window swallows about 40 transactions, and at the defaults
+  each one's resends want the send weight of 10 every 2 s: 200 weight a second against a bucket
+  that refills 50 and already carries about 25 for the live traffic.
+  `TransactionProcessorRecord.retry` sends only on a peer with capacity for the send weight, and a
+  refused resend leaves the context as it was, so it is asked for again on the next pass, floor or
+  wake: 401 resends against 5,657 deferrals (`Resend deferred, every send peer is docked`), every
+  swallowed transaction still eligible, its delay elapsed since its last send and more than 8
+  blocks remaining, asked for on every pass (13 to 42 asks each), 118 of the 200 never resent and
+  7 resent the full twelve times. Which ones won was the pass's own order: it asks in the
+  iteration order of its `HashMap` of signatures, the signatures' hash order over the map's 512
+  buckets and the same on every pass, so the ten of each window's 40 that iterate first took 350
+  of the 401 resends with 3 of the 50 never resent, the ten that iterate last 14 with 41 never
+  resent, and all seven twelve-time transactions iterate in their window's first four (computed
+  from the log with Java's `String.hashCode` and the map's spread). Publish order counted for
+  less: the first ten published in each window, whose first asks preceded most of the window's
+  demand, took 195 resends with 5 of the 50 never resent, the last ten 72 with 37. Resend demand
+  is the same policy's cost: a lost transaction charges 5 weight a second at the defaults for the
+  resends actually sent, landed or not, and asks on every pass for the ones refused, and a bucket
+  sized for the live traffic alone rations the resends of a burst of losses, as the AGENTS.md rule
+  on charged sends and declining resends says.
+- The rationing's other side: 1,506 courteous sleeps in `CourteousBalancedCall.call`, 208.6 s in
+  total, p50 182 ms, max 490 ms, the live transactions' block-hash reads and the monitor's own
+  polls waiting out the bucket (`CourteousBalancedCall::call` averaged 42.0 ms over 4,973 calls,
+  2,081 ms at most; `processTransactions` ran 323 times, 52.4 ms on average, 1,532 ms at most, its
+  pass stretched by its two courteous reads). A real send was unaffected: send to result p50
+  103 ms, max 246 ms; `processInstructions` outside a window p50 130 ms, p90 319 ms, max 1,442 ms,
+  against 106, 184 and 215 ms in the smoke, and inside a window p50 37.6 s, max 39.4 s, the
+  expiry.
+- 601 faults, the 200 first sends and the 401 resends; 199 of them outside a recorded window, the
+  resends of swallowed signatures the proxy drops by design. No RPC failure, no backoff, no
+  signature published twice (the shared-signer race of the 2026-09-26 run is fixed). Pending
+  peaked at 41, live subscriptions at 6, live threads at 51; heap after the last collection 4.6 to
+  17.4 MiB; the capacity gauge's lowest reading −11.
+
+**One hour (`hour-20261027T130938Z`, websocket on).** All six gates passed; the client exited 0
+after 3,601 s: 7,200 submitted, 7,200 settled, every one `OK` on the `WEBSOCKET` route, 0 timeouts,
+0 resends, 0 RPC failures, 0 backoff events, no reconnect (`ensureWebSocket` ran 7,919 times and
+never took more than 5.61 ms), no `WARNING` in the client log; pending never exceeded 1.
+
+- Send to result: p50 104 ms, p90 186 ms, p99 204 ms, max 222 ms, against 301, 503, 727 and
+  1,371 ms over the 2026-09-26 hour on TowerBFT at 400 ms slots: the tail that run put at under
+  two slots now sits at roughly one, and the smoke's figures held for the hour. The subscription
+  registered within 78 ms of the send at most (p99 under a millisecond) and the send RPC returned
+  within 12 ms at most. `processInstructions` as a whole: p50 106 ms, max 244 ms.
+- The polling pass never ran (`processTransactions` 0 invocations); `validateResponse` ran 7,200
+  times, 0.197 ms on average, 12.5 ms at most. `CourteousBalancedCall::call` averaged 0.027 ms over
+  21,616 calls, 16.3 ms at most; no courteous sleep of 5 ms or longer; 5 join parks of 5 ms or
+  longer in `UncheckedBalancedCall.get`, max 35 ms.
+- Retention: heap after the last collection went from 4.7 MiB to 12.0 MiB, the 2026-09-26 hour's
+  own figures, with pending at 0 or 1 and live threads at 24 throughout; 14 distinct old-object
+  samples, byte arrays and map nodes, none a ravina type. The retune changes nothing here because on
+  this route neither polling nor resending ran: at this rate and length the pipeline retains nothing
+  measurable.
+- The capacity gauge's lowest reading −10, one send's overdraft.
+
+What the four runs settle: at 200 ms slots and the library's defaults a settled transaction costs
+about half a slot plus finalization over the websocket (p50 104 ms) and under one polling floor by
+polling (p50 597 ms); a lost transaction's websocket await ends at 3 s, its resends follow every 2 s
+where a send peer has capacity for them, and its rebuild comes 37 s after its publish; and the
+retune's costs are status polling at the shorter floor (597 passes in the control against the 3 s
+floor's 200, each a status read for the batch) and resend demand against the send peers' capacity,
+5 weight a second per lost transaction for the resends actually sent, landed or not, and an ask on
+every pass for the ones refused, which the blackhole run measured and the AGENTS.md rule on charged
+sends now states.
 
 ### The 60-second shakeout, 2026-09-26
 
