@@ -28,7 +28,11 @@ import java.util.function.Function;
 /// returned rather than retried. Start the validator with `--alpenglow`, or set
 /// `TxMonitorConfig.webSocketConfirmationTimeout` above the rooting time so the
 /// finalized subscription releases the await; the polling fallback still
-/// releases at `confirmed`.
+/// releases at `confirmed`. Raising that timeout also delays the first resend,
+/// because polling and resending start only once the websocket await has run
+/// out, and at 200 ms slots a timeout near the block hash's validity, about
+/// 30 s, leaves a lost transaction no resend at all; do it only where resends
+/// are not needed.
 public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,
@@ -45,6 +49,9 @@ public interface InstructionService {
     );
   }
 
+  /// [#processInstructions(double, List, Function, BigDecimal, Commitment, Commitment, boolean, boolean, int, String)]
+  /// with no `beforeSend` hook; see it for `retrySend` and `verifyExpired`,
+  /// and for why `verifyExpired` false can execute the instructions twice.
   TransactionResult processInstructions(double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final BigDecimal maxLamportPriorityFee,
@@ -216,6 +223,25 @@ public interface InstructionService {
   /// `IllegalArgumentException` for an instruction that invokes the
   /// ComputeBudget program or a negative `maxLamportPriorityFee`. This send path
   /// is not a durable-nonce path.
+  ///
+  /// `retrySend` resends the same signed bytes about every
+  /// `TxMonitorConfig.retrySendDelay`, rounded up to whole polling passes,
+  /// while more than `minBlocksRemainingToResend` blocks of the block hash's
+  /// validity remain; the same bytes land at most once. It takes effect only
+  /// with `verifyExpired` true, because `verifyExpired` decides what a missing
+  /// signature means once the websocket await has run out. `true` declares it
+  /// expired only after the settled block height has passed the hash's last
+  /// valid height and a history-searching status read behind the expiration
+  /// monitor's settle buffer still finds nothing, and only then rebuilds under a
+  /// new block hash while `maxRetriesAfterExpired` allows, returning `EXPIRED`
+  /// once it does not, so one call never has two transactions that can both
+  /// land, barring a status backend that lags the height backend by the settle
+  /// buffer or more (see `TxExpirationMonitorService`). `false` declares the
+  /// first missing status expired, ends its monitoring with no resend, and
+  /// rebuilds at once, while the original can still land for the rest of its
+  /// window, so both may execute: pass it only for instructions that are
+  /// idempotent or deduplicated on chain. The overloads without these flags
+  /// pass `true` for both.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,

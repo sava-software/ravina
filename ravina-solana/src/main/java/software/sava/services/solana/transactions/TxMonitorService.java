@@ -95,13 +95,28 @@ public interface TxMonitorService extends Worker {
   /// TowerBFT environment ravina accepts a confirmed transaction as final, so
   /// an await on `FINALIZED` is released by a `CONFIRMED` status too.
   ///
+  /// Completes with `null` when the transaction is judged never to have
+  /// landed. With `verifyExpired` true that judgement waits until the settled
+  /// block height has passed the block hash's last valid height and a
+  /// history-searching status read behind the expiration monitor's settle
+  /// buffer still finds nothing, so a rebuild on `null` cannot overlap a
+  /// transaction that can still land, barring a status backend that lags the
+  /// height backend by that buffer or more. With `verifyExpired` false the
+  /// first poll that finds no status completes `null` at once, with no resend,
+  /// while the transaction can still land for the rest of its window; a caller
+  /// that rebuilds on that `null` may execute the instructions twice.
+  ///
   /// One signature has one pending entry. A second queue of a pending
   /// signature is handed the pending future, provided the pending settings
   /// are at least as demanding as its own (`PROCESSED` is below `CONFIRMED`
   /// and `FINALIZED`, which are one level; `verifyExpired` and `retrySend`
   /// true are above false), and is otherwise refused with
   /// `IllegalArgumentException`, because only the pending settings steer the
-  /// monitor.
+  /// monitor. Queueing a context whose last publish is already a resend delay
+  /// old, which a timed-out websocket await is whenever the timeout covers the
+  /// delay, wakes the polling worker, parked or mid-pass, so its first status
+  /// poll and any resend due with it are not held back by the rest of a floor;
+  /// a fresher context takes the next pass.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,

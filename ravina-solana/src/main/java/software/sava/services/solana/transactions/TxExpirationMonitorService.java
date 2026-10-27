@@ -32,7 +32,15 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
   /// best-effort, though: one client is one URL, and a provider may balance
   /// that URL across backends of differing lag — the buffer, not the co-located
   /// read, is what carries the argument, so it must not be trimmed on the
-  /// strength of the pairing.
+  /// strength of the pairing. The margin is denominated in blocks while the lag
+  /// it covers is wall-clock, so SIMD-0525 halved it: a nil is wrong only when
+  /// the backend answering the status read has not replayed through the last
+  /// block that could hold the transaction, the one after the hash's last
+  /// valid height, while the one answering the height is at least 32 blocks
+  /// past that height, a lag of at least 32 blocks between the two: about
+  /// 6.4 s at 200 ms slots, 12.8 s before. Raising the depth is a decision for
+  /// measured lag between a provider's backends; nothing here derives it from
+  /// a slot time.
   ///
   /// If the settled height stalls — a cluster halt — pending futures wait
   /// rather than settle: the transaction's fate is unknowable mid-halt, and a

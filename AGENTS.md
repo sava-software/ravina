@@ -486,6 +486,25 @@ them, because the list is the argument for the effort.
   defaults, mirroring the defaults sava's builders adopted the same day, and
   move with them. The expiration monitor's 32-block settle buffer is margin
   for backend lag, not finality depth: faster finality is no reason to trim it.
+- **`TxMonitorConfig`'s durations are budgets inside the block hash window, not rate limits.**
+  A block hash is valid for 150 blocks whatever the slot time: SIMD-0525 kept the block hash
+  queue its size and accepted that the window shrinks in wall-clock terms, so at 200 ms slots
+  it is about 30 s. The websocket timeout and the resend delay are spent inside that window
+  and buy leader coverage, which is measured in slots, so they are retuned when the slot time
+  changes rather than held fixed; the defaults are the `DEFAULT_*` constants on the record,
+  chosen for 200 ms slots and agave's own send-service retry rate. Polling and resending start
+  only once the websocket await has run out, so the first resend of a transaction that was not
+  notified comes at the websocket timeout when that covers the resend delay, as the defaults
+  do (`queueResult` wakes the polling worker, parked or mid-pass, when the queued context is
+  already a resend delay old, and otherwise leaves it to the next pass), and the resend period
+  is the delay rounded up to whole polling passes, or shorter when another transaction's wake
+  runs a pass sooner, since a pass serves the whole batch. The later of the websocket timeout and the
+  resend delay, plus one polling floor, must stay well under the window less
+  `minBlocksRemainingToResend`, about 28 s at 200 ms, or a lost transaction is never resent and
+  recovers only through expiry. The soak sets its own values in `soak/src-main/.../Main.java`
+  so that its recorded figures stay comparable, except on the websocket-timeout path, where the
+  wake brings the first poll and resend forward at any values; a re-baseline at the library
+  defaults is a separate campaign.
 - **Never share a sava-core `Signer` between threads.** `KeyPairSigner` wraps one
   `java.security.Signature`; concurrent `sign` calls interleave, and each returns a
   signature that is not over its own message: a validator drops such a transaction without

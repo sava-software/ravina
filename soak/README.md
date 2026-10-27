@@ -732,8 +732,8 @@ route with no subscription event in the recording.
 
 - Send to result by polling: p50 1,826 ms, p90 3,013 ms, p99 3,417 ms, max 3,702 ms, against
   347 ms at p50 over the websocket. The polling floor (`minSleepBetweenSigStatusPolling`, 3 s
-  by default) sets the shape: a transaction confirms within a slot or two and then waits for
-  the next pass.
+  in the soak's own defaults, which `Main.java` sets apart from the library's) sets the shape: a
+  transaction confirms within a slot or two and then waits for the next pass.
 - Monitor passes: `processTransactions` ran 200 times, one per 3-second floor, 2.22 ms on
   average and 33 ms at most; the one sampled poll batch held 7 signatures, which at 2 tx/s
   over a 3 s floor is the expected size. `validateResponse` averaged 0.77 ms.
