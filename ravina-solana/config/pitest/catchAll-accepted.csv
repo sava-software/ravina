@@ -12,11 +12,11 @@ software.sava.services.solana.transactions.BaseInstructionService,processInstruc
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 250
 software.sava.services.solana.transactions.BaseInstructionService,processInstructions,VoidMethodCallMutator,SURVIVED # log-removal # line 268
 software.sava.services.solana.transactions.BaseInstructionService,sendTransaction,VoidMethodCallMutator,SURVIVED # log-removal # line 94
-software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 158
+software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 188
 software.sava.services.solana.transactions.BaseTxMonitorService,completeFutures,VoidMethodCallMutator,SURVIVED # log-removal # line 173
-software.sava.services.solana.transactions.BaseTxMonitorService,run,VoidMethodCallMutator,SURVIVED # log-removal # line 95
+software.sava.services.solana.transactions.BaseTxMonitorService,run,VoidMethodCallMutator,SURVIVED # log-removal # line 109
 software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 217
-software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 120
+software.sava.services.solana.transactions.TxExpirationMonitorService,processTransactions,ConditionalsBoundaryMutator,SURVIVED # running-minimum # line 128
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,VoidMethodCallMutator,SURVIVED # log-removal # line 746
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,ConditionalsBoundaryMutator,SURVIVED # ws-log-only # line 745
 software.sava.services.solana.websocket.WebSocketManagerImpl,accept,ConditionalsBoundaryMutator,SURVIVED # ws-log-only # line 754
@@ -33,10 +33,10 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,retryReady,RemoveCo
 software.sava.services.solana.websocket.WebSocketManagerImpl,ceilMillisUntilDeadline,ConditionalsBoundaryMutator,SURVIVED # retry-deadline-zero # line 695
 software.sava.services.solana.websocket.WebSocketManagerImpl,markOpen,VoidMethodCallMutator,SURVIVED # log-removal # line 739
 software.sava.services.solana.websocket.WebSocketManagerImpl,lambda$installConnectAttempt$0,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 478
-software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$0,VoidMethodCallMutator,SURVIVED # log-removal # line 338
+software.sava.services.solana.transactions.TxCommitmentMonitorService,lambda$tryAwaitCommitmentViaWebSocket$0,VoidMethodCallMutator,SURVIVED # log-removal # line 349
 software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 236
 software.sava.services.solana.transactions.TxCommitmentMonitorService,validateResponse,VoidMethodCallMutator,SURVIVED # log-removal # line 102
-software.sava.services.solana.transactions.TxExpirationMonitorService,addTxContext,RemoveConditionalMutator_EQUAL_IF,SURVIVED # self-forward-noop # line 84
+software.sava.services.solana.transactions.TxExpirationMonitorService,addTxContext,RemoveConditionalMutator_EQUAL_IF,SURVIVED # self-forward-noop # line 92
 software.sava.services.solana.websocket.WebSocketManagerImpl,close,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-terminal-invariant # line 777
 software.sava.services.solana.websocket.WebSocketManagerImpl,createAndConnect,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 277
 software.sava.services.solana.websocket.WebSocketManagerImpl,createAndConnect,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # ws-ownership-overlap # line 301
