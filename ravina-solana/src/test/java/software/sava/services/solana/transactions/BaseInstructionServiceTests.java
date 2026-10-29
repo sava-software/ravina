@@ -33,6 +33,7 @@ import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.net.ConnectException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -242,7 +243,7 @@ final class BaseInstructionServiceTests {
       }
       sentTransactions.add(transaction);
       sentBlockHeights.add(blockHeight);
-      return new SendTxContext(null, null, transaction, "base64", blockHeight, 0);
+      return new SendTxContext(null, new CompletableFuture<>(), transaction, "base64", blockHeight, 0);
     }
 
     @Override
@@ -357,6 +358,13 @@ final class BaseInstructionServiceTests {
     }
   }
 
+  /// What the monitor sends for one attempt's queued context before its verdict.
+  @FunctionalInterface
+  interface ResendScript {
+
+    void resend(final int attempt, final SendLedger ledger);
+  }
+
   static final class FakeMonitor implements TxMonitorService {
 
     TxResult webSocketResult;
@@ -364,6 +372,11 @@ final class BaseInstructionServiceTests {
     IntFunction<TxResult> webSocketScript;
     TxStatus queuedStatus;
     int expiredResponses;
+    /// The response of each attempt's first send, recorded in its ledger; null, the default,
+    /// answers every send with its signature, so an expired attempt was accepted and rebuilds.
+    IntFunction<CompletableFuture<String>> sendScript;
+    /// When set, records the monitor's resends of each queued attempt in its ledger.
+    ResendScript resendScript;
 
     int queueResultCalls;
     int webSocketCalls;
@@ -372,15 +385,21 @@ final class BaseInstructionServiceTests {
     final List<Boolean> verifyExpiredFlags = new ArrayList<>();
     final List<Boolean> retrySendFlags = new ArrayList<>();
     final List<String> sigs = new ArrayList<>();
+    /// The ledger each attempt's send was recorded in, and the one each queue was handed.
+    final List<SendLedger> ledgers = new ArrayList<>();
+    final List<SendLedger> queuedLedgers = new ArrayList<>();
 
     @Override
     public TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
                                                                    final Commitment awaitCommitment,
                                                                    final Commitment awaitCommitmentOnError,
-                                                                   final String sig) {
-      ++webSocketCalls;
+                                                                   final String sig,
+                                                                   final SendLedger ledger) {
+      final int attempt = webSocketCalls++;
       sigs.add(sig);
-      return webSocketScript == null ? webSocketResult : webSocketScript.apply(webSocketCalls - 1);
+      ledgers.add(ledger);
+      ledger.add(sendScript == null ? CompletableFuture.completedFuture(sig) : sendScript.apply(attempt));
+      return webSocketScript == null ? webSocketResult : webSocketScript.apply(attempt);
     }
 
     @Override
@@ -389,12 +408,17 @@ final class BaseInstructionServiceTests {
                                                    final String sig,
                                                    final SendTxContext sendTxContext,
                                                    final boolean verifyExpired,
-                                                   final boolean retrySend) {
+                                                   final boolean retrySend,
+                                                   final SendLedger ledger) {
       ++queueResultCalls;
       awaitCommitments.add(awaitCommitment);
       awaitCommitmentsOnError.add(awaitCommitmentOnError);
       verifyExpiredFlags.add(verifyExpired);
       retrySendFlags.add(retrySend);
+      queuedLedgers.add(ledger);
+      if (resendScript != null) {
+        resendScript.resend(webSocketCalls - 1, ledger);
+      }
       return CompletableFuture.completedFuture(
           queueResultCalls <= expiredResponses ? null : queuedStatus
       );
@@ -427,7 +451,9 @@ final class BaseInstructionServiceTests {
     }
 
     @Override
-    public TxResult validateResponse(final SendTxContext sendTxContext, final String sig) {
+    public TxResult validateResponse(final SendTxContext sendTxContext,
+                                     final String sig,
+                                     final SendLedger ledger) {
       throw new UnsupportedOperationException();
     }
   }
@@ -1016,6 +1042,232 @@ final class BaseInstructionServiceTests {
     assertNull(result.error(), "the retry succeeded, so the result is not expired");
     assertEquals(2, monitor.queueResultCalls);
     assertEquals(2, processor.simulatedBatches.size());
+  }
+
+  // ------------------------------------------------- sends not accepted --
+  //
+  // Each test that expects a throw also scripts a finite run of expired verdicts followed by a
+  // settled status, so a mutant that drops the throw ends with a wrong result rather than a
+  // rebuild loop that only the simulation budget stops.
+
+  static final TxStatus SETTLED = new TxStatus(null, 12, OptionalInt.empty(), null, FINALIZED);
+
+  /// A send no server accepted, refused with a status a gateway may also answer.
+  static RuntimeException refusal() {
+    return TxCommitmentMonitorServiceTests.httpStatusFailure(401);
+  }
+
+  /// The regression for a provider that refuses every send: the call rebuilt after every
+  /// verified expiry, about one block hash window apart, for as long as
+  /// `maxRetriesAfterExpired` allowed, which for `Integer.MAX_VALUE` is for good. Run against
+  /// the code before the ledger, it published four times and returned the settled status the
+  /// fake scripted after three expiries.
+  @Test
+  void aRefusedSendThatExpiresEndsTheCallInsteadOfRebuilding() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal);
+    monitor.expiredResponses = 3;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertEquals(1, processor.simulatedBatches.size(), "an attempt no send of which was accepted is not rebuilt");
+    assertEquals(1, monitor.queueResultCalls);
+    assertSame(refusal, thrown.getCause());
+    assertEquals(0, thrown.getSuppressed().length);
+    assertTrue(thrown.expiryVerified());
+    assertEquals(1, thrown.attempted());
+    assertEquals(monitor.sigs.getFirst(), thrown.sig());
+    assertTrue(thrown.getMessage().contains(processor.formatter.formatSig(thrown.sig())), thrown.getMessage());
+  }
+
+  /// The check comes before the rebuild budget is spent, so a budget of 0 or 1, which returned
+  /// `EXPIRED` before, throws too.
+  @Test
+  void aRefusedSendThrowsWhateverTheRebuildBudget() {
+    for (final int budget : new int[]{0, 1}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      final var refusal = refusal();
+      monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal);
+      monitor.expiredResponses = 3;
+      monitor.queuedStatus = SETTLED;
+      final var service = service(processor, monitor);
+
+      final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, budget, LOG_CONTEXT
+      ), "budget " + budget);
+
+      assertSame(refusal, thrown.getCause(), "budget " + budget);
+      assertEquals(1, processor.simulatedBatches.size(), "budget " + budget);
+    }
+  }
+
+  /// With `verifyExpired` false the first missing status is the verdict: the call ends there,
+  /// and says that what it sent may still land.
+  @Test
+  void aRefusedSendWithoutVerifiedExpiryStillEnds() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal);
+    monitor.expiredResponses = 3;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown.expiryVerified());
+    assertTrue(thrown.getMessage().contains("may still land"), thrown.getMessage());
+    assertEquals(List.of(Boolean.FALSE), monitor.verifyExpiredFlags);
+    assertEquals(1, processor.simulatedBatches.size());
+  }
+
+  /// An accepted attempt that expired rebuilds as before; the refused one after it ends the
+  /// call, and the exception names that attempt.
+  @Test
+  void anAcceptedAttemptThenARefusedOneEndsOnTheSecond() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = attempt -> attempt == 0
+        ? CompletableFuture.completedFuture(monitor.sigs.get(attempt))
+        : CompletableFuture.failedFuture(refusal);
+    monitor.expiredResponses = 5;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 5, LOG_CONTEXT
+    ));
+
+    assertEquals(2, processor.simulatedBatches.size());
+    assertEquals(2, monitor.queueResultCalls);
+    assertEquals(monitor.sigs.get(1), thrown.sig());
+    assertSame(refusal, thrown.getCause());
+  }
+
+  /// A resend the monitor made counts: an attempt whose first send was refused but whose resend
+  /// was accepted rebuilds like any accepted attempt, down to `EXPIRED` at the budget.
+  @Test
+  void anAttemptAcceptedOnlyByAResendRebuilds() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal);
+    monitor.resendScript = (_, ledger) -> ledger.add(CompletableFuture.completedFuture(ledger.sig()));
+    monitor.expiredResponses = 5;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    );
+
+    assertSame(TransactionResult.EXPIRED, result.error());
+    assertEquals(3, monitor.queueResultCalls);
+    assertEquals(3, processor.simulatedBatches.size());
+  }
+
+  /// The ledger is read when the verdict is in, not when a send is recorded: a resend still in
+  /// flight at its recording that is accepted before the reading counts.
+  @Test
+  void aResendInFlightAtItsRecordingAndAcceptedBeforeTheReadingCounts() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal);
+    monitor.resendScript = (_, ledger) -> {
+      final var resend = new CompletableFuture<String>();
+      ledger.add(resend);
+      assertEquals(1, ledger.unread(), "the resend is in flight when it is recorded");
+      resend.complete(ledger.sig());
+    };
+    monitor.expiredResponses = 5;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 2, LOG_CONTEXT
+    );
+
+    assertSame(TransactionResult.EXPIRED, result.error());
+    assertEquals(2, processor.simulatedBatches.size());
+  }
+
+  /// A send that never left is thrown as it was, a plain `RuntimeException`, even after an
+  /// earlier attempt of an unverified call that may still land: the new type speaks only for a
+  /// settled verdict, and its flag could not speak for that earlier attempt.
+  @Test
+  void anUnverifiedEarlierAttemptThenANeverLeftSendThrowsTheNeverLeftFailure() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var neverLeft = new RuntimeException(new ConnectException("Connection refused"));
+    monitor.webSocketScript = attempt -> {
+      if (attempt == 1) {
+        throw neverLeft;
+      }
+      return null;
+    };
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertSame(neverLeft, thrown);
+    assertFalse(thrown instanceof SendNotAcceptedException);
+    assertEquals(2, processor.simulatedBatches.size(), "the accepted first attempt rebuilt");
+    assertEquals(1, monitor.queueResultCalls);
+  }
+
+  /// A websocket notification settles the call; what the sends answered is never read.
+  @Test
+  void aRefusedSendNotifiedOverTheWebSocketReturnsItsResult() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(refusal());
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    );
+
+    assertNull(result.error());
+    assertEquals(0, monitor.queueResultCalls);
+    assertEquals(1, processor.simulatedBatches.size());
+  }
+
+  /// Each attempt records its sends in a ledger of its own, made for its signature, and hands
+  /// the same one to the queue, where the monitor's resends of that attempt go.
+  @Test
+  void oneLedgerPerAttempt() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    );
+
+    assertEquals(2, monitor.ledgers.size());
+    for (int i = 0; i < 2; ++i) {
+      assertSame(monitor.ledgers.get(i), monitor.queuedLedgers.get(i), "attempt " + i);
+      assertEquals(monitor.sigs.get(i), monitor.ledgers.get(i).sig(), "attempt " + i);
+    }
+    assertNotSame(monitor.ledgers.get(0), monitor.ledgers.get(1));
   }
 
   @Test

@@ -18,13 +18,15 @@ final class TxContextTests {
   @Test
   void createContextTakesTheBlockHeightFromTheSendContextAndStartsUnretried() {
     final var sendTxContext = sendTxContext(123_456_789L);
+    final var ledger = new SendLedger("sig");
     final var context = TxContext.createContext(
         Commitment.CONFIRMED,
         Commitment.PROCESSED,
         "sig",
         sendTxContext,
         true,
-        false
+        false,
+        ledger
     );
 
     assertNotNull(context);
@@ -37,20 +39,23 @@ final class TxContextTests {
     assertTrue(context.verifyExpired());
     assertFalse(context.retrySend());
     assertEquals(0, context.retryCount());
+    assertSame(ledger, context.ledger());
     assertNotNull(context.sigStatusFuture());
     assertFalse(context.sigStatusFuture().isDone());
   }
 
   /// The join of two waiters demands the stricter of each setting, taken
   /// from whichever side has it, and keeps this context's identity: send
-  /// context, heights, retry count, and a future of its own.
+  /// context, heights, retry count and ledger, and a future of its own.
   @Test
   void joinedWithTakesTheStricterOfEachSettingFromEitherSide() {
     final var sendTxContext = sendTxContext(4_242L);
     final var confirmedNoResend = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext, false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext, false, false,
+        new SendLedger("sig"));
     final var processedResend = TxContext.createContext(
-        Commitment.PROCESSED, Commitment.CONFIRMED, "sig", sendTxContext(9_999L), true, true);
+        Commitment.PROCESSED, Commitment.CONFIRMED, "sig", sendTxContext(9_999L), true, true,
+        new SendLedger("sig"));
 
     final var joined = confirmedNoResend.joinedWith(processedResend);
 
@@ -63,6 +68,7 @@ final class TxContextTests {
     assertEquals(4_242L, joined.blockHeight());
     assertEquals(BigInteger.valueOf(4_242L), joined.bigBlockHeight());
     assertEquals(0, joined.retryCount());
+    assertSame(confirmedNoResend.ledger(), joined.ledger(), "each caller reads its own ledger");
     assertNotSame(confirmedNoResend.sigStatusFuture(), joined.sigStatusFuture());
     assertNotSame(processedResend.sigStatusFuture(), joined.sigStatusFuture());
     assertFalse(joined.sigStatusFuture().isDone());
@@ -73,6 +79,7 @@ final class TxContextTests {
     assertTrue(joinedTheOtherWay.verifyExpired(), "true on this side suffices");
     assertTrue(joinedTheOtherWay.retrySend(), "true on this side suffices");
     assertEquals(9_999L, joinedTheOtherWay.blockHeight());
+    assertSame(processedResend.ledger(), joinedTheOtherWay.ledger());
   }
 
   /// `CONFIRMED` and `FINALIZED` are one level, so on a tie this context's
@@ -80,9 +87,11 @@ final class TxContextTests {
   @Test
   void joinedWithKeepsThisContextsWordOnAnEqualLevel() {
     final var finalized = TxContext.createContext(
-        Commitment.FINALIZED, Commitment.FINALIZED, "sig", sendTxContext(1L), false, false);
+        Commitment.FINALIZED, Commitment.FINALIZED, "sig", sendTxContext(1L), false, false,
+        new SendLedger("sig"));
     final var confirmed = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.CONFIRMED, "sig", sendTxContext(1L), false, false);
+        Commitment.CONFIRMED, Commitment.CONFIRMED, "sig", sendTxContext(1L), false, false,
+        new SendLedger("sig"));
 
     final var joined = finalized.joinedWith(confirmed);
     assertEquals(Commitment.FINALIZED, joined.awaitCommitment());
@@ -99,7 +108,8 @@ final class TxContextTests {
   void theBigBlockHeightIsUnsigned() {
     // -1 as an unsigned 64 bit block height is 2^64 - 1, not -1.
     final var context = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(-1L), false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(-1L), false, false,
+        new SendLedger("sig"));
     assertEquals(-1L, context.blockHeight());
     assertEquals(new BigInteger("18446744073709551615"), context.bigBlockHeight());
   }
@@ -107,7 +117,8 @@ final class TxContextTests {
   @Test
   void resentIncrementsTheRetryCountAndKeepsTheOriginalBlockHeightAndFuture() {
     final var original = TxContext.createContext(
-        Commitment.FINALIZED, Commitment.CONFIRMED, "sig", sendTxContext(500L), true, true);
+        Commitment.FINALIZED, Commitment.CONFIRMED, "sig", sendTxContext(500L), true, true,
+        new SendLedger("sig"));
 
     final var resendContext = sendTxContext(999L);
     final var resent = original.resent(resendContext);
@@ -119,6 +130,7 @@ final class TxContextTests {
     assertEquals(500L, resent.blockHeight());
     assertEquals(BigInteger.valueOf(500L), resent.bigBlockHeight());
     assertSame(original.sigStatusFuture(), resent.sigStatusFuture());
+    assertSame(original.ledger(), resent.ledger(), "a resend is recorded where its caller reads");
     assertEquals(Commitment.FINALIZED, resent.awaitCommitment());
     assertEquals(Commitment.CONFIRMED, resent.awaitCommitmentOnError());
     assertEquals("sig", resent.sig());
@@ -133,7 +145,8 @@ final class TxContextTests {
   @Test
   void completingTheFutureResolvesTheQueuedResult() {
     final var context = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(1L), false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(1L), false, false,
+        new SendLedger("sig"));
     context.completeFuture();
     assertTrue(context.sigStatusFuture().isDone());
     assertNull(context.sigStatusFuture().join());
@@ -142,11 +155,14 @@ final class TxContextTests {
   @Test
   void contextsAreOrderedByUnsignedBlockHeightThenSignature() {
     final var low = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "low", sendTxContext(1L), false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "low", sendTxContext(1L), false, false,
+        new SendLedger("low"));
     final var high = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "high", sendTxContext(-1L), false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "high", sendTxContext(-1L), false, false,
+        new SendLedger("high"));
     final var alsoLow = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "alsoLow", sendTxContext(1L), false, false);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "alsoLow", sendTxContext(1L), false, false,
+        new SendLedger("alsoLow"));
 
     assertTrue(low.compareTo(high) < 0);
     assertTrue(high.compareTo(low) > 0);
@@ -162,7 +178,8 @@ final class TxContextTests {
   @Test
   void aResentContextKeepsItsOriginalOrderingIdentity() {
     final var original = TxContext.createContext(
-        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(500L), true, true);
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext(500L), true, true,
+        new SendLedger("sig"));
     final var resent = original.resent(sendTxContext(999L));
     assertEquals(0, original.compareTo(resent));
     assertEquals(0, resent.compareTo(original));

@@ -266,8 +266,9 @@ record TransactionProcessorRecord(ExecutorService executor,
 
   /// The resend goes to the first peer, in the balancer's order, with capacity for the send
   /// weight, and is declined when none has it: a resend is for a transaction that has not
-  /// landed yet, so it can wait a pass rather than deepen a dock. The monitor never reads a
-  /// resend's response, so the peer's outcome is accounted here.
+  /// landed yet, so it can wait a pass rather than deepen a dock. The monitor records a
+  /// resend's response for its caller but never marks its peer, so the peer's outcome is
+  /// accounted here.
   @Override
   public SendTxContext retry(final SendTxContext previous) {
     sendClients.sort();

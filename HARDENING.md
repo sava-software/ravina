@@ -396,7 +396,22 @@ implementation locks the bug in.
   sava-rpc rejects after submitting it, when its deadline scheduler refuses
   the deadline, now fails its future instead of throwing out of `publishOn`,
   so it is monitored too, and a resend's no longer ends the commitment
-  monitor's loop.
+  monitor's loop. The fix as first committed rebuilt after every verified
+  expiry, so against a provider that refuses every send a caller with an
+  unlimited `maxRetriesAfterExpired` looped for good, one block hash window,
+  about 37 s, per attempt; owner review found it before the push. An attempt
+  none of whose sends was accepted now ends the call with
+  `SendNotAcceptedException` at its verdict, read from a per-attempt
+  `SendLedger` of the first send, the failover and every resend.
+  `aRefusedSendThatExpiresEndsTheCallInsteadOfRebuilding` in
+  `BaseInstructionServiceTests` was run against that form and failed: it
+  published four times and returned the status scripted after three expiries.
+  Review then found that a resend throwing on its way out for any other
+  reason, a publisher's own failure among them, still ended the monitor's
+  loop, and that a checked exception from a publisher written without them
+  still escaped the failover's guard; such a resend is now recorded as a send
+  not accepted and asked for again on the next pass, both guards catch
+  whatever is thrown, and an interrupt still ends what it interrupted.
 
 ### Running the JFR soak harness
 

@@ -40,6 +40,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.MINUTES;
@@ -179,20 +180,29 @@ final class TxCommitmentMonitorServiceTests {
     /// When set, failOver throws it instead, declared or not, as a failover that could not be
     /// dispatched does.
     Throwable failOverFailure;
+    /// When set, retry throws it instead, declared or not, as a publisher that broke on its way
+    /// out does.
+    Throwable retryFailure;
     /// When set, retry declines every resend, as the processor does while every peer is docked.
     boolean declineResends;
     int publishCount;
+    /// Each publish's response future: never null, as `TxPublisher` promises; pending, the
+    /// default, is a send still unanswered.
+    Supplier<CompletableFuture<String>> publishResponse = CompletableFuture::new;
 
     @Override
     public SendTxContext publish(final Transaction transaction,
                                  final String base64Encoded,
                                  final long blockHashHeight) {
-      return new SendTxContext(null, null, transaction, base64Encoded, blockHashHeight, ++publishCount);
+      return new SendTxContext(null, publishResponse.get(), transaction, base64Encoded, blockHashHeight, ++publishCount);
     }
 
     @Override
     public SendTxContext retry(final SendTxContext sendTxContext) {
       retried.add(sendTxContext);
+      if (retryFailure != null) {
+        throwUnchecked(retryFailure);
+      }
       return declineResends ? null : TxPublisher.super.retry(sendTxContext);
     }
 
@@ -238,7 +248,7 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   static SendTxContext sendTxContext(final long blockHeight, final long publishedAt) {
-    return new SendTxContext(null, null, signedTx(), "base64", blockHeight, publishedAt);
+    return new SendTxContext(null, new CompletableFuture<>(), signedTx(), "base64", blockHeight, publishedAt);
   }
 
   /// Long enough ago that the resend delay has certainly elapsed.
@@ -581,8 +591,10 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service();
     final var context = new SendTxContext(
         null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
+    final var ledger = new SendLedger("sig");
 
-    assertNull(service.validateResponse(context, "sig"), "a matching signature is not an error");
+    assertNull(service.validateResponse(context, "sig", ledger), "a matching signature is not an error");
+    assertEquals(new SendLedger.Reading(1, true, null, null), ledger.reading());
   }
 
   /// The message names the offending endpoint redacted: a hosted RPC provider's key sits in its
@@ -665,11 +677,14 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aFailedSendIsSentOnceMoreOnAnotherPeer() throws InterruptedException {
     final var service = service();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    final var refusal = internalRpcError();
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(refusal), null, null, 1, 0);
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.completedFuture("sig"), null, null, 1, 0);
+    final var ledger = new SendLedger("sig");
 
-    assertNull(service.validateResponse(first, "sig"), "the second response settled the send");
+    assertNull(service.validateResponse(first, "sig", ledger), "the second response settled the send");
     assertEquals(List.of(first), publisher.failedOver);
+    assertEquals(new SendLedger.Reading(2, true, refusal, refusal), ledger.reading());
   }
 
   /// The client's response deadline cancels an exchange that did not answer;
@@ -692,9 +707,12 @@ final class TxCommitmentMonitorServiceTests {
     final var cause = new ConnectException("Connection refused");
     final var first = new SendTxContext(null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    final var ledger = new SendLedger("sig");
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig", ledger));
     assertSame(cause, thrown.getCause());
     assertEquals(List.of(first), publisher.failedOver, "the publisher was asked, once");
+    assertEquals(new SendLedger.Reading(1, false, cause, cause), ledger.reading(), "a declined failover is no send");
   }
 
   /// Neither send left: the second failure is thrown, carrying the first.
@@ -706,10 +724,13 @@ final class TxCommitmentMonitorServiceTests {
     final var secondFailure = new HttpConnectTimeoutException("HTTP connect timed out");
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    final var ledger = new SendLedger("sig");
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig", ledger));
     assertSame(secondFailure, thrown.getCause());
     assertArrayEquals(new Throwable[]{firstFailure}, thrown.getSuppressed(), "the first failure travels with it");
     assertEquals(1, publisher.failedOver.size(), "one failover, never a chain of them");
+    assertEquals(new SendLedger.Reading(2, false, firstFailure, secondFailure), ledger.reading());
   }
 
   @Test
@@ -812,12 +833,14 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aFirstSendThatNeverLeftAndAnUnansweredFailoverAreAwaited() throws InterruptedException {
     final var service = service();
-    final var first = new SendTxContext(
-        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
-    publisher.failOverResult = new SendTxContext(
-        null, CompletableFuture.failedFuture(new IOException("Connection reset")), null, null, 1, 0);
+    final var neverLeft = new ConnectException("Connection refused");
+    final var reset = new IOException("Connection reset");
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(neverLeft), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(reset), null, null, 1, 0);
+    final var ledger = new SendLedger("sig");
 
-    assertNull(service.validateResponse(first, "sig"));
+    assertNull(service.validateResponse(first, "sig", ledger));
+    assertEquals(new SendLedger.Reading(2, false, neverLeft, reset), ledger.reading());
   }
 
   /// A failover whose own exchange was cancelled is as unanswered as a first
@@ -843,10 +866,17 @@ final class TxCommitmentMonitorServiceTests {
     final var service = service();
     final var first = new SendTxContext(
         null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
-    publisher.failOverFailure = new RejectedExecutionException("deadline scheduler shut down");
+    final var dispatchFailure = new RejectedExecutionException("deadline scheduler shut down");
+    publisher.failOverFailure = dispatchFailure;
+    final var ledger = new SendLedger("sig");
 
-    assertNull(service.validateResponse(first, "sig"));
+    assertNull(service.validateResponse(first, "sig", ledger));
     assertEquals(List.of(first), publisher.failedOver);
+    final var reading = ledger.reading();
+    assertEquals(2, reading.attempted(), "a failover that could not be dispatched is an attempted send");
+    assertFalse(reading.accepted());
+    assertInstanceOf(ConnectException.class, reading.firstFailure());
+    assertSame(dispatchFailure, reading.lastFailure());
   }
 
   /// A publisher written without checked exceptions can throw one out of its failover: that
@@ -1445,5 +1475,196 @@ final class TxCommitmentMonitorServiceTests {
       assertSame(first, service.queueResult(FINALIZED, FINALIZED, "sig", longAgo, true, true));
       assertTrue(waiter.parked(), "a shared future is no new work, so it must not wake the worker");
     }
+  }
+
+  // ------------------------------------------------------------- the ledger --
+
+  /// A caller's ledger after its first send was refused, as `validateResponse` leaves it.
+  private static SendLedger refusedLedger() {
+    final var ledger = new SendLedger("sig");
+    ledger.add(CompletableFuture.failedFuture(internalRpcError()));
+    return ledger;
+  }
+
+  @Test
+  void queueResultKeepsTheCallersLedger() {
+    final var service = service();
+    final var ledger = new SendLedger("sig");
+
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(4_242, 0), true, true, ledger);
+
+    assertSame(ledger, service.pendingTransactions.firstEntry().getValue().ledger());
+  }
+
+  /// A resend the monitor makes of a queued context is recorded in that context's ledger, the
+  /// one its caller reads at the verdict, and the resent context keeps it.
+  @Test
+  void aDueResendIsRecordedInTheLedger() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var ledger = refusedLedger();
+    final var sendTxContext = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, ledger);
+    publisher.publishResponse = () -> CompletableFuture.completedFuture("sig");
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+
+    service.processTransactions(contextMap(service.pendingTransactions.firstEntry().getValue()));
+
+    assertEquals(1, publisher.retried.size());
+    final var reading = ledger.reading();
+    assertEquals(2, reading.attempted());
+    assertTrue(reading.accepted(), "the resend was answered with the signature");
+    assertSame(ledger, service.pendingTransactions.firstEntry().getValue().ledger());
+  }
+
+  /// A resend that throws on its way out ends neither the pass nor the monitor's loop: each is
+  /// recorded as an attempt that was not accepted, its context stays for the next pass, and
+  /// the pass goes on to the next context, which is asked for its resend too.
+  @Test
+  void aResendThatThrowsIsRecordedAndThePassGoesOn() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var firstLedger = refusedLedger();
+    final var secondLedger = new SendLedger("other-sig");
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true, firstLedger);
+    service.queueResult(FINALIZED, FINALIZED, "other-sig", sendTxContext(HORIZON + 11, PUBLISHED_LONG_AGO), true, true, secondLedger);
+    final var failure = new IllegalStateException("publisher broke");
+    publisher.retryFailure = failure;
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
+    final var contexts = List.copyOf(service.pendingTransactions.values());
+
+    service.processTransactions(contextMap(contexts.toArray(TxContext[]::new)));
+
+    assertEquals(2, publisher.retried.size(), "the second context was still served");
+    final var first = firstLedger.reading();
+    assertEquals(2, first.attempted());
+    assertFalse(first.accepted());
+    assertSame(failure, first.lastFailure());
+    assertSame(failure, secondLedger.reading().lastFailure());
+    assertEquals(contexts, List.copyOf(service.pendingTransactions.values()), "both contexts stay as they were");
+    assertFalse(Thread.interrupted(), "only an interrupt sets the thread's flag again");
+  }
+
+  /// An interrupt out of a resend is the monitor thread's own: the resend is recorded like any
+  /// that failed on its way out and its context stays, and the flag is set again, so the loop
+  /// ends where it next waits instead of the shutdown being swallowed.
+  @Test
+  void anInterruptOutOfAResendIsRecordedAndItsFlagSetAgain() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var ledger = refusedLedger();
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true, ledger);
+    final var interrupt = new InterruptedException("interrupted mid-resend");
+    publisher.retryFailure = interrupt;
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+    final var context = service.pendingTransactions.firstEntry().getValue();
+
+    final boolean flagSetAgain;
+    try {
+      service.processTransactions(contextMap(context));
+    } finally {
+      // Read and cleared at once, so the flag never reaches the next test on this thread.
+      flagSetAgain = Thread.interrupted();
+    }
+
+    assertTrue(flagSetAgain);
+    assertSame(interrupt, ledger.reading().lastFailure());
+    assertSame(context, service.pendingTransactions.firstEntry().getValue(), "the context stays for the next pass");
+  }
+
+  /// A null ledger is refused on the caller's thread, before anything is queued: on the
+  /// monitor's, at the first due resend, it would end the loop.
+  @Test
+  void aNullLedgerIsRefusedBeforeAnythingIsQueued() {
+    final var service = service();
+    final var sendTxContext = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+
+    assertThrows(NullPointerException.class,
+        () -> service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, null));
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  @Test
+  void aDeclinedResendRecordsNothing() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var ledger = refusedLedger();
+    final var sendTxContext = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, ledger);
+    publisher.declineResends = true;
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+
+    service.processTransactions(contextMap(service.pendingTransactions.firstEntry().getValue()));
+
+    assertEquals(1, publisher.retried.size(), "the resend was asked for");
+    assertEquals(1, ledger.reading().attempted());
+  }
+
+  /// While the settled height stalls the gate stays shut and a refused transaction is resent
+  /// every resend delay, for as long as the stall lasts: the ledger folds each answered resend
+  /// and keeps only what is still in flight. Once the context is handed off nothing more is
+  /// sent, so what the caller reads at the verdict is final but for completions.
+  @Test
+  void aStalledHeightKeepsTheLedgerBounded() {
+    final var clock = new TestClock();
+    final var service = service(Duration.ofMillis(1_000), 3, clock);
+    final var expirationMonitor = expirationMonitor(service);
+    final var ledger = new SendLedger("sig");
+    // The first send is still unanswered, and stays so.
+    ledger.add(new CompletableFuture<>());
+    service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, 0), true, true, ledger);
+    final var refusals = new ArrayList<RuntimeException>();
+    publisher.publishResponse = () -> {
+      final var refusal = new IllegalStateException("refused " + refusals.size());
+      refusals.add(refusal);
+      return CompletableFuture.failedFuture(refusal);
+    };
+    rpcClient.sigStatuses = signatures -> signatures.stream().map(_ -> NIL_STATUS).toList();
+
+    final int passes = 50;
+    for (int i = 0; i < passes; ++i) {
+      clock.sleep(1_000);
+      service.processTransactions(contextMap(service.pendingTransactions.firstEntry().getValue()));
+    }
+
+    var reading = ledger.reading();
+    assertEquals(passes, publisher.retried.size());
+    assertEquals(passes + 1, reading.attempted());
+    assertFalse(reading.accepted());
+    assertSame(refusals.getFirst(), reading.firstFailure());
+    assertSame(refusals.getLast(), reading.lastFailure());
+    assertEquals(1, ledger.unread(), "only the unanswered first send is held");
+
+    // The height moves past the block hash: the next pass hands the context off instead of
+    // resending it, and the expiration monitor's verdict sends nothing.
+    final var context = service.pendingTransactions.firstEntry().getValue();
+    rpcClient.blockHeight = HORIZON + 11;
+    clock.sleep(1_000);
+    service.processTransactions(contextMap(context));
+    rpcClient.blockHeight = HORIZON + 10 + 32;
+    expirationMonitor.processTransactions(contextMap(context));
+
+    assertTrue(context.sigStatusFuture().isDone());
+    assertNull(context.sigStatusFuture().join(), "the verdict: never landed");
+    assertEquals(passes, publisher.retried.size(), "nothing is resent once the context is handed off");
+    reading = ledger.reading();
+    assertEquals(passes + 1, reading.attempted());
+  }
+
+  /// Evidence is per caller: a second caller of a pending signature shares the future but not
+  /// the ledger, so the monitor's resends are recorded in the first caller's only.
+  @Test
+  void aSecondCallerKeepsItsOwnLedger() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var first = refusedLedger();
+    final var second = refusedLedger();
+    final var sendTxContext = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var future = service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, first);
+    assertSame(future, service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, second));
+    publisher.publishResponse = () -> CompletableFuture.completedFuture("sig");
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS);
+
+    service.processTransactions(contextMap(service.pendingTransactions.firstEntry().getValue()));
+
+    assertTrue(first.reading().accepted());
+    assertEquals(2, first.reading().attempted());
+    assertFalse(second.reading().accepted());
+    assertEquals(1, second.reading().attempted());
   }
 }

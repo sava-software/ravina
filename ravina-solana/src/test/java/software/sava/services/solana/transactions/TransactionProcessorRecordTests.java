@@ -1280,8 +1280,8 @@ final class TransactionProcessorRecordTests {
     assertEquals(1, healthyHandler.numSends);
   }
 
-  /// The monitor never reads a resend's response, so its outcome is
-  /// accounted on the peer by the publisher.
+  /// The monitor records a resend's response for its caller but never
+  /// marks its peer, so its outcome is accounted on the peer by the publisher.
   @Test
   void aResendsOutcomeIsAccountedOnItsPeer() {
     final var answering = new FakeRpcClient(null, "SIG");

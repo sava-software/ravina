@@ -117,12 +117,44 @@ public interface TxMonitorService extends Worker {
   /// delay, wakes the polling worker, parked or mid-pass, so its first status
   /// poll and any resend due with it are not held back by the rest of a floor;
   /// a fresher context takes the next pass.
+  ///
+  /// `ledger` records the sends this call makes: an implementation must add
+  /// each resend of the queued context to it, a resend that failed on its way
+  /// out included, beside the first send and failover
+  /// [#validateResponse(SendTxContext, String, SendLedger)] recorded, since a
+  /// ledger left empty reads as no send accepted; the caller passes the ledger
+  /// it made for the same `sig`, and a null one is refused. With the same
+  /// signature queued twice, each caller's ledger holds only its own sends, and
+  /// resends go to the pending context's, so one caller may find a send
+  /// accepted where another finds none. The future's contract is unchanged by
+  /// the ledger: `null` still means judged not landed, and the future never
+  /// completes exceptionally for a send that was not accepted.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,
                                           final SendTxContext sendTxContext,
                                           final boolean verifyExpired,
-                                          final boolean retrySend);
+                                          final boolean retrySend,
+                                          final SendLedger ledger);
+
+  /// [#queueResult(Commitment, Commitment, String, SendTxContext, boolean, boolean, SendLedger)]
+  /// with a fresh ledger for `sig`, for a caller that does not read what was sent.
+  default CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
+                                                  final Commitment awaitCommitmentOnError,
+                                                  final String sig,
+                                                  final SendTxContext sendTxContext,
+                                                  final boolean verifyExpired,
+                                                  final boolean retrySend) {
+    return queueResult(
+        awaitCommitment,
+        awaitCommitmentOnError,
+        sig,
+        sendTxContext,
+        verifyExpired,
+        retrySend,
+        new SendLedger(sig)
+    );
+  }
 
   /// Opts into client-side resending: with `maxRetries` 0 on the wire, the
   /// monitor's rebroadcast loop is the only retry a transaction gets, so the
@@ -170,10 +202,48 @@ public interface TxMonitorService extends Worker {
   /// forwarded the send first. A failure is thrown only when no attempt reached a server,
   /// because each connection never formed, so nothing is in flight; a response carrying
   /// another signature is thrown as a wrong response.
-  TxResult validateResponse(final SendTxContext sendTxContext, final String sig) throws InterruptedException;
+  ///
+  /// An implementation must add each attempt to `ledger`: the first send, and the failover,
+  /// or the failure that kept a failover from being dispatched, since a ledger left empty
+  /// reads as no send accepted. The caller passes a ledger made for the same `sig`, and reads
+  /// it once the transaction's status settles.
+  TxResult validateResponse(final SendTxContext sendTxContext,
+                            final String sig,
+                            final SendLedger ledger) throws InterruptedException;
 
-  TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
-                                                          final Commitment awaitCommitment,
-                                                          final Commitment awaitCommitmentOnError,
-                                                          final String sig) throws InterruptedException;
+  /// [#validateResponse(SendTxContext, String, SendLedger)] with a fresh ledger for `sig`, for
+  /// a caller that does not read what was sent.
+  default TxResult validateResponse(final SendTxContext sendTxContext,
+                                    final String sig) throws InterruptedException {
+    return validateResponse(sendTxContext, sig, new SendLedger(sig));
+  }
+
+  /// [#validateResponse(SendTxContext, String, SendLedger)], then, when that answers `null`,
+  /// the websocket await of [#tryAwaitCommitmentViaWebSocket(Commitment, Commitment, String)]:
+  /// a preflight rejection is returned without an await.
+  default TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
+                                                                  final Commitment awaitCommitment,
+                                                                  final Commitment awaitCommitmentOnError,
+                                                                  final String sig,
+                                                                  final SendLedger ledger) throws InterruptedException {
+    final var txResult = validateResponse(sendTxContext, sig, ledger);
+    return txResult == null
+        ? tryAwaitCommitmentViaWebSocket(awaitCommitment, awaitCommitmentOnError, sig).join()
+        : txResult;
+  }
+
+  /// [#validateResponseAndAwaitCommitmentViaWebSocket(SendTxContext, Commitment, Commitment, String, SendLedger)]
+  /// with a fresh ledger for `sig`, for a caller that does not read what was sent.
+  default TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
+                                                                  final Commitment awaitCommitment,
+                                                                  final Commitment awaitCommitmentOnError,
+                                                                  final String sig) throws InterruptedException {
+    return validateResponseAndAwaitCommitmentViaWebSocket(
+        sendTxContext,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        sig,
+        new SendLedger(sig)
+    );
+  }
 }

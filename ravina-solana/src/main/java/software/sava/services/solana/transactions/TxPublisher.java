@@ -2,6 +2,11 @@ package software.sava.services.solana.transactions;
 
 import software.sava.core.tx.Transaction;
 
+/// Publishes signed transactions for the commitment monitor. Every `SendTxContext` this
+/// returns carries a non-null `sendFuture`, a send that failed included, which fails its
+/// future rather than returning none: the monitor records a resend's future in the caller's
+/// `SendLedger` on its own thread, where a `NullPointerException` ends the monitor's loop and
+/// leaves every pending caller's join waiting for good.
 public interface TxPublisher {
 
   SendTxContext publish(final Transaction transaction,

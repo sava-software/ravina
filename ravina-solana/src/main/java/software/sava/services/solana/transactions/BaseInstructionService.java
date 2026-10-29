@@ -196,11 +196,13 @@ public class BaseInstructionService implements InstructionService {
           )
       );
 
+      final var ledger = new SendLedger(sig);
       final var txResult = txMonitorService.validateResponseAndAwaitCommitmentViaWebSocket(
           sendContext,
           awaitCommitment,
           awaitCommitmentOnError,
-          sig
+          sig,
+          ledger
       );
 
       final TransactionError error;
@@ -217,9 +219,17 @@ public class BaseInstructionService implements InstructionService {
             sig,
             sendContext,
             verifyExpired,
-            retrySend
+            retrySend,
+            ledger
         ).join();
         if (sigStatus == null) {
+          // A rebuild re-simulates, re-prices and takes a new block hash; a refusal tied to the
+          // key, the provider or its rate would answer it the same way, one block hash window
+          // at a time.
+          final var reading = ledger.reading();
+          if (!reading.accepted()) {
+            throw SendNotAcceptedException.of(reading, sig, formattedSig, verifyExpired);
+          }
           if (++retries >= maxRetriesAfterExpired) {
             return TransactionResult.createResult(
                 instructions,

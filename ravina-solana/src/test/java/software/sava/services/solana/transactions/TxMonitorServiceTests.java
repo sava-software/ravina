@@ -14,7 +14,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /// Construction of the monitor service performs no I/O — the event loop only
 /// starts once `run(Executor)` is called, which these tests never do. The
-/// `queueResult` default is covered through a recording fake.
+/// `queueResult`, `validateResponse` and combined defaults are covered through a
+/// recording fake.
 final class TxMonitorServiceTests {
 
   private static final class RecordingMonitorService implements TxMonitorService {
@@ -25,7 +26,15 @@ final class TxMonitorServiceTests {
     private SendTxContext sendTxContext;
     private boolean verifyExpired;
     private boolean retrySend;
+    private SendLedger ledger;
     private final CompletableFuture<TxStatus> result = new CompletableFuture<>();
+    /// What `validateResponse` answers: null, the default, is "await the status".
+    private TxResult validated;
+    private final TxResult notified = new TxResult(null, "notified", null);
+    private int awaits;
+    private Commitment awaitedCommitment;
+    private Commitment awaitedCommitmentOnError;
+    private String awaitedSig;
 
     @Override
     public CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
@@ -33,13 +42,15 @@ final class TxMonitorServiceTests {
                                                    final String sig,
                                                    final SendTxContext sendTxContext,
                                                    final boolean verifyExpired,
-                                                   final boolean retrySend) {
+                                                   final boolean retrySend,
+                                                   final SendLedger ledger) {
       this.awaitCommitment = awaitCommitment;
       this.awaitCommitmentOnError = awaitCommitmentOnError;
       this.sig = sig;
       this.sendTxContext = sendTxContext;
       this.verifyExpired = verifyExpired;
       this.retrySend = retrySend;
+      this.ledger = ledger;
       return result;
     }
 
@@ -57,7 +68,11 @@ final class TxMonitorServiceTests {
     public CompletableFuture<TxResult> tryAwaitCommitmentViaWebSocket(final Commitment commitment,
                                                                       final Commitment awaitCommitmentOnError,
                                                                       final String txSig) {
-      throw new UnsupportedOperationException();
+      ++awaits;
+      this.awaitedCommitment = commitment;
+      this.awaitedCommitmentOnError = awaitCommitmentOnError;
+      this.awaitedSig = txSig;
+      return CompletableFuture.completedFuture(notified);
     }
 
     @Override
@@ -70,17 +85,20 @@ final class TxMonitorServiceTests {
     }
 
     @Override
-    public TxResult validateResponse(final SendTxContext sendTxContext, final String sig) {
-      throw new UnsupportedOperationException();
+    public TxResult validateResponse(final SendTxContext sendTxContext,
+                                     final String sig,
+                                     final SendLedger ledger) {
+      this.sendTxContext = sendTxContext;
+      this.sig = sig;
+      this.ledger = ledger;
+      return validated;
     }
+  }
 
-    @Override
-    public TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
-                                                                   final Commitment awaitCommitment,
-                                                                   final Commitment awaitCommitmentOnError,
-                                                                   final String sig) {
-      throw new UnsupportedOperationException();
-    }
+  private static void assertFreshLedger(final SendLedger ledger) {
+    assertNotNull(ledger);
+    assertEquals("sig", ledger.sig());
+    assertEquals(new SendLedger.Reading(0, false, null, null), ledger.reading());
   }
 
   @Test
@@ -126,5 +144,79 @@ final class TxMonitorServiceTests {
     assertTrue(service.verifyExpired);
     assertTrue(service.retrySend,
         "maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry a transaction gets");
+    assertFreshLedger(service.ledger);
+  }
+
+  /// A caller of the ledgerless forms does not read what was sent, so each gets a fresh ledger
+  /// for its signature.
+  @Test
+  void theLedgerlessQueueResultPassesAFreshLedger() {
+    final var service = new RecordingMonitorService();
+    final var sendTxContext = new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L);
+
+    final var future = service.queueResult(
+        Commitment.CONFIRMED, Commitment.PROCESSED, "sig", sendTxContext, false, false);
+
+    assertSame(service.result, future);
+    assertEquals(Commitment.CONFIRMED, service.awaitCommitment);
+    assertEquals(Commitment.PROCESSED, service.awaitCommitmentOnError);
+    assertSame(sendTxContext, service.sendTxContext);
+    assertFalse(service.verifyExpired);
+    assertFalse(service.retrySend);
+    assertFreshLedger(service.ledger);
+  }
+
+  @Test
+  void theLedgerlessValidateResponsePassesAFreshLedger() throws InterruptedException {
+    final var service = new RecordingMonitorService();
+    final var sendTxContext = new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L);
+    service.validated = new TxResult(null, "rejected", null);
+
+    assertSame(service.validated, service.validateResponse(sendTxContext, "sig"));
+    assertSame(sendTxContext, service.sendTxContext);
+    assertEquals("sig", service.sig);
+    assertFreshLedger(service.ledger);
+  }
+
+  @Test
+  void theLedgerlessCombinedFormPassesAFreshLedger() throws InterruptedException {
+    final var service = new RecordingMonitorService();
+    final var sendTxContext = new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L);
+
+    assertSame(service.notified, service.validateResponseAndAwaitCommitmentViaWebSocket(
+        sendTxContext, Commitment.FINALIZED, Commitment.CONFIRMED, "sig"));
+    assertSame(sendTxContext, service.sendTxContext);
+    assertFreshLedger(service.ledger);
+  }
+
+  /// A send the cluster rejected is answered at once, with no await for a transaction that
+  /// cannot land.
+  @Test
+  void theCombinedFormReturnsARejectionWithoutAwaiting() throws InterruptedException {
+    final var service = new RecordingMonitorService();
+    final var ledger = new SendLedger("sig");
+    service.validated = new TxResult(null, "rejected", null);
+
+    assertSame(service.validated, service.validateResponseAndAwaitCommitmentViaWebSocket(
+        new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L),
+        Commitment.FINALIZED, Commitment.CONFIRMED, "sig", ledger));
+    assertSame(ledger, service.ledger);
+    assertEquals(0, service.awaits);
+  }
+
+  /// A `null` from validation awaits the websocket notification and answers with it.
+  @Test
+  void theCombinedFormAwaitsTheWebSocketWhenValidationAnswersNull() throws InterruptedException {
+    final var service = new RecordingMonitorService();
+    final var ledger = new SendLedger("sig");
+
+    assertSame(service.notified, service.validateResponseAndAwaitCommitmentViaWebSocket(
+        new SendTxContext(null, null, null, null, 42L, 1_700_000_000_000L),
+        Commitment.FINALIZED, Commitment.CONFIRMED, "sig", ledger));
+    assertSame(ledger, service.ledger);
+    assertEquals(1, service.awaits);
+    assertEquals(Commitment.FINALIZED, service.awaitedCommitment);
+    assertEquals(Commitment.CONFIRMED, service.awaitedCommitmentOnError);
+    assertEquals("sig", service.awaitedSig);
   }
 }

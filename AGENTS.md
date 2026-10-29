@@ -529,7 +529,10 @@ them, because the list is the argument for the effort.
   reason. Publishing one transaction twice is therefore safe. The second publisher's
   websocket subscription is refused by the socket (already subscribed), and a refused
   subscription polls at once rather than waiting out the websocket timeout, so it settles
-  by the next poll.
+  by the next poll. The future is shared, the `SendLedger` is not: each caller's holds only
+  its own sends, and the monitor's resends go to the pending context's, so at a `null`
+  verdict one caller may throw `SendNotAcceptedException` while another rebuilds, and both
+  are safe after a verified expiry.
 - **Sends are charged, not paced; a failed first send fails over once; resends decline
   while docked.** `TransactionProcessorRecord.publish` sends first and claims the send
   weight afterwards, so a block hash's validity is spent on the wire and not in a queue;
@@ -543,7 +546,15 @@ them, because the list is the argument for the effort.
   a gateway in front of one and a gateway may answer a forwarded send with any error, so the
   transaction is awaited and monitored like an accepted send, its resends paced by the dock,
   rather than thrown to a caller who could rebuild it while it can still land
-  (`mayStillLand`; a wrong "never left" executes twice). The monitor's resends go to the
+  (`mayStillLand`; a wrong "never left" executes twice). Each attempt's sends, the first,
+  the failover and every resend, are recorded in the caller's `SendLedger`, and an attempt
+  none of whose sends was accepted (answered with the signature) ends the call with
+  `SendNotAcceptedException` at its `null` verdict, a verified expiry or, with
+  `verifyExpired` false, the first missing status, instead of rebuilding, whatever
+  `maxRetriesAfterExpired` allows. A provider that refuses every send therefore costs one
+  block hash window, or with `verifyExpired` false one websocket await and a polling pass,
+  not an unbounded rebuild loop; the error waits on working status reads, and with
+  `verifyExpired` true on chain progress too, as `EXPIRED` does. The monitor's resends go to the
   first peer, in the balancer's order, with capacity for the send weight (a full
   bucket, where the bucket is smaller than the weight), and are deferred a pass when none
   has it (`TxPublisher.retry` returns null). The same signed bytes land at most once,

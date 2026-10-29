@@ -963,8 +963,11 @@ Exit 1 on gate 6: 1,200 submitted, 1,200 settled, 1,066 `OK` and 134 `THREW`, 0 
   decision this run informed; both were then decided and built, and the two-peer and
   blackhole runs below measure them. With one peer a refused first send was then still
   thrown: there was nowhere else to send it. Since 2026-10-29 a send a server answered is
-  not thrown at all but awaited and resent under the dock (`mayStillLand`), because the
-  server may be a gateway that forwarded it first.
+  not thrown at once but awaited and resent under the dock (`mayStillLand`), because the
+  server may be a gateway that forwarded it first, and each resend's response is recorded in
+  the caller's `SendLedger`. When none of an attempt's sends is accepted, the call throws
+  `SendNotAcceptedException` at its verified expiry, so a transaction refused on every send
+  is counted `THREW` as in this run, one block hash window later rather than at once.
 
 **Rate limit on the busy peer, 2026-09-26 (`smoke-20260926T230444Z`, two peers, the proxy on
 peer 1 with `rate-limit:on=10,off=50`, peer 2 pass-through, fixed signer and monitor).** All

@@ -16,6 +16,7 @@ record TxContext(Commitment awaitCommitment,
                  boolean verifyExpired,
                  boolean retrySend,
                  int retryCount,
+                 SendLedger ledger,
                  CompletableFuture<TxStatus> sigStatusFuture) implements Comparable<TxContext> {
 
   static TxContext createContext(final Commitment awaitCommitment,
@@ -23,7 +24,8 @@ record TxContext(Commitment awaitCommitment,
                                  final String sig,
                                  final SendTxContext sendTxContext,
                                  final boolean verifyExpired,
-                                 final boolean retrySend) {
+                                 final boolean retrySend,
+                                 final SendLedger ledger) {
     final long blockHeight = sendTxContext.blockHeight();
     return new TxContext(
         awaitCommitment,
@@ -35,10 +37,14 @@ record TxContext(Commitment awaitCommitment,
         verifyExpired,
         retrySend,
         0,
+        ledger,
         new CompletableFuture<>()
     );
   }
 
+  /// The context after a resend: the resend's send context, one more retry, and this
+  /// context's block height, ledger and future, so the resend is recorded where its caller
+  /// reads.
   public TxContext resent(final SendTxContext sendTxContext) {
     return new TxContext(
         awaitCommitment,
@@ -50,6 +56,7 @@ record TxContext(Commitment awaitCommitment,
         verifyExpired,
         retrySend,
         retryCount + 1,
+        ledger,
         sigStatusFuture
     );
   }
@@ -79,7 +86,8 @@ record TxContext(Commitment awaitCommitment,
 
   /// A context demanding the stricter of each setting of this one and `other`, for two
   /// waiters on one signature that neither dominates: whatever settles it settles both. It
-  /// keeps this context's send context and retry count, and gets a future of its own.
+  /// keeps this context's send context, retry count and ledger, and gets a future of its own.
+  /// No reader consults a joined context's ledger, since each caller holds its own.
   TxContext joinedWith(final TxContext other) {
     return new TxContext(
         level(awaitCommitment) >= level(other.awaitCommitment) ? awaitCommitment : other.awaitCommitment,
@@ -91,6 +99,7 @@ record TxContext(Commitment awaitCommitment,
         verifyExpired || other.verifyExpired,
         retrySend || other.retrySend,
         retryCount,
+        ledger,
         new CompletableFuture<>()
     );
   }

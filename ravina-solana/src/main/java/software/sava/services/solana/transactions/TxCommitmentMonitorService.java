@@ -15,6 +15,7 @@ import java.net.http.HttpConnectTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -76,7 +77,10 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   }
 
   @Override
-  public TxResult validateResponse(final SendTxContext sendTxContext, final String sig) throws InterruptedException {
+  public TxResult validateResponse(final SendTxContext sendTxContext,
+                                   final String sig,
+                                   final SendLedger ledger) throws InterruptedException {
+    ledger.add(sendTxContext.sendFuture());
     final Throwable failure;
     try {
       checkResponse(sendTxContext, sendTxContext.sendFuture().get(), sig);
@@ -104,10 +108,12 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       // Throwable: a publisher written without checked exceptions can throw one. An interrupt
       // is the caller's, and propagates as one out of the first send's wait does. Any other
       // failure never proves the request never left, so a failover that failed on its way out
-      // leaves the transaction to be awaited, as a failed send on the wire does.
+      // leaves the transaction to be awaited, as a failed send on the wire does, and counts as
+      // an attempt that was not accepted.
       if (failOverFailure instanceof InterruptedException interrupted) {
         throw interrupted;
       }
+      ledger.add(CompletableFuture.failedFuture(failOverFailure));
       logger.log(WARNING, String.format(
           "Failover of %s failed on its way out; awaiting its status, since it may still land.", sig
       ), failOverFailure);
@@ -117,6 +123,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       unanswered(sig, failure, null);
       return null;
     }
+    ledger.add(failedOver.sendFuture());
     logger.log(WARNING, String.format("Send of %s failed, sent again on another peer.", sig), failure);
     final Throwable second;
     try {
@@ -205,18 +212,6 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   }
 
   @Override
-  public TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,
-                                                                 final Commitment awaitCommitment,
-                                                                 final Commitment awaitCommitmentOnError,
-                                                                 final String sig) throws InterruptedException {
-
-    final var txResult = validateResponse(sendTxContext, sig);
-    return txResult == null
-        ? tryAwaitCommitmentViaWebSocket(awaitCommitment, awaitCommitmentOnError, sig).join()
-        : txResult;
-  }
-
-  @Override
   protected void processTransactions(final Map<String, TxContext> contextMap) {
     final var signatures = List.copyOf(contextMap.keySet());
     final var sigStatusList = rpcCaller.courteousGet(
@@ -269,7 +264,25 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
               if (blocksRemaining > minBlocksRemainingToResend) {
                 final var previousSendContext = txContext.sendTxContext();
                 if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
-                  final var sendContext = transactionPublisher.retry(previousSendContext);
+                  final SendTxContext sendContext;
+                  try {
+                    sendContext = transactionPublisher.retry(previousSendContext);
+                  } catch (final Throwable retryFailure) {
+                    // Throwable, since a publisher written without checked exceptions can throw
+                    // one, and whatever left this pass would end the monitor's loop with every
+                    // caller still waiting on it. A resend that failed on its way out is an
+                    // attempt that was not accepted, and the context stays for the next pass, as
+                    // a declined resend does. An interrupt is this thread's own, so its flag is
+                    // set again, and the loop ends where it next waits.
+                    if (retryFailure instanceof InterruptedException) {
+                      Thread.currentThread().interrupt();
+                    }
+                    txContext.ledger().add(CompletableFuture.failedFuture(retryFailure));
+                    logger.log(WARNING, String.format(
+                        "Resend of %s failed on its way out; the next pass asks again.", txContext.sig()
+                    ), retryFailure);
+                    continue;
+                  }
                   if (sendContext == null) {
                     // Declined: every send peer is docked. The context is left as it is, so
                     // the next pass asks again once the delay has elapsed from the last send.
@@ -284,6 +297,10 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                         txContext.sig()
                     ));
                   } else {
+                    // Recorded before the context is replaced, so the caller's reading after
+                    // the verdict sees it: a pass either resends a context or hands it off,
+                    // never both, so no send is added once the verdict is in.
+                    txContext.ledger().add(sendContext.sendFuture());
                     final var nexContext = txContext.resent(sendContext);
                     // One atomic write, never a remove and an add: between those two a
                     // queueResult of the same signature could take the key with a fresh
@@ -321,7 +338,11 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                                                  final String sig,
                                                  final SendTxContext sendTxContext,
                                                  final boolean verifyExpired,
-                                                 final boolean retrySend) {
+                                                 final boolean retrySend,
+                                                 final SendLedger ledger) {
+    // Refused here, on the caller's thread: a null ledger would otherwise surface at the first
+    // due resend, on the monitor's, and end its loop with every caller still waiting.
+    Objects.requireNonNull(ledger, "ledger");
     final var txContext = TxContext.createContext(
         awaitCommitment,
         awaitCommitmentOnError,
@@ -331,7 +352,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
         // The factory permits a monitor without a publisher; such a monitor
         // has nothing to resend with, so the opt-in is masked here rather than
         // failing when the first resend comes due.
-        retrySend && transactionPublisher != null
+        retrySend && transactionPublisher != null,
+        ledger
     );
     final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
     if (pending == null) {

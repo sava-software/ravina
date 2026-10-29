@@ -7,6 +7,7 @@ import software.sava.core.tx.Transaction;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -28,7 +29,9 @@ final class TxPublisherTests {
                                  final String base64Encoded,
                                  final long blockHashHeight) {
       published.add(new Published(transaction, base64Encoded, blockHashHeight));
-      return new SendTxContext(null, null, transaction, base64Encoded, blockHashHeight, 1_700_000_000_000L);
+      return new SendTxContext(
+          null, new CompletableFuture<>(), transaction, base64Encoded, blockHashHeight,
+          1_700_000_000_000L);
     }
   }
 

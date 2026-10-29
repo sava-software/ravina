@@ -285,6 +285,7 @@ final class BaseTxMonitorServiceTests {
         verifyExpired,
         retrySend,
         0,
+        new SendLedger(sig),
         new CompletableFuture<>()
     );
   }

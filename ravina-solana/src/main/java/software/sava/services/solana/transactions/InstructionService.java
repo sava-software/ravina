@@ -225,7 +225,15 @@ public interface InstructionService {
   /// attempt reached a server, or one was answered with another signature; any
   /// other failed send may still land, a refusal by a server included, so it is
   /// awaited and monitored like an accepted one, under the `verifyExpired` rule
-  /// below (see `TxMonitorService.validateResponse`).
+  /// below (see `TxMonitorService.validateResponse`). When no send of an
+  /// attempt that this call made, or that the monitor made for it, was
+  /// accepted (answered with the signature), and its status then settles as not
+  /// landed, the call throws `SendNotAcceptedException` instead of rebuilding,
+  /// whatever `maxRetriesAfterExpired` allows; `maxRetriesAfterExpired` bounds
+  /// the rebuilds after attempts with an accepted send. A provider that refuses
+  /// every send therefore costs one block hash window with `verifyExpired`
+  /// true, or one websocket await and a polling pass with `false`, not a
+  /// rebuild loop.
   /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every
@@ -244,8 +252,17 @@ public interface InstructionService {
   /// first missing status expired, ends its monitoring with no resend, and
   /// rebuilds at once, while the original can still land for the rest of its
   /// window, so both may execute: pass it only for instructions that are
-  /// idempotent or deduplicated on chain. The overloads without these flags
-  /// pass `true` for both.
+  /// idempotent or deduplicated on chain. With `false`, an attempt none of
+  /// whose sends was accepted throws `SendNotAcceptedException` at that first
+  /// missing status, with `expiryVerified()` false, and any attempt of the call
+  /// may still land. The overloads without these flags pass `true` for both.
+  ///
+  /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
+  /// arrives with `verifyExpired` true only while the settled block height
+  /// advances (a cluster halt holds the expiration gate shut), the status and
+  /// block height reads succeed, and both monitor loops are alive; with `false`
+  /// it needs only a status read that succeeds and a live commitment monitor
+  /// loop. Until then the call waits.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,

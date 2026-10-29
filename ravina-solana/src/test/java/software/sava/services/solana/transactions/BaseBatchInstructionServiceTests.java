@@ -142,6 +142,30 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(2, processor.simulatedBatches.size());
   }
 
+  /// A batch none of whose sends was accepted ends the run with the exception, as it ends a
+  /// single call, rather than rebuilding it one block hash window at a time.
+  @Test
+  void aRefusedBatchPropagatesSendNotAccepted() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.webSocketScript = call -> call == 0 ? new TxResult(null, "confirmed", null) : null;
+    monitor.sendScript = call -> call == 0
+        ? CompletableFuture.completedFuture(monitor.sigs.get(call))
+        : CompletableFuture.failedFuture(refusal);
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor, 1, 1);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertSame(refusal, thrown.getCause());
+    assertEquals(2, processor.simulatedBatches.size(), "the third batch is never simulated");
+    assertEquals(1, monitor.queueResultCalls);
+  }
+
   @Test
   void anOversizedBatchShrinksTheBatchSizeAndRetries() throws InterruptedException {
     final var processor = new FakeTxProcessor();
