@@ -536,9 +536,15 @@ them, because the list is the argument for the effort.
   only the block-hash read in front of it waits for capacity. A send whose response is a
   failure other than a preflight rejection (a 429, a 5xx, a connection failure, the
   response deadline) is sent once more with the same bytes on the peer that ranks first
-  once the failure is marked, when that is a different peer, and the failure is thrown
-  after that (`validateResponse` and `TxPublisher.failOver`); the monitor's resends go to
-  the first peer, in the balancer's order, with capacity for the send weight (a full
+  once the failure is marked, when that is a different peer (`validateResponse` and
+  `TxPublisher.failOver`). After that the failure is thrown only when no attempt reached a
+  server, because each connection never formed. A failure a server answered may follow a
+  forward, a 429 and a malformed-request code included, since ravina cannot tell a node from
+  a gateway in front of one and a gateway may answer a forwarded send with any error, so the
+  transaction is awaited and monitored like an accepted send, its resends paced by the dock,
+  rather than thrown to a caller who could rebuild it while it can still land
+  (`mayStillLand`; a wrong "never left" executes twice). The monitor's resends go to the
+  first peer, in the balancer's order, with capacity for the send weight (a full
   bucket, where the bucket is smaller than the weight), and are deferred a pass when none
   has it (`TxPublisher.retry` returns null). The same signed bytes land at most once,
   which is what makes both safe. `soak/README.md` measures the before and after. A lost

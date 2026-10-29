@@ -944,9 +944,10 @@ Exit 1 on gate 6: 1,200 submitted, 1,200 settled, 1,066 `OK` and 134 `THREW`, 0 
 
 - **A 429 on the send is not retried, not failed over, and not paced: it is thrown.** Every one
   of the 134 faulted sends surfaced as `JsonRpcException: Too many requests` out of
-  `processInstructions`, unwrapped by `TxCommitmentMonitorService.validateResponse` (the
-  `anUncheckedSendFailurePropagatesUnwrapped` contract), with no backoff sleep at all (the retry
-  backoff row is empty) and no second peer to try. Those 134 transactions never reached the
+  `processInstructions`, unwrapped by `TxCommitmentMonitorService.validateResponse` (the then
+  `anUncheckedSendFailurePropagatesUnwrapped` contract, reversed on 2026-10-29 and now
+  `aRateLimitedSendIsAwaited`), with no backoff sleep at all (the retry backoff row is empty)
+  and no second peer to try. Those 134 transactions never reached the
   validator, so nothing was lost or duplicated; the caller simply got the exception. The other
   68 transactions inside the windows sent before their window's first 429 or between them.
 - The dock paces the calls *after* the failure: 1,708 courteous sleeps, 522 s in total, p50
@@ -960,8 +961,10 @@ Exit 1 on gate 6: 1,200 submitted, 1,200 settled, 1,066 `OK` and 134 `THREW`, 0 
   next resend or its expiry. Whether the first send should fail over to a healthier peer and
   only then throw, and whether a resend should wait for the dock to clear, was a policy
   decision this run informed; both were then decided and built, and the two-peer and
-  blackhole runs below measure them. With one peer a refused first send is still thrown:
-  there is nowhere else to send it.
+  blackhole runs below measure them. With one peer a refused first send was then still
+  thrown: there was nowhere else to send it. Since 2026-10-29 a send a server answered is
+  not thrown at all but awaited and resent under the dock (`mayStillLand`), because the
+  server may be a gateway that forwarded it first.
 
 **Rate limit on the busy peer, 2026-09-26 (`smoke-20260926T230444Z`, two peers, the proxy on
 peer 1 with `rate-limit:on=10,off=50`, peer 2 pass-through, fixed signer and monitor).** All

@@ -373,6 +373,30 @@ implementation locks the bug in.
   and dropped the commitments and the signature status. Found in the same pass;
   the call now formats with `String.format`, like its neighbour. Log text is not
   asserted here (the `# log-removal` family), so no test pins it.
+- 2026-10-29: `TxCommitmentMonitorService.validateResponse` threw a send's
+  failure after its one failover whatever the failure was. A send whose
+  response timed out, was cancelled by the response deadline or lost its
+  connection may still have been forwarded, yet `processInstructions` left
+  with the exception before `queueResult`, so the transaction went unwatched
+  and a caller that rebuilt on the exception could execute it twice; the
+  existing tests had asserted the throw. Found while checking the transaction
+  monitor's timings against Alpenglow. Five tests under "unanswered sends" in
+  `TxCommitmentMonitorServiceTests`, all but the three whose failover throws
+  on its way out, were run against the old code first and failed. A failure is
+  now thrown only when no attempt reached a server, its connection never
+  formed (`mayStillLand`). The first fix also threw what it took for a
+  server's refusal, a 4xx or a JSON-RPC error; two reviews refuted that,
+  because ravina cannot tell a node from a gateway in front of one, and
+  gateways answer forwarded sends with exactly those: eRPC passes on a parse
+  error (-32700, or -32600 under a 400) for an upstream reply it could not
+  read, dRPC answers a 408 for a request that took too long, a retrying proxy
+  can relay another upstream's refusal, and ravina's own fault proxy answers a
+  JSON-RPC error under a 502 when its upstream fails. A TLS handshake on a
+  reused connection can also fail after the request was written. A send that
+  sava-rpc rejects after submitting it, when its deadline scheduler refuses
+  the deadline, now fails its future instead of throwing out of `publishOn`,
+  so it is monitored too, and a resend's no longer ends the commitment
+  monitor's loop.
 
 ### Running the JFR soak harness
 

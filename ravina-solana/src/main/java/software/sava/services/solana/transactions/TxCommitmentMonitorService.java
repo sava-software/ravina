@@ -9,6 +9,9 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 
+import java.net.ConnectException;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -90,26 +93,88 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     if (preflight != null) {
       return preflight;
     }
-    // One failover, then the failure is the caller's: the same signed bytes on another peer
-    // land at most once, so nothing is risked by trying, and a rate limit or an outage on one
-    // peer is what the other peer is for. The publisher declines when the failed peer still
-    // ranks first once its failure is marked (no other peer, or none ranked better), and the
-    // first failure is then thrown as before.
-    final var failedOver = transactionPublisher == null ? null : transactionPublisher.failOver(sendTxContext);
+    // One failover: the same signed bytes on another peer land at most once, so nothing is
+    // risked by trying, and a rate limit or an outage on one peer is what the other peer is
+    // for. The publisher declines when the failed peer still ranks first once its failure is
+    // marked (no other peer, or none ranked better).
+    final SendTxContext failedOver;
+    try {
+      failedOver = transactionPublisher == null ? null : transactionPublisher.failOver(sendTxContext);
+    } catch (final Throwable failOverFailure) {
+      // Throwable: a publisher written without checked exceptions can throw one. An interrupt
+      // is the caller's, and propagates as one out of the first send's wait does. Any other
+      // failure never proves the request never left, so a failover that failed on its way out
+      // leaves the transaction to be awaited, as a failed send on the wire does.
+      if (failOverFailure instanceof InterruptedException interrupted) {
+        throw interrupted;
+      }
+      logger.log(WARNING, String.format(
+          "Failover of %s failed on its way out; awaiting its status, since it may still land.", sig
+      ), failOverFailure);
+      return null;
+    }
     if (failedOver == null) {
-      throw unwrapped(failure);
+      unanswered(sig, failure, null);
+      return null;
     }
     logger.log(WARNING, String.format("Send of %s failed, sent again on another peer.", sig), failure);
+    final Throwable second;
     try {
       checkResponse(failedOver, failedOver.sendFuture().get(), sig);
       return null;
     } catch (final ExecutionException executionException) {
-      final var second = preflightResult(executionException.getCause());
-      if (second != null) {
-        return second;
-      }
-      throw unwrapped(executionException.getCause());
+      second = executionException.getCause();
+    } catch (final CancellationException cancelled) {
+      second = cancelled;
     }
+    final var secondPreflight = preflightResult(second);
+    if (secondPreflight != null) {
+      return secondPreflight;
+    }
+    unanswered(sig, second, failure);
+    return null;
+  }
+
+  /// Settles a send whose every attempt failed. Unless each failure proves its request never
+  /// left, the transaction may have been forwarded and may still land, so this returns and the
+  /// caller is answered `null`: it awaits the status like any other send's, and the monitor's
+  /// polling, resends of the same bytes and expiry check settle it either way. Thrown instead,
+  /// it would leave a caller free to rebuild under a new block hash while the original can
+  /// still land, and both would execute. When no attempt left, nothing is in flight, and the
+  /// last failure is thrown with the first attached.
+  private static void unanswered(final String sig, final Throwable last, final Throwable first) {
+    if (mayStillLand(last) || first != null && mayStillLand(first)) {
+      logger.log(WARNING, String.format(
+          "Send of %s failed without proof that it never left; awaiting its status, since it may still land.", sig
+      ), last);
+      return;
+    }
+    final var thrown = new RuntimeException(last);
+    if (first != null) {
+      thrown.addSuppressed(first);
+    }
+    throw thrown;
+  }
+
+  /// Whether a failed send may have been forwarded, so that its transaction may still land.
+  /// Only a connection that never formed proves its request never left: refused, unresolved or
+  /// timed out while connecting. Any failure a server answered may follow a forward, because
+  /// ravina cannot tell a node from a gateway in front of one, and a gateway may answer a send
+  /// it already forwarded with any status or JSON-RPC error: a parse error for an upstream
+  /// reply it could not read, another upstream's refusal relayed after the first one's reply
+  /// was lost, a 408 for a request that took too long. So may every failure on the way back: a
+  /// timeout or the response deadline, a reset or closed connection, a TLS handshake that
+  /// failed on a reused connection after the request was written. The answer defaults to
+  /// `true` because the two mistakes are not alike: a wrong `true` costs a wait for the status
+  /// and resends of identical bytes, which land at most once, while a wrong `false` lets the
+  /// caller rebuild and execute twice. The three that read `false` assume the JDK client's
+  /// defaults: a client that follows 307 or 308 redirects, or one run with
+  /// `jdk.httpclient.enableAllMethodRetry`, can report a failed connection after an earlier hop
+  /// or attempt already received the request.
+  static boolean mayStillLand(final Throwable failure) {
+    return !(failure instanceof ConnectException
+        || failure instanceof HttpConnectTimeoutException
+        || failure instanceof UnknownHostException);
   }
 
   /// A send's answer is the signature it was given; anything else is a wrong response.
@@ -137,12 +202,6 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       return new TxResult(simulation.context(), null, simulation.error());
     }
     return null;
-  }
-
-  private static RuntimeException unwrapped(final Throwable failure) {
-    return failure instanceof RuntimeException runtimeException
-        ? runtimeException
-        : new RuntimeException(failure);
   }
 
   @Override

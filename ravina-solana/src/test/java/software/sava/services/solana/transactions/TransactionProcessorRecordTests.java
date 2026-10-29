@@ -42,6 +42,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
@@ -181,6 +182,9 @@ final class TransactionProcessorRecordTests {
     private final String sendResult;
     /// When set, every send answers with this failure instead of `sendResult`.
     private Throwable sendFailure;
+    /// When set, every send throws this from the call itself, as sava-rpc does when it
+    /// rejects an exchange's deadline after submitting the exchange.
+    private RuntimeException dispatchFailure;
 
     private Commitment simulateCommitment;
     private String simulateBase64;
@@ -204,6 +208,9 @@ final class TransactionProcessorRecordTests {
         ++this.numSends;
         this.sendCommitment = (Commitment) args[0];
         this.sendBase64 = (String) args[1];
+        if (dispatchFailure != null) {
+          throw dispatchFailure;
+        }
         return sendFailure == null
             ? CompletableFuture.completedFuture(sendResult)
             : CompletableFuture.failedFuture(sendFailure);
@@ -1026,6 +1033,67 @@ final class TransactionProcessorRecordTests {
     assertEquals(1, peer.errorCount(), "one success forgives one error");
   }
 
+  /// A send that throws while it is dispatched may have left, so it fails its
+  /// future instead of escaping: it is charged and stamped like any send, and
+  /// the caller monitors it.
+  @Test
+  void aSendWhoseDispatchThrowsFailsItsFuture() {
+    final var handler = new FakeRpcClient(null, "SIG");
+    final var dispatchFailure = new RejectedExecutionException("deadline scheduler shut down");
+    handler.dispatchFailure = dispatchFailure;
+    final var peerMonitor = monitor();
+    final var peer = item(rpcClient(handler), peerMonitor);
+    final var processor = processor(null, null, LoadBalancer.createBalancer(peer), null);
+    final int capacity = peerMonitor.capacityState().capacity();
+
+    final var context = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+
+    assertSame(dispatchFailure, context.sendFuture().exceptionNow());
+    assertEquals(1, handler.numSends);
+    assertEquals(capacity - CallWeights.createDefault().sendTransaction(), peerMonitor.capacityState().capacity());
+  }
+
+  /// A resend that throws while it is dispatched fails its future too, rather
+  /// than ending the monitor's loop, and its peer is marked failed.
+  @Test
+  void aResendWhoseDispatchThrowsFailsItsFuture() {
+    final var handler = new FakeRpcClient(null, "SIG");
+    final var dispatchFailure = new RejectedExecutionException("deadline scheduler shut down");
+    handler.dispatchFailure = dispatchFailure;
+    final var peer = item(rpcClient(handler), monitor());
+    final var processor = processor(null, null, LoadBalancer.createBalancer(peer), null);
+    final var previous = new SendTxContext(peer, CompletableFuture.completedFuture("SIG"), smallTransaction(), "BASE64-TX", 8_642L, 1L);
+
+    final var resent = processor.retry(previous);
+
+    assertSame(dispatchFailure, resent.sendFuture().exceptionNow());
+    assertEquals(1, peer.errorCount());
+  }
+
+  /// A failover that throws while it is dispatched fails its future too.
+  @Test
+  void aFailoverWhoseDispatchThrowsFailsItsFuture() {
+    final var failingHandler = new FakeRpcClient(null, "FAILING-SIG");
+    failingHandler.sendFailure = new IllegalStateException("too many requests");
+    final var otherHandler = new FakeRpcClient(null, "OTHER-SIG");
+    final var dispatchFailure = new RejectedExecutionException("deadline scheduler shut down");
+    final var failing = item(rpcClient(failingHandler), monitor());
+    final var other = item(rpcClient(otherHandler), monitor());
+    failing.sample(10);
+    other.sample(20);
+    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
+        new BalancedItem[]{failing, other});
+    final var processor = processor(null, null, sendClients, null);
+    final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
+    otherHandler.dispatchFailure = dispatchFailure;
+
+    final var second = processor.failOver(first);
+
+    assertSame(other, second.rpcClient());
+    assertSame(dispatchFailure, second.sendFuture().exceptionNow());
+    assertEquals(1, other.errorCount(), "the failover's peer is charged with the failure");
+  }
+
   /// A failed send is sent once more on the other peer, with the same
   /// bytes, after the failed peer was marked: the sort in between must
   /// already see the failure.
@@ -1110,8 +1178,8 @@ final class TransactionProcessorRecordTests {
     assertEquals(1, failing.skipped(), "the failure reset the four banked skips; the failover's own selection of the other peer is one new skip");
   }
 
-  /// A failover send that fails is charged to its peer too: the monitor
-  /// rethrows it without marking, and a cancelled one never reaches a catch.
+  /// A failover send that fails is charged to its peer too: the monitor reads
+  /// the outcome but never marks the peer, whether it throws or awaits.
   @Test
   void aFailedFailoverSendIsChargedToItsPeer() {
     final var failingHandler = new FakeRpcClient(null, "FAILING-SIG");

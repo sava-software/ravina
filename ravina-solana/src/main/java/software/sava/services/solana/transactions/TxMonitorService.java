@@ -159,6 +159,17 @@ public interface TxMonitorService extends Worker {
                                                              final long confirmedTimeout,
                                                              final TimeUnit timeUnit);
 
+  /// Waits for a send's response and settles what it means. A send that failed other than by
+  /// a preflight rejection is sent once more, with the same bytes, on another peer when the
+  /// publisher has one. A preflight rejection, of either attempt, is returned as the result.
+  /// `null` means the caller awaits the transaction's status: the send was accepted, or the
+  /// attempts failed and at least one of them without proof that its request never left, so
+  /// the transaction may still land, and the await, polling, resends and expiry check settle
+  /// it either way, as they do an accepted send. Any failure a server answered, a 429 or a
+  /// JSON-RPC error included, is such a failure, since the server may be a gateway that
+  /// forwarded the send first. A failure is thrown only when no attempt reached a server,
+  /// because each connection never formed, so nothing is in flight; a response carrying
+  /// another signature is thrown as a wrong response.
   TxResult validateResponse(final SendTxContext sendTxContext, final String sig) throws InterruptedException;
 
   TxResult validateResponseAndAwaitCommitmentViaWebSocket(final SendTxContext sendTxContext,

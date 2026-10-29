@@ -218,11 +218,15 @@ public interface InstructionService {
   /// `SimulationFutures.accountDataSizeLimit`), so a hook that adds accounts
   /// loading more than that must raise it with `setAccountDataSizeLimit`. One
   /// built with a priority fee of 0 has no priority fee slot, so
-  /// `setPriorityFeeLamports` on it throws. Hook, signing
-  /// and publication failures propagate to the caller, as does an
-  /// `IllegalArgumentException` for an instruction that invokes the
-  /// ComputeBudget program or a negative `maxLamportPriorityFee`. This send path
-  /// is not a durable-nonce path.
+  /// `setPriorityFeeLamports` on it throws. Hook and signing failures
+  /// propagate to the caller, as does an `IllegalArgumentException` for an
+  /// instruction that invokes the ComputeBudget program or a negative
+  /// `maxLamportPriorityFee`. A publication failure propagates only when no
+  /// attempt reached a server, or one was answered with another signature; any
+  /// other failed send may still land, a refusal by a server included, so it is
+  /// awaited and monitored like an accepted one, under the `verifyExpired` rule
+  /// below (see `TxMonitorService.validateResponse`).
+  /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every
   /// `TxMonitorConfig.retrySendDelay`, rounded up to whole polling passes,

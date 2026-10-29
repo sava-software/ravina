@@ -15,11 +15,18 @@ import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.websocket.WebSocketManager;
 import systems.comodal.jsoniter.JsonIterator;
 
+import javax.net.ssl.SSLHandshakeException;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.net.ConnectException;
 import java.net.URI;
+import java.net.UnknownHostException;
+import java.net.UnknownServiceException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -28,8 +35,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -40,6 +49,7 @@ import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 import static software.sava.services.solana.transactions.BaseTxMonitorServiceTests.*;
+import static software.sava.services.solana.transactions.TxCommitmentMonitorService.mayStillLand;
 
 /// Drives the commitment monitor's bookkeeping directly: send-response
 /// validation, the queue, and one full pass of `processTransactions` over a
@@ -166,6 +176,9 @@ final class TxCommitmentMonitorServiceTests {
     final List<SendTxContext> failedOver = new ArrayList<>();
     /// What failOver answers: null, the default, is "no other peer".
     SendTxContext failOverResult;
+    /// When set, failOver throws it instead, declared or not, as a failover that could not be
+    /// dispatched does.
+    Throwable failOverFailure;
     /// When set, retry declines every resend, as the processor does while every peer is docked.
     boolean declineResends;
     int publishCount;
@@ -186,8 +199,18 @@ final class TxCommitmentMonitorServiceTests {
     @Override
     public SendTxContext failOver(final SendTxContext failed) {
       failedOver.add(failed);
+      if (failOverFailure != null) {
+        throwUnchecked(failOverFailure);
+      }
       return failOverResult;
     }
+  }
+
+  /// Throws `failure` as it is, declared or not: what a collaborator written in a language
+  /// without checked exceptions does. The cast is erased, so nothing is wrapped.
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> void throwUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
   }
 
   // -------------------------------------------------------------- helpers --
@@ -238,6 +261,24 @@ final class TxCommitmentMonitorServiceTests {
   static JsonRpcException internalRpcError() {
     return rpcException("""
         {"code":-32603,"message":"internal error"}""");
+  }
+
+  /// Invalid params, the one error agave raises for a send that skips preflight.
+  static JsonRpcException invalidParamsRpcError() {
+    return rpcException("""
+        {"code":-32602,"message":"invalid transaction"}""");
+  }
+
+  static JsonRpcException rpcError(final long code) {
+    return rpcException("{\"code\":" + code + ",\"message\":\"error " + code + "\"}");
+  }
+
+  /// What sava-rpc reports for an HTTP status whose body is no JSON-RPC error
+  /// (`BaseJsonResponseController.throwUncheckedIOException`).
+  static UncheckedIOException httpStatusFailure(final int status) {
+    return new UncheckedIOException(new UnknownServiceException(String.format(
+        "HTTP request failed with [httpCode:%d], [body=%s]", status, "upstream unavailable"
+    )));
   }
 
   private FakeRpcClient rpcClient;
@@ -494,13 +535,10 @@ final class TxCommitmentMonitorServiceTests {
     assertTrue(context.verifyExpired(), "the mask must only touch the resend flag");
   }
 
-  /// Without a publisher there is nothing to send again with: the first
-  /// failure is the caller's, as before.
-  @Test
-  void withoutAPublisherAFailedSendIsThrown() {
+  private TxCommitmentMonitorService serviceWithoutAPublisher() {
     this.rpcClient = new FakeRpcClient();
     this.epochInfoService = new FakeEpochInfoService();
-    final var service = new TxCommitmentMonitorService(
+    return new TxCommitmentMonitorService(
         ChainItemFormatter.createDefault(),
         rpcCaller(rpcClient),
         epochInfoService,
@@ -512,10 +550,28 @@ final class TxCommitmentMonitorServiceTests {
         0,
         NanoClock.SYSTEM
     );
-    final var rpcException = internalRpcError();
-    final var context = new SendTxContext(null, CompletableFuture.failedFuture(rpcException), null, null, 1, 0);
+  }
 
-    assertSame(rpcException, assertThrows(JsonRpcException.class, () -> service.validateResponse(context, "sig")));
+  /// Without a publisher there is nothing to send again with: a send that
+  /// never left is the caller's to fail, as before.
+  @Test
+  void withoutAPublisherAFailedSendIsThrown() {
+    final var service = serviceWithoutAPublisher();
+    final var cause = new ConnectException("Connection refused");
+    final var context = new SendTxContext(null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(context, "sig"));
+    assertSame(cause, thrown.getCause());
+  }
+
+  /// Nor does a missing publisher make an unanswered send safe to throw.
+  @Test
+  void withoutAPublisherAnUnansweredSendIsAwaited() throws InterruptedException {
+    final var service = serviceWithoutAPublisher();
+    final var context = new SendTxContext(
+        null, CompletableFuture.failedFuture(new HttpTimeoutException("request timed out")), null, null, 1, 0);
+
+    assertNull(service.validateResponse(context, "sig"));
   }
 
   // --------------------------------------------------- response validation --
@@ -560,36 +616,42 @@ final class TxCommitmentMonitorServiceTests {
     assertInstanceOf(TransactionError.BlockhashNotFound.class, result.error());
   }
 
+  /// A JSON-RPC error other than a preflight rejection is a server's answer,
+  /// and the server may be a gateway that forwarded the send first.
   @Test
-  void anRpcErrorThatIsNotAPreflightFailurePropagates() {
+  void anRpcErrorThatIsNotAPreflightFailureIsAwaited() throws InterruptedException {
     final var service = service();
-    final var rpcException = internalRpcError();
     final var context = new SendTxContext(
-        null, CompletableFuture.failedFuture(rpcException), null, null, 1, 0);
+        null, CompletableFuture.failedFuture(invalidParamsRpcError()), null, null, 1, 0);
 
-    assertSame(
-        rpcException,
-        assertThrows(JsonRpcException.class, () -> service.validateResponse(context, "sig"))
-    );
+    assertNull(service.validateResponse(context, "sig"));
   }
 
+  /// A rate limit is a server's answer too.
   @Test
-  void anUncheckedSendFailurePropagatesUnwrapped() {
+  void aRateLimitedSendIsAwaited() throws InterruptedException {
     final var service = service();
-    final var cause = new IllegalStateException("boom");
     final var context = new SendTxContext(
-        null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
+        null, CompletableFuture.failedFuture(httpStatusFailure(429)), null, null, 1, 0);
 
-    assertSame(
-        cause,
-        assertThrows(IllegalStateException.class, () -> service.validateResponse(context, "sig"))
-    );
+    assertNull(service.validateResponse(context, "sig"));
+  }
+
+  /// A failure the classification does not name is not taken as proof that
+  /// nothing was sent.
+  @Test
+  void anUnrecognizedSendFailureIsAwaited() throws InterruptedException {
+    final var service = service();
+    final var context = new SendTxContext(
+        null, CompletableFuture.failedFuture(new IllegalStateException("boom")), null, null, 1, 0);
+
+    assertNull(service.validateResponse(context, "sig"));
   }
 
   @Test
   void aCheckedSendFailureIsWrapped() {
     final var service = service();
-    final var cause = new IOException("io");
+    final var cause = new ConnectException("Connection refused");
     final var context = new SendTxContext(
         null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
 
@@ -627,39 +689,47 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void withoutAnotherPeerTheFirstFailureIsThrown() {
     final var service = service();
-    final var rpcException = internalRpcError();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(rpcException), null, null, 1, 0);
+    final var cause = new ConnectException("Connection refused");
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
 
-    assertSame(rpcException, assertThrows(JsonRpcException.class, () -> service.validateResponse(first, "sig")));
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    assertSame(cause, thrown.getCause());
     assertEquals(List.of(first), publisher.failedOver, "the publisher was asked, once");
   }
 
+  /// Neither send left: the second failure is thrown, carrying the first.
   @Test
   void theSecondSendsFailureIsThrownAndThereIsNoThirdAttempt() {
     final var service = service();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
-    final var secondFailure = new IllegalStateException("second");
+    final var firstFailure = new ConnectException("Connection refused");
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(firstFailure), null, null, 1, 0);
+    final var secondFailure = new HttpConnectTimeoutException("HTTP connect timed out");
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
 
-    assertSame(secondFailure, assertThrows(IllegalStateException.class, () -> service.validateResponse(first, "sig")));
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    assertSame(secondFailure, thrown.getCause());
+    assertArrayEquals(new Throwable[]{firstFailure}, thrown.getSuppressed(), "the first failure travels with it");
     assertEquals(1, publisher.failedOver.size(), "one failover, never a chain of them");
   }
 
   @Test
   void theSecondSendsCheckedFailureIsWrapped() {
     final var service = service();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
-    final var secondFailure = new IOException("io");
+    final var firstFailure = new UnknownHostException("fake.rpc.invalid");
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(firstFailure), null, null, 1, 0);
+    final var secondFailure = new ConnectException("Connection refused");
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
 
     final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
     assertSame(secondFailure, thrown.getCause());
+    assertArrayEquals(new Throwable[]{firstFailure}, thrown.getSuppressed());
   }
 
   @Test
   void theSecondSendsPreflightRejectionIsAResult() throws InterruptedException {
     final var service = service();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(preflightFailure()), null, null, 1, 0);
 
     final var result = service.validateResponse(first, "sig");
@@ -673,7 +743,8 @@ final class TxCommitmentMonitorServiceTests {
   @Test
   void aMismatchedSecondResponseIsRejected() {
     final var service = service();
-    final var first = new SendTxContext(null, CompletableFuture.failedFuture(internalRpcError()), null, null, 1, 0);
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
     rpcClient.endpoint = SECRET_ENDPOINT;
     publisher.failOverResult = new SendTxContext(
         balancedItem(rpcClient), CompletableFuture.completedFuture("other"), null, null, 1, 0);
@@ -696,6 +767,151 @@ final class TxCommitmentMonitorServiceTests {
 
     assertNotNull(service.validateResponse(context, "sig"));
     assertTrue(publisher.failedOver.isEmpty());
+  }
+
+  // ------------------------------------------------- unanswered sends --
+
+  /// A send that timed out after its request went out may have been forwarded
+  /// and may still land, so it is left to the caller's await and the monitor
+  /// rather than thrown: a caller that rebuilt on the exception could execute
+  /// it twice.
+  @Test
+  void aSendThatTimedOutIsAwaitedRatherThanThrown() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new HttpTimeoutException("request timed out")), null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"), "a send with no answer may still land");
+    assertEquals(List.of(first), publisher.failedOver, "it was still offered to another peer");
+  }
+
+  /// The response deadline cancels an exchange that never answered; with no
+  /// other peer to send to, the transaction is still awaited.
+  @Test
+  void aSendCancelledByItsDeadlineIsAwaitedWithoutAnotherPeer() throws InterruptedException {
+    final var service = service();
+    final var cancelled = new CompletableFuture<String>();
+    cancelled.cancel(true);
+
+    assertNull(service.validateResponse(new SendTxContext(null, cancelled, null, null, 1, 0), "sig"));
+  }
+
+  /// One attempt without an answer is enough: the other one's never having
+  /// left says nothing about whether the first forwarded the transaction.
+  @Test
+  void anUnansweredFirstSendAndAFailoverThatNeverLeftAreAwaited() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new HttpTimeoutException("request timed out")), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"));
+  }
+
+  @Test
+  void aFirstSendThatNeverLeftAndAnUnansweredFailoverAreAwaited() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(
+        null, CompletableFuture.failedFuture(new IOException("Connection reset")), null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"));
+  }
+
+  /// A failover whose own exchange was cancelled is as unanswered as a first
+  /// send that was.
+  @Test
+  void aCancelledFailoverIsAwaited() throws InterruptedException {
+    final var service = service();
+    final var cancelled = new CompletableFuture<String>();
+    cancelled.cancel(true);
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    publisher.failOverResult = new SendTxContext(null, cancelled, null, null, 1, 0);
+
+    assertNull(service.validateResponse(first, "sig"));
+  }
+
+  /// sava-rpc submits a request before it arms the request's deadline, and a
+  /// scheduler that refuses the deadline is rethrown after the submission, so a
+  /// failover rejected while it is dispatched may have been sent: even after a
+  /// first send that never left, the transaction is awaited.
+  @Test
+  void aFailoverThatCouldNotBeDispatchedIsAwaited() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    publisher.failOverFailure = new RejectedExecutionException("deadline scheduler shut down");
+
+    assertNull(service.validateResponse(first, "sig"));
+    assertEquals(List.of(first), publisher.failedOver);
+  }
+
+  /// A publisher written without checked exceptions can throw one out of its failover: that
+  /// failover failed on its way out like any other, so the transaction is awaited, not thrown
+  /// to a caller who could rebuild it.
+  @Test
+  void aFailoverThatThrowsACheckedExceptionIsAwaited() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    publisher.failOverFailure = new IOException("publisher broke");
+
+    assertNull(service.validateResponse(first, "sig"));
+    assertEquals(List.of(first), publisher.failedOver);
+  }
+
+  /// An interrupt out of a failover is the caller's: it propagates, as one out of the first
+  /// send's wait does, instead of being taken for a failover that failed on its way out.
+  @Test
+  void anInterruptOutOfAFailoverPropagates() {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    final var interrupt = new InterruptedException("interrupted mid-failover");
+    publisher.failOverFailure = interrupt;
+
+    assertSame(interrupt, assertThrows(InterruptedException.class, () -> service.validateResponse(first, "sig")));
+  }
+
+  // ------------------------------------------------- send failure classes --
+
+  @Test
+  void aConnectionThatNeverFormedCarriedNothing() {
+    assertFalse(mayStillLand(new ConnectException("Connection refused")));
+    assertFalse(mayStillLand(new HttpConnectTimeoutException("HTTP connect timed out")));
+    assertFalse(mayStillLand(new UnknownHostException("fake.rpc.invalid")));
+  }
+
+  @Test
+  void aFailureAfterTheRequestWentOutMayStillLand() {
+    assertTrue(mayStillLand(new HttpTimeoutException("request timed out")), "only a connect timeout proves nothing left");
+    assertTrue(mayStillLand(new CancellationException()));
+    assertTrue(mayStillLand(new IOException("Connection reset")));
+    assertTrue(
+        mayStillLand(new SSLHandshakeException("Remote host terminated the handshake")),
+        "a reused connection's handshake can fail after the request was written"
+    );
+    assertTrue(mayStillLand(new IllegalStateException("unreadable response")));
+    assertTrue(mayStillLand(new UncheckedIOException(new IOException("Not in GZIP format"))));
+  }
+
+  /// A server's answer never proves the send was not forwarded: ravina cannot
+  /// tell a node from a gateway in front of one, and gateways answer forwarded
+  /// sends with these very errors.
+  @Test
+  void everyFailureAServerAnsweredMayStillLand() {
+    assertTrue(mayStillLand(rpcError(JsonRpcException.PARSE_ERROR)), "eRPC's answer for an upstream reply it could not read");
+    assertTrue(mayStillLand(rpcError(JsonRpcException.INVALID_REQUEST)));
+    assertTrue(mayStillLand(invalidParamsRpcError()), "a retrying gateway can relay another upstream's refusal");
+    assertTrue(mayStillLand(rpcError(429)));
+    assertTrue(mayStillLand(internalRpcError()));
+    assertTrue(mayStillLand(httpStatusFailure(401)));
+    assertTrue(mayStillLand(httpStatusFailure(408)), "dRPC's answer for a request that took too long");
+    assertTrue(mayStillLand(httpStatusFailure(429)));
+    assertTrue(mayStillLand(httpStatusFailure(504)));
   }
 
   /// A resend the publisher declines (every peer docked) leaves the context

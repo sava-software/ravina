@@ -213,7 +213,15 @@ record TransactionProcessorRecord(ExecutorService executor,
                                   final String base64Encoded,
                                   final Commitment preflightCommitment,
                                   final long blockHeight) {
-    final var resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
+    CompletableFuture<String> resultFuture;
+    try {
+      resultFuture = rpcClient.item().sendTransactionSkipPreflight(preflightCommitment, base64Encoded, 0);
+    } catch (final RuntimeException dispatchFailure) {
+      // sava-rpc submits the exchange before it arms the response deadline, and rethrows a
+      // refused deadline after the submission, so a send that throws here may have left: it
+      // fails its future instead, and is monitored like any other failed send.
+      resultFuture = CompletableFuture.failedFuture(dispatchFailure);
+    }
     final long publishedAt = clock.currentTimeMillis();
     rpcClient.capacityState().claimRequest(callWeights.sendTransaction());
     return new SendTxContext(rpcClient, resultFuture, transaction, base64Encoded, blockHeight, publishedAt);
@@ -244,8 +252,8 @@ record TransactionProcessorRecord(ExecutorService executor,
       return null;
     }
     final var context = publishOn(next, failed.transaction(), failed.base64Encoded(), Settlement.COMMITMENT, failed.blockHeight());
-    // Both outcomes are accounted here: the monitor rethrows a failed failover without marking
-    // it, and a cancelled one never reaches its catch.
+    // Both outcomes are accounted here: the monitor reads the failover's outcome but never
+    // marks its peer, whether it throws the failure or awaits the transaction.
     context.sendFuture().whenComplete((_, failure) -> {
       if (failure == null) {
         next.success();
