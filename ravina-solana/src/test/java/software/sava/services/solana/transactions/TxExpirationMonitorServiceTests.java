@@ -306,9 +306,10 @@ final class TxExpirationMonitorServiceTests {
     assertSame(status, second.sigStatusFuture().join());
   }
 
-  /// One block inside the buffer: the block that could contain the
-  /// transaction is not yet finalized, so the nil could still be one lagging
-  /// node's view and the signature keeps being polled.
+  /// One block inside the buffer: the settled height is 31 blocks past the
+  /// last valid height, short of the buffer the monitor keeps as margin for
+  /// backend lag, so the nil could still be one lagging node's view and the
+  /// signature keeps being polled.
   @Test
   void aMissInsideTheSettleBufferIsNotSettled() {
     final var rpcClient = new FakeRpcClient();

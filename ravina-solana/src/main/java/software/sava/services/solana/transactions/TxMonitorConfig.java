@@ -49,8 +49,13 @@ public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
   public static final Duration DEFAULT_MIN_SLEEP_BETWEEN_SIG_STATUS_POLLING = Duration.ofSeconds(1);
   /// How long a signature subscription is awaited before polling takes over,
   /// and, since it covers [#DEFAULT_RETRY_SEND_DELAY], the earliest a
-  /// transaction is resent: margin over the notification latency measured on
-  /// an Alpenglow validator, a tenth of the window at 200 ms slots.
+  /// transaction is resent: a tenth of the window at 200 ms slots, and margin
+  /// over a notification latency measured only on a one-node `--alpenglow`
+  /// test validator, where no block, vote or certificate crosses a network. A
+  /// mainnet RPC node adds the block's propagation and the voting rounds and,
+  /// unless a staked validator pushes certificates to it, waits for a later
+  /// block's footer to carry the finalization certificate; none of that has
+  /// been measured.
   public static final Duration DEFAULT_WEB_SOCKET_CONFIRMATION_TIMEOUT = Duration.ofSeconds(3);
   /// Agave's own send-service retry rate.
   public static final Duration DEFAULT_RETRY_SEND_DELAY = Duration.ofSeconds(2);

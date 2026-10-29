@@ -674,14 +674,17 @@ confirmed when its subscription registers is never notified and waits out the we
 The premise was measured before anything changed.
 
 Measured 2026-09-26 on a local Agave 4.2.2 test validator running TowerBFT (started without
-`--alpenglow`) with sava-rpc 25.11.2, by a scratch program that is not part of the harness; the
-mechanism is unchanged under Alpenglow but the timing has not been re-measured there. Each round's transaction was a faucet airdrop to a fresh
-random key, watched on one websocket at `CONFIRMED`. Odd rounds subscribed right after the airdrop
-returned ("early"); even rounds polled `getSignatureStatuses` until confirmed and only then
-subscribed ("late"). `slotAtSubscribe` is `getSlot(CONFIRMED)`, read just before subscribing on late
-rounds and just before the airdrop on early ones; `confirmedSlot` is the slot `getSignatureStatuses`
-reported for the transaction; `notifyMillis` runs from the `signatureSubscribe` call to the
-notification, bounded at 10 s, which no round reached.
+`--alpenglow`) with sava-rpc 25.11.2, by a scratch program that is not part of the harness. The
+status-cache lookup is the same under Alpenglow, but the program's `CONFIRMED` subscriptions are
+agave's gossip watchers, notified from the optimistically-confirmed bank tracker, while ravina's
+`FINALIZED` subscriptions are commitment watchers, checked on every commitment-service pass, so the
+path ravina uses has not been measured with a late subscription. Each round's transaction was a
+faucet airdrop to a fresh random key, watched on one websocket at `CONFIRMED`. Odd rounds
+subscribed right after the airdrop returned ("early"); even rounds polled `getSignatureStatuses`
+until confirmed and only then subscribed ("late"). `slotAtSubscribe` is `getSlot(CONFIRMED)`, read
+just before subscribing on late rounds and just before the airdrop on early ones; `confirmedSlot` is
+the slot `getSignatureStatuses` reported for the transaction; `notifyMillis` runs from the
+`signatureSubscribe` call to the notification, bounded at 10 s, which no round reached.
 
 | round | mode | slotAtSubscribe | confirmedSlot | notifyMillis |
 |---:|---|---:|---:|---:|
@@ -1135,6 +1138,10 @@ soak's previous values of 3 s, 5 s and a 5 s resend delay. The one Alpenglow run
 gates with 1,200 of 1,200 settled by notification: send to result p50 208 ms, p90 358 ms, p99
 397 ms, max 478 ms, the 400 ms Alpenglow point the smoke below is compared with.
 
+The validator leads every slot and holds all of the stake, so no block, vote or certificate
+crosses a network, and no figure in this section measures a cluster's finality: the Alpenglow
+runs' websocket send-to-result figures sit at about the wait for a block to close.
+
 **10-minute control (`control-20261027T123756Z`, websocket off).** All six gates passed, gate 5 as
 every route `NO_WEBSOCKET`: 1,200 submitted, 1,200 settled, every one `OK`, 0 resends.
 
@@ -1249,9 +1256,10 @@ never took more than 5.61 ms), no `WARNING` in the client log; pending never exc
   measurable.
 - The capacity gauge's lowest reading −10, one send's overdraft.
 
-What the four runs settle: at 200 ms slots and the library's defaults a settled transaction costs
-about half a slot plus finalization over the websocket (p50 104 ms) and under one polling floor by
-polling (p50 597 ms); a lost transaction's websocket await ends at 3 s, its resends follow every 2 s
+What the four runs settle: on a one-node validator at 200 ms slots and the library's defaults a
+settled transaction costs about half a slot over the websocket (p50 104 ms, finalization
+included, since on one node it crosses no network) and under one polling floor by polling (p50
+597 ms); a lost transaction's websocket await ends at 3 s, its resends follow every 2 s
 where a send peer has capacity for them, and its rebuild comes 37 s after its publish; and the
 retune's costs are status polling at the shorter floor (597 passes in the control against the 3 s
 floor's 200, each a status read for the batch) and resend demand against the send peers' capacity,

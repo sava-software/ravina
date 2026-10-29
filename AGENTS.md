@@ -419,9 +419,11 @@ them, because the list is the argument for the effort.
   `Rooted` updates alike) against the bank at `highest_super_majority_root`, which only a
   `Rooted` update advances, so a late subscription is found on the next pass; a `confirmed`
   subscription is notified from the optimistically-confirmed bank tracker. The measurement
-  above subscribed at `confirmed` on TowerBFT, so it did not exercise the `finalized` path, and
-  neither path has been timed under Alpenglow. The websocket timeout in `TxMonitorConfig` is therefore margin for a dead
-  connection, not for this ordering.
+  above subscribed at `confirmed` on TowerBFT, so it did not exercise the `finalized` path. The
+  soak's Alpenglow runs exercised that path on a one-node `--alpenglow` test validator, but only
+  with subscriptions made right after the send, so a late subscription has not been timed under
+  Alpenglow on either path. Since a late subscription is still found on the next pass, the
+  websocket timeout in `TxMonitorConfig` is margin for a dead connection, not for this ordering.
 - **Give the websocket manager a positive reconnect delay.** A constant zero backoff
   (`Backoff.single(MILLISECONDS, 0)`, whose `calculateDelay` returns `initialRetryDelay`
   unconditionally) leaves a retry permanently due, which is what opens the correlation gap above
