@@ -262,7 +262,16 @@ outcome, so the line is diagnostic only. Two more in the same class: the `INFO`
 context left untouched for the next pass is the observable behaviour, asserted by
 `aDeclinedResendLeavesTheContextForTheNextPass`), and the warning `validateResponse` logs
 when a failed send is sent again on another peer (the second response, or its failure, is
-the outcome the failover tests assert).
+the outcome the failover tests assert). Three more, since 2026-10-29, record a send that
+failed without proof that it never left, which is now awaited where it used to be thrown:
+the warning `validateResponse` logs when a failover fails on its way out, the one
+`unanswered` logs when an attempt's sends all failed but one may still land, and the one
+`processTransactions` logs when a resend fails on its way out. None is the failure's only
+record, the line that separates them from the six websocket logs below: each failure is in
+the attempt's `SendLedger` (asserted by `aFailoverThatCouldNotBeDispatchedIsAwaited` and
+`aResendThatThrowsIsRecordedAndThePassGoesOn`), from which `SendNotAcceptedException` takes
+its cause when no send of the attempt was accepted, and the awaited status is the outcome
+the "unanswered sends" tests assert.
 
 Six websocket logs are deliberately **not** in this family and are killed by assertions instead.
 What separates them from the connection-attempt and transport warnings that stay accepted: each
@@ -412,19 +421,21 @@ a running minimum (`TxExpirationMonitorService.processTransactions`, the
 earliest-gate scan): the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
-`WebSocketManager.createManager` line 97, `.commitment(Commitment.CONFIRMED)`.
-`SolanaRpcWebsocketBuilder` initialised its commitment field to `CONFIRMED`,
-so dropping the call left the identical prototype state — verified against
-the builder's getter, which the factory test asserts. The explicit call
-stayed because the default lives in another repo and is not a contract —
+`WebSocketManager.createManager` line 97, `.commitment(Commitment.FINALIZED)`.
+The resolved sava-rpc builder (25.13.0, through the BOM) initialises its
+commitment field to `FINALIZED` (`SolanaRpcWebsocketBuilder`, read from its
+sources jar), so dropping the call leaves the identical prototype state, and
+`theUriFactoryConfiguresAFinalizedPrototype`, which asserts the prototype's
+commitment through the builder's getter, passes either way. The explicit call
+stays because the default lives in another repo and is not a contract. The
+row was first accepted while the call and the builder both said `CONFIRMED`,
 **retired 2026-10-25 through the selective prune protocol** (two matching
-history-free previews, then `pitestCatchAllBaselinePrune`), when
-`createManager` moved to `.commitment(Commitment.FINALIZED)` while the
-resolved sava-rpc 25.12.0 builder still defaults to `CONFIRMED`: the call is
-load-bearing and `theUriFactoryConfiguresAFinalizedPrototype` kills the
-mutant. It becomes a restated default again once the BOM adopts a sava-rpc
-release whose builder defaults to `FINALIZED`; if PIT then reports it
-surviving, re-accept it under this family with the same argument.
+history-free previews, then `pitestCatchAllBaselinePrune`) when
+`createManager` moved to `FINALIZED` while sava-rpc 25.12.0 still defaulted
+to `CONFIRMED`, which made the call load-bearing, and re-accepted on
+2026-10-29 once 25.13.0's default matched it. It is invalidated when a
+resolved sava-rpc builder defaults to anything but `FINALIZED`: the factory
+test then kills the mutant, and the row is retired the same way.
 
 ## Uncovered by testing convention (accepted, and *not* an equivalence claim)
 
