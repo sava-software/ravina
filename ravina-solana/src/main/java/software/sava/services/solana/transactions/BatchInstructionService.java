@@ -51,6 +51,19 @@ public interface BatchInstructionService extends InstructionService {
     );
   }
 
+  /// Processes `instructions` in consecutive batches of the service's batch size, each through
+  /// `processInstructions`, and returns one result per batch, in order. A batch whose
+  /// transaction exceeds a v1 limit is tried again at a size smaller by the reduce size, never
+  /// below one, and a batch of one over a v1 limit is a result with the size limit error. The
+  /// run stops at the first result with an error, which is returned last.
+  /// The service refuses a batch size or a reduce size below one. A batch that fails
+  /// with an exception, checked or not, ends the run with a [BatchProcessException] that
+  /// carries the results of the batches settled before it, the exception as its cause, so a
+  /// caller retries only what is left; whether the failing batch can still land is the cause's
+  /// to say, as a `SendNotAcceptedException`'s `expiryVerified()` does. An interrupt
+  /// propagates as `InterruptedException`, which carries no results, and the batch it
+  /// interrupted may still land; an `Error` is not wrapped. A ComputeBudget instruction
+  /// anywhere in `instructions` is refused before any batch is sent.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final List<Instruction> instructions,
                                        final BigDecimal maxLamportPriorityFee,
@@ -61,6 +74,13 @@ public interface BatchInstructionService extends InstructionService {
                                        final int maxRetriesAfterExpired,
                                        final String logContext) throws InterruptedException;
 
+  /// Processes the accounts of `accountsMap` in consecutive batches, each batch's instructions
+  /// built by `batchFactory` from its keys, as the instruction overload processes
+  /// instructions, and removes a batch's accounts from `accountsMap` once the batch settles
+  /// without an error, so the map holds what is left: a caller that retries with the same map
+  /// resumes after the last settled batch. The map must be mutable; a batch whose accounts it
+  /// refuses to remove has still settled, and is among the results the [BatchProcessException]
+  /// carries, as is every batch settled before a `batchFactory` that throws an exception.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final Map<PublicKey, ?> accountsMap,
                                        final BigDecimal maxLamportPriorityFee,

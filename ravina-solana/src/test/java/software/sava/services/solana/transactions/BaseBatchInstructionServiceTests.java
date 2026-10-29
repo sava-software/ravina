@@ -11,6 +11,7 @@ import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.solana.LogSilencer;
 import software.sava.services.solana.remote.call.RpcCaller;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,7 +78,7 @@ final class BaseBatchInstructionServiceTests {
 
   /// Turns each chunk of keys into one instruction per key, and records the
   /// chunk it was handed.
-  private static final class RecordingBatchFactory implements Function<List<PublicKey>, List<Instruction>> {
+  private static class RecordingBatchFactory implements Function<List<PublicKey>, List<Instruction>> {
 
     final List<List<PublicKey>> chunks = new ArrayList<>();
 
@@ -88,6 +89,13 @@ final class BaseBatchInstructionServiceTests {
           .map(k -> Instruction.createInstruction(k, List.of(), new byte[]{1}))
           .toList();
     }
+  }
+
+  /// Throws `failure` as it is, declared or not: what a collaborator written in a language
+  /// without checked exceptions does. The cast is erased, so nothing is wrapped.
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> void throwUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
   }
 
   @Test
@@ -142,10 +150,11 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(2, processor.simulatedBatches.size());
   }
 
-  /// A batch none of whose sends was accepted ends the run with the exception, as it ends a
-  /// single call, rather than rebuilding it one block hash window at a time.
+  /// A batch none of whose sends was accepted ends the run, as it ends a single call, rather
+  /// than rebuilding it one block hash window at a time, and the batch that settled before it
+  /// is reported with the exception rather than discarded with it.
   @Test
-  void aRefusedBatchPropagatesSendNotAccepted() {
+  void aRefusedBatchEndsTheRunWithTheBatchesSettledBeforeIt() {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     final var refusal = refusal();
@@ -157,13 +166,37 @@ final class BaseBatchInstructionServiceTests {
     monitor.queuedStatus = SETTLED;
     final var service = service(processor, monitor, 1, 1);
 
-    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.batchProcess(
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
         1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, Integer.MAX_VALUE, LOG_CONTEXT
     ));
 
-    assertSame(refusal, thrown.getCause());
+    final var notAccepted = assertInstanceOf(SendNotAcceptedException.class, thrown.getCause());
+    assertSame(refusal, notAccepted.getCause());
+    assertEquals(1, thrown.settled().size(), "the first batch settled before the refusal");
+    assertNull(thrown.settled().getFirst().error());
+    assertEquals(processor.simulatedBatches.getFirst(), thrown.settled().getFirst().instructions());
     assertEquals(2, processor.simulatedBatches.size(), "the third batch is never simulated");
     assertEquals(1, monitor.queueResultCalls);
+  }
+
+  /// A first batch that throws ends the run with nothing settled, and says so.
+  @Test
+  void aFirstBatchThatThrowsEndsTheRunWithNothingSettled() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var failure = new IllegalStateException("boom");
+    monitor.webSocketScript = _ -> {
+      throw failure;
+    };
+    final var service = service(processor, monitor, 1, 1);
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertTrue(thrown.settled().isEmpty());
+    assertEquals("A " + LOG_CONTEXT + " batch failed after 0 settled.", thrown.getMessage());
   }
 
   @Test
@@ -199,6 +232,110 @@ final class BaseBatchInstructionServiceTests {
 
     assertEquals(List.of(4, 2, 2), batchSizes(processor));
     assertEquals(2, service.batchSize);
+  }
+
+  /// A single instruction over a v1 limit has no smaller batch: its size limit error ends the
+  /// run as its last result. The batch size used to shrink to zero, from which the run sliced
+  /// empty batches and never advanced; the simulator gives up after a few calls, so a
+  /// regression fails rather than loops.
+  @Test
+  void aSingleInstructionOverTheV1LimitEndsTheRunWithItsError() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> {
+      if (call > 3) {
+        throw new AssertionError("the run did not end after " + call + " simulations");
+      }
+      return call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    };
+    final var service = service(processor, confirmingMonitor(), 1, 1);
+
+    final var results = service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    assertEquals(2, results.size());
+    assertNull(results.get(0).error());
+    assertSame(TransactionResult.SIZE_LIMIT_EXCEEDED, results.get(1).error());
+    assertEquals(List.of(1, 1), batchSizes(processor));
+    assertEquals(1, service.batchSize, "nothing smaller than one instruction was tried");
+  }
+
+  /// A reduce size past one instruction stops there: the batch size used to go negative, and
+  /// the next slice threw.
+  @Test
+  void aReduceSizePastOneStopsAtOneInstruction() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> {
+      if (call > 5) {
+        throw new AssertionError("the run did not end after " + call + " simulations");
+      }
+      return call == 0 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    };
+    final var service = service(processor, confirmingMonitor(), 3, 5);
+
+    final var results = service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    assertEquals(List.of(3, 1, 1, 1), batchSizes(processor));
+    assertEquals(1, service.batchSize);
+    assertEquals(3, results.size());
+    assertTrue(results.stream().allMatch(r -> r.error() == null));
+  }
+
+  /// A batch size below one slices empty batches and a reduce size below one retries an
+  /// oversized batch unchanged, so the service refuses both.
+  @Test
+  void aBatchOrReduceSizeBelowOneIsRefused() {
+    assertThrows(IllegalArgumentException.class, () -> service(new FakeTxProcessor(), confirmingMonitor(), 0, 1));
+    assertThrows(IllegalArgumentException.class, () -> service(new FakeTxProcessor(), confirmingMonitor(), 1, 0));
+  }
+
+  /// The accounts overload counts its batch size in accounts, so one account whose factory
+  /// builds several instructions is a batch of one: over a v1 limit it ends the run with its
+  /// size limit error, after the batch settled before it, and the map keeps its account and
+  /// the unprocessed one. Counted in instructions, the batch would be retried unchanged at
+  /// batch size one; the simulator gives up after a few calls, so that fails rather than loops.
+  @Test
+  void anAccountBatchOfOneOverTheV1LimitEndsTheRunWithItsError() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> {
+      if (call > 3) {
+        throw new AssertionError("the run did not end after " + call + " simulations");
+      }
+      return ixs.size() > 2 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    };
+    final var service = service(processor, confirmingMonitor(), 1, 1);
+    final var accountsMap = accounts(3);
+    final var keys = List.copyOf(accountsMap.keySet());
+    final var factory = new RecordingBatchFactory() {
+      @Override
+      public List<Instruction> apply(final List<PublicKey> batchKeys) {
+        final var ixs = super.apply(batchKeys);
+        if (!batchKeys.contains(keys.get(1))) {
+          return ixs;
+        }
+        // The second account's work takes three instructions.
+        return List.of(
+            Instruction.createInstruction(keys.get(1), List.of(), new byte[]{1}),
+            Instruction.createInstruction(keys.get(1), List.of(), new byte[]{2}),
+            Instruction.createInstruction(keys.get(1), List.of(), new byte[]{3})
+        );
+      }
+    };
+
+    final var results = service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, factory
+    );
+
+    assertEquals(2, results.size());
+    assertNull(results.get(0).error());
+    assertSame(TransactionResult.SIZE_LIMIT_EXCEEDED, results.get(1).error());
+    assertEquals(List.of(1, 3), batchSizes(processor));
+    assertEquals(List.of(List.of(keys.get(0)), List.of(keys.get(1))), factory.chunks);
+    assertEquals(1, service.batchSize);
+    assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()),
+        "the batch over the limit and the unprocessed account stay in the map");
   }
 
   @Test
@@ -281,6 +418,177 @@ final class BaseBatchInstructionServiceTests {
     );
     assertEquals(List.of(1, 1, 1), batchSizes(processor));
     assertTrue(accountsMap.isEmpty(), "every successfully processed account must be removed from the map");
+  }
+
+  /// An account batch that throws ends the run with the settled batches reported, and their
+  /// accounts already removed, so a caller retrying with the same map resumes after them.
+  @Test
+  void anAccountBatchThatThrowsEndsTheRunWithTheSettledAccountsRemoved() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var failure = new IllegalStateException("boom");
+    monitor.webSocketScript = call -> {
+      if (call == 1) {
+        throw failure;
+      }
+      return new TxResult(null, "confirmed", null);
+    };
+    final var service = service(processor, monitor, 1, 1);
+    final var accountsMap = accounts(3);
+    final var keys = List.copyOf(accountsMap.keySet());
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
+        LOG_CONTEXT, new RecordingBatchFactory()
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(1, thrown.settled().size());
+    assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+  }
+
+  /// A batch factory that throws is a failing batch like any other: the batches settled
+  /// before it are reported.
+  @Test
+  void aBatchFactoryThatThrowsEndsTheRunWithTheBatchesSettledBeforeIt() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 1, 1);
+    final var accountsMap = accounts(3);
+    final var keys = List.copyOf(accountsMap.keySet());
+    final var failure = new IllegalArgumentException("no instructions for these keys");
+    final var factory = new RecordingBatchFactory() {
+      @Override
+      public List<Instruction> apply(final List<PublicKey> batchKeys) {
+        if (!chunks.isEmpty()) {
+          throw failure;
+        }
+        return super.apply(batchKeys);
+      }
+    };
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, factory
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(1, thrown.settled().size());
+    assertEquals(1, processor.simulatedBatches.size());
+    assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+  }
+
+  /// A batch that throws a checked exception past a signature that does not declare it, as a
+  /// collaborator written without checked exceptions can, is a failing batch like any other:
+  /// the batches settled before it are reported instead of escaping with it.
+  @Test
+  void aBatchThatThrowsACheckedExceptionEndsTheRunWithTheBatchesSettledBeforeIt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var failure = new IOException("monitor broke");
+    monitor.webSocketScript = call -> {
+      if (call == 1) {
+        throwUnchecked(failure);
+      }
+      return new TxResult(null, "confirmed", null);
+    };
+    final var service = service(processor, monitor, 1, 1);
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(1, thrown.settled().size());
+  }
+
+  /// The same for a batch factory: the batch settled before it is reported, and its account is
+  /// the only one removed.
+  @Test
+  void aBatchFactoryThatThrowsACheckedExceptionEndsTheRunWithTheBatchesSettledBeforeIt() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 1, 1);
+    final var accountsMap = accounts(3);
+    final var keys = List.copyOf(accountsMap.keySet());
+    final var failure = new IOException("no instructions for these keys");
+    final var factory = new RecordingBatchFactory() {
+      @Override
+      public List<Instruction> apply(final List<PublicKey> batchKeys) {
+        if (!chunks.isEmpty()) {
+          throwUnchecked(failure);
+        }
+        return super.apply(batchKeys);
+      }
+    };
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, factory
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(1, thrown.settled().size());
+    assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+  }
+
+  /// An interrupt is not a failing batch: it propagates as itself and carries no results, as
+  /// the interface documents.
+  @Test
+  void anInterruptOutOfABatchPropagatesUnwrapped() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var interrupt = new InterruptedException("interrupted mid-batch");
+    monitor.webSocketScript = call -> {
+      if (call == 1) {
+        throwUnchecked(interrupt);
+      }
+      return new TxResult(null, "confirmed", null);
+    };
+    final var service = service(processor, monitor, 1, 1);
+
+    assertSame(interrupt, assertThrows(InterruptedException.class, () -> service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    )));
+  }
+
+  /// The accounts overload too: the interrupt propagates as itself, and only the batch settled
+  /// before it has left the map.
+  @Test
+  void anInterruptOutOfAnAccountBatchPropagatesUnwrapped() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var interrupt = new InterruptedException("interrupted mid-batch");
+    monitor.webSocketScript = call -> {
+      if (call == 1) {
+        throwUnchecked(interrupt);
+      }
+      return new TxResult(null, "confirmed", null);
+    };
+    final var service = service(processor, monitor, 1, 1);
+    final var accountsMap = accounts(3);
+    final var keys = List.copyOf(accountsMap.keySet());
+
+    assertSame(interrupt, assertThrows(InterruptedException.class, () -> service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
+        LOG_CONTEXT, new RecordingBatchFactory()
+    )));
+    assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+  }
+
+  /// A map that refuses to forget a settled batch's accounts still reports that batch: it
+  /// executed, so a caller must not run it again.
+  @Test
+  void anImmutableAccountsMapStillReportsTheBatchThatSettled() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 1, 1);
+    final Map<PublicKey, String> accountsMap = Map.of(key(1), "account-0", key(2), "account-1");
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES,
+        LOG_CONTEXT, new RecordingBatchFactory()
+    ));
+
+    assertInstanceOf(UnsupportedOperationException.class, thrown.getCause());
+    assertEquals(1, thrown.settled().size(), "the first batch settled before its removal was refused");
+    assertNull(thrown.settled().getFirst().error());
+    assertEquals(1, processor.simulatedBatches.size());
   }
 
   @Test

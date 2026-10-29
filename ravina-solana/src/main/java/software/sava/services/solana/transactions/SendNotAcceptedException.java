@@ -1,11 +1,12 @@
 package software.sava.services.solana.transactions;
 
-/// Thrown by `InstructionService.processInstructions`, and the batch service built on it, in
-/// place of a rebuild, when no send of an attempt was accepted (answered with the signature)
-/// and the attempt's status then settled as not landed. A rebuild re-simulates, re-prices and
-/// takes a new block hash, and a refusal tied to the key, the provider or its rate would
-/// answer it the same way, one block hash window at a time, so the call ends here whatever
-/// `maxRetriesAfterExpired` allows, and the caller owns the retry.
+/// Thrown by `InstructionService.processInstructions`, and by the batch service built on it as
+/// the cause of a `BatchProcessException`, in place of a rebuild, when no send of an attempt
+/// was accepted (answered with the signature) and the attempt's status then settled as not
+/// landed. A rebuild re-simulates, re-prices and takes a new block hash, and a refusal tied to
+/// the key, the provider or its rate would answer it the same way, one block hash window at a
+/// time, so the call ends here whatever `maxRetriesAfterExpired` allows, and the caller owns
+/// the retry.
 ///
 /// With [#expiryVerified()] true the attempt's block hash expired and a history-searching
 /// status read behind the settle buffer still found nothing, and every earlier attempt of the

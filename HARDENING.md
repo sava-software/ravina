@@ -412,6 +412,25 @@ implementation locks the bug in.
   still escaped the failover's guard; such a resend is now recorded as a send
   not accepted and asked for again on the next pass, both guards catch
   whatever is thrown, and an interrupt still ends what it interrupted.
+- 2026-10-29: `BaseBatchInstructionService.batchProcess` kept the results of
+  the batches that had settled in a local list with no catch around a batch,
+  so a batch that threw discarded them with the exception: a caller could not
+  tell which instructions had executed, and one that retried the whole job ran
+  them again. The accounts overload records its progress by removing a settled
+  batch's accounts from the caller's map, but an immutable map refused that
+  removal after the batch had executed, with the same result. Raised by the
+  owner while reviewing the send fixes above. A batch that throws an
+  exception, checked or not, now ends the run with a `BatchProcessException`
+  that carries the settled results, the failure as its cause; the five tests
+  in `BaseBatchInstructionServiceTests` that expect it failed against the old
+  code, and two more, for a checked exception thrown past a signature that
+  does not declare it, failed against the fix's first form, which wrapped only
+  unchecked ones. Review of that fix found the shrink unbounded: a batch of
+  one over a v1 limit cut the batch size to zero or below, and at zero the run
+  sliced empty batches and never advanced, while below zero the next slice
+  threw. The batch size now stops at one, a batch of one over a limit ends the
+  run with its size limit error, and the service refuses a batch or reduce
+  size below one; the three tests for it failed against the old code.
 
 ### Running the JFR soak harness
 

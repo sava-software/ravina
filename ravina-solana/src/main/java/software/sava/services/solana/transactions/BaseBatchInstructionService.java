@@ -30,12 +30,24 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                         final int batchSize,
                                         final int reduceSize) {
     super(rpcCaller, transactionProcessor, splClient, epochInfoService, txMonitorService);
+    // A batch size below one slices empty batches and never advances, and a reduce size below
+    // one retries an oversized batch unchanged.
+    if (batchSize < 1) {
+      throw new IllegalArgumentException("batchSize must be at least 1: " + batchSize);
+    }
+    if (reduceSize < 1) {
+      throw new IllegalArgumentException("reduceSize must be at least 1: " + reduceSize);
+    }
     this.reduceSize = reduceSize;
     this.batchSize = batchSize;
   }
 
+  /// `batchItems` is the batch's size in the unit the batch size counts: instructions for the
+  /// instruction overload, accounts for the accounts overload, whose factory may build one
+  /// instruction for many accounts.
   private TransactionResult processBatch(final double cuBudgetMultiplier,
                                          final List<Instruction> batch,
+                                         final int batchItems,
                                          final BigDecimal maxLamportPriorityFee,
                                          final Commitment awaitCommitment,
                                          final Commitment awaitCommitmentOnError,
@@ -54,7 +66,9 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         maxRetriesAfterExpired,
         logContext
     );
-    if (transactionResult.exceedsSizeLimit()) {
+    // A batch of one item over a v1 limit has no smaller batch to try, so its result, the size
+    // limit error, is returned and ends the run like any other error.
+    if (transactionResult.exceedsSizeLimit() && batchItems > 1) {
       logger.log(WARNING, String.format("""
                   Reducing %s batch size from %d, because the transaction exceeds a v1 transaction limit. [instructions=%d] [base64Length=%d]
                   """,
@@ -64,7 +78,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
               transactionResult.base64Length()
           )
       );
-      batchSize -= reduceSize;
+      // Never below one item: a reduce size past it would slice empty batches.
+      batchSize = Math.max(1, batchSize - reduceSize);
       return null;
     } else {
       return transactionResult;
@@ -89,22 +104,33 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
     for (int from = 0, to; from < numAccounts; ) {
-      to = Math.min(numAccounts, from + batchSize);
-      final var batch = to - from == numAccounts
-          ? instructions
-          : instructions.subList(from, to);
+      final TransactionResult transactionResult;
+      try {
+        to = Math.min(numAccounts, from + batchSize);
+        final var batch = to - from == numAccounts
+            ? instructions
+            : instructions.subList(from, to);
 
-      final var transactionResult = processBatch(
-          cuBudgetMultiplier,
-          batch,
-          maxLamportPriorityFee,
-          awaitCommitment,
-          awaitCommitmentOnError,
-          verifyExpired,
-          retrySend,
-          maxRetriesAfterExpired,
-          logContext
-      );
+        transactionResult = processBatch(
+            cuBudgetMultiplier,
+            batch,
+            batch.size(),
+            maxLamportPriorityFee,
+            awaitCommitment,
+            awaitCommitmentOnError,
+            verifyExpired,
+            retrySend,
+            maxRetriesAfterExpired,
+            logContext
+        );
+      } catch (final InterruptedException interrupted) {
+        // An interrupt carries no results, and the batch it interrupted may still land.
+        throw interrupted;
+      } catch (final Exception failure) {
+        // Exception, not only RuntimeException: a collaborator written without checked
+        // exceptions can throw one, and the settled results must not be lost with it.
+        throw new BatchProcessException(logContext, results, failure);
+      }
 
       if (transactionResult == null) {
         continue;
@@ -136,35 +162,47 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var publicKeys = List.copyOf(accountsMap.keySet());
     final int numAccounts = publicKeys.size();
     for (int from = 0, to; from < numAccounts; ) {
-      to = Math.min(numAccounts, from + batchSize);
-      final var batchAccounts = to - from == numAccounts
-          ? publicKeys
-          : publicKeys.subList(from, to);
-      final var batch = batchFactory.apply(batchAccounts);
+      // The removal is inside: a batch that settled is already among the results when an
+      // immutable map refuses to forget its accounts.
+      try {
+        to = Math.min(numAccounts, from + batchSize);
+        final var batchAccounts = to - from == numAccounts
+            ? publicKeys
+            : publicKeys.subList(from, to);
+        final var batch = batchFactory.apply(batchAccounts);
 
-      final var transactionResult = processBatch(
-          cuBudgetMultiplier,
-          batch,
-          maxLamportPriorityFee,
-          awaitCommitment,
-          awaitCommitmentOnError,
-          verifyExpired,
-          retrySend,
-          maxRetriesAfterExpired,
-          logContext
-      );
+        final var transactionResult = processBatch(
+            cuBudgetMultiplier,
+            batch,
+            batchAccounts.size(),
+            maxLamportPriorityFee,
+            awaitCommitment,
+            awaitCommitmentOnError,
+            verifyExpired,
+            retrySend,
+            maxRetriesAfterExpired,
+            logContext
+        );
 
-      if (transactionResult == null) {
-        continue;
-      }
+        if (transactionResult == null) {
+          continue;
+        }
 
-      final var error = transactionResult.error();
-      results.add(transactionResult);
-      if (error != null) {
-        return results;
-      } else {
-        batchAccounts.forEach(accountsMap::remove);
-        from = to;
+        final var error = transactionResult.error();
+        results.add(transactionResult);
+        if (error != null) {
+          return results;
+        } else {
+          batchAccounts.forEach(accountsMap::remove);
+          from = to;
+        }
+      } catch (final InterruptedException interrupted) {
+        // An interrupt carries no results, and the batch it interrupted may still land.
+        throw interrupted;
+      } catch (final Exception failure) {
+        // Exception, not only RuntimeException: a collaborator written without checked
+        // exceptions can throw one, and the settled results must not be lost with it.
+        throw new BatchProcessException(logContext, results, failure);
       }
     }
     return results;
