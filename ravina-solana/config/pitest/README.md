@@ -134,13 +134,22 @@ the prior run's population exactly.
   count rather than time), and the loop is infinite by design, so a mutant
   that keeps the loop from calling it has no finite completion. `EQUAL_ELSE` on the `pendingTransactions.isEmpty()`
   guard skips the batch on every pass, and `VoidMethodCallMutator` removes
-  the `processTransactions` call itself. The `EQUAL_IF` member predates the
+  the `processTransactions` call itself (the same key's removal of the work
+  lock's unlock, which also timed out until 2026-10-30, is now killed by
+  `theRunLoopReleasesTheWorkLock`, and its removal of the failed-pass log
+  survives under the key's existing `# log-removal` row; see that family).
+  The `EQUAL_IF` member predates the
   2026-09-24 inversion of that guard, when it was the mutant that read the
   queue as empty; it now forces an empty batch through, which
   `anEmptyQueueIsNotPolled` kills, so it stays in the set only until the
   quiet-run protocol retires it.
 - `TxExpirationMonitorService.lambda$processTransactions$1` `EQUAL_IF` and
-  `NullReturnValsMutator` — both poison the composed height-then-statuses
+  `NullReturnValsMutator` — **expected quiet since 2026-10-30**: the test
+  `FakeRpcClient` throws synchronously past a bound of reads of either kind,
+  which escapes the courteous call's retry and fails the test, so a poisoned
+  read is now killed by count rather than detected by the watchdog; the
+  members stay until the quiet-run protocol retires them. Their argument:
+  both poison the composed height-then-statuses
   poll (the `EQUAL_IF` deletes the `earliestGate != null` empty-batch guard,
   NPE-ing the gate comparison; the `NullReturnValsMutator` nulls the lambda's
   future, NPE-ing `thenCompose`), and a failing courteous call is retried
@@ -274,7 +283,15 @@ record, the line that separates them from the six websocket logs below: each fai
 the attempt's `SendLedger` (asserted by `aFailoverThatCouldNotBeDispatchedIsAwaited` and
 `aResendThatThrowsIsRecordedAndThePassGoesOn`), from which `SendNotAcceptedException` takes
 its cause when no send of the attempt was accepted, and the awaited status is the outcome
-the "unanswered sends" tests assert.
+the "unanswered sends" tests assert. Since 2026-10-30 the stop log in
+`BaseTxMonitorService.stop` is one more: the futures it fails and the entries it removes are
+the asserted behaviour (`theStopFailsEveryPendingFuture` and the loop tests under "a pass that
+fails"), and its level and text are the `# log-text-only` family's. The ERROR `run` logs for a
+pass that failed and will be retried took over the key's existing row, which the old loop's
+"Unhandled exception" log earned and the 2026-10-30 retag now points at the new line; the
+loop tests assert the retry, the count and the stop, never the log. That key is also in the
+audited timeout set, for the removal of the `processTransactions` call, and both keys are
+line-less, so neither the baseline nor the audit distinguishes the two copies.
 
 Six websocket logs are deliberately **not** in this family and are killed by assertions instead.
 What separates them from the connection-attempt and transport warnings that stay accepted: each
@@ -315,6 +332,42 @@ which `beginFailure` shares with a failed creation and a connect `Error` since 2
 **not** in this family either: a handled creation failure's one WARNING states its disposition
 from that number (a retry delay, or that the manager is closed), so each of those returns is
 killed by an assertion on the record.
+
+**Zero-remainder await** `# zero-await-noop` (`catchAll`) — `ConditionalsBoundaryMutator` on
+the failed-pass floor loop in `BaseTxMonitorService.run`, `remaining > 0`. At exactly zero
+the mutant makes one more `awaitNanos(0)` call. The label names the zero remainder, not the
+call, which is not nothing: it hands the work lock off and back, and it throws an interrupt
+that arrived between the previous call's return and the check. The forms differ in two
+exact-zero interleavings. With an interrupt in that window, the original leaves the loop,
+runs one more pass and meets the interrupt at the next `lockInterruptibly`, while the mutant
+stops at once. With a `notifyWorker` blocked on the lock as the floor ends, the original
+clears the flag first and the wake it then sets skips the next pass's floor, while the
+mutant's hand-off lets the wake in before the clear and uses it up on this floor. Every
+other remainder, positive or negative, takes the same branch in both. Accepted because no
+test can force an exact-zero estimate out of `awaitNanos`, on which both interleavings
+rest, so no deterministic test can observe either: not an equivalence claim. Invalidated if
+a test ever gains control of `awaitNanos`'s return, or if work that matters once the loop
+has ended is ever placed after it in the wait section, which clearing `wakeRequested` is
+not.
+
+**Log text or level only** `# log-text-only` (`catchAll`) — mutants that change only what a
+log line says, or at which level it is written, where the behaviour beside the log is what
+the tests assert. The stop log in `BaseTxMonitorService.stop`: the increment of the count it
+prints, the conditionals that choose its level (an error with a cause, a warning when futures
+were failed, information for a routine shutdown) and the one that adds "on interrupt". The
+futures failed and the entries removed are the asserted behaviour
+(`theStopFailsEveryPendingFuture`, `aQueueAfterTheStopIsRefused`, and the loop tests under "a
+pass that fails"); no test reads the log.
+
+**Memory fence** `# memory-fence` (`catchAll`) — `VoidMethodCallMutator` on
+`VarHandle.fullFence()` in `BaseTxMonitorService.stopping`. The fence orders the stop's
+volatile store of `stopped` before the drain's plain reads of the map's nodes, against the
+install side's CAS and volatile read, so that of two sides that each store then load at least
+one sees the other's store; the `stopped` field's javadoc holds the argument. The reordering
+it prevents is one the memory model permits, needs a compiled `stopping` on a weakly ordered
+CPU, and cannot be provoked by a test, so nothing observes the mutant. Not an equivalence
+claim: the mutant removes an ordering the invariant rests on. Invalidated if the drain ever
+reads the map through volatile or acquire accesses that order themselves.
 
 **Exact-zero retry deadline** `# retry-deadline-zero` (`catchAll`) — changing the
 `remainingNanos <= 0` boundary at exactly zero reaches the rounding expression instead of its
