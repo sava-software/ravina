@@ -22,8 +22,10 @@ public interface TxPublisher {
 
   /// Sends the same bytes again, for the commitment monitor's resend loop. May return null to
   /// decline the resend for now (every peer is docked, in the processor's implementation), in
-  /// which case the caller keeps its context and asks again on its next pass. The same signed
-  /// bytes land at most once, so a resend can never double-execute.
+  /// which case the caller keeps its context and asks again on its next pass, and asks for no
+  /// other resend in this one: a decline means no peer has the capacity, so the rest would be
+  /// declined too, and a later ask could only take a refill ahead of the declined one. The same
+  /// signed bytes land at most once, so a resend can never double-execute.
   default SendTxContext retry(final SendTxContext sendTxContext) {
     return publish(sendTxContext.transaction(), sendTxContext.base64Encoded(), sendTxContext.blockHeight());
   }

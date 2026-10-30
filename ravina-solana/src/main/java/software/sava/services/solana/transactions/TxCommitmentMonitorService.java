@@ -13,6 +13,8 @@ import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,6 +38,23 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   private final long retrySendDelayMillis;
   private final int minBlocksRemainingToResend;
   private final NanoClock clock;
+
+  /// The order a pass asks for its resends in: ascending resend count, then oldest last send
+  /// first. The publisher declines a resend when no send peer has the capacity for it, so under
+  /// a burst of losses the order decides which transactions the bucket's refill goes to, and a
+  /// declined ask ends the pass's resends: the rest would be declined too, short of a refill in
+  /// the moment between two asks, which a later one would then take ahead of an earlier. So a
+  /// due resend is never carried ahead of one with fewer resends, nor, at one count, ahead of
+  /// one sent longer ago, whose window closes first: the contexts a pass leaves keep their
+  /// count and last send, the next pass orders them the same way, and a cohort of equal counts
+  /// rotates, each transaction's first resend before any one's second. The sort is stable, so
+  /// exact ties keep the batch's order. Until 2026-10-30 a pass asked for every due
+  /// resend in the batch's order alone, the hash order of its signatures and the same on every
+  /// pass, and the same transactions won every pass while the rest waited for their expiry:
+  /// 118 of the 200 swallowed in the soak's blackhole run of 2026-10-27 were never resent.
+  static final Comparator<TxContext> RESEND_ORDER = Comparator
+      .comparingInt(TxContext::retryCount)
+      .thenComparingLong(txContext -> txContext.sendTxContext().publishedAt());
 
   TxCommitmentMonitorService(final ChainItemFormatter formatter,
                              final RpcCaller rpcCaller,
@@ -238,103 +257,116 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       }
     }
 
-    int numRemoved = 0;
+    // Compacted in place, to the contexts whose expiry is to be verified.
+    int numToVerify = 0;
     for (int i = 0; i < noSigStatusLength; ++i) {
       final var txContext = noSigStatus[i];
-      if (!txContext.verifyExpired()) {
+      if (txContext.verifyExpired()) {
+        noSigStatus[numToVerify++] = txContext;
+      } else {
         completeFuture(txContext);
-        noSigStatus[i] = null;
-        ++numRemoved;
       }
     }
-    if (numRemoved < noSigStatusLength) {
+    if (numToVerify > 0) {
       final var confirmedBlockHeight = confirmedBlockHeight();
+      final long now = clock.currentTimeMillis();
+      // The expired are handed off, and the resends that are due compacted in place again:
+      // those opted in and a resend delay past their last send. They compete for the send
+      // capacity below, where a hand-off does not. The block floor is checked as each is
+      // reached, where the blocks remaining are computed once for the check and its log.
       int numExpired = 0;
-      for (int i = 0; i < noSigStatusLength; ++i) {
+      int numDue = 0;
+      for (int i = 0; i < numToVerify; ++i) {
         final var txContext = noSigStatus[i];
-        if (txContext != null) {
-          // The context's block height is the block hash's last valid block
-          // height as RPC reports it, and the hash is still accepted one
-          // block later: a bank registers its hash at its final tick. Handing
-          // off once the settled height passes it is therefore exact, not
-          // early — the last block that could hold the transaction is then
-          // settled. The status poll ran before this height read, so a
-          // landing in that last block can be missed here; the expiration
-          // monitor's settle buffer, not this check, decides "never landed".
-          final var bigBlockHeight = txContext.bigBlockHeight();
-          if (bigBlockHeight.compareTo(confirmedBlockHeight) < 0) {
-            expirationMonitorService.addTxContext(txContext);
-            pendingTransactions.remove(txContext, txContext);
-            ++numExpired;
-          } else {
-            final long blocksRemaining = bigBlockHeight.subtract(confirmedBlockHeight).longValue();
-            if (txContext.retrySend()) {
-              if (blocksRemaining > minBlocksRemainingToResend) {
-                final var previousSendContext = txContext.sendTxContext();
-                if ((clock.currentTimeMillis() - previousSendContext.publishedAt()) >= retrySendDelayMillis) {
-                  final SendTxContext sendContext;
-                  try {
-                    sendContext = transactionPublisher.retry(previousSendContext);
-                  } catch (final Throwable retryFailure) {
-                    // Throwable, since a publisher written without checked exceptions can throw
-                    // one, and whatever left this pass would fail it, and stop the monitor for
-                    // every caller if it kept failing. A resend that failed on its way out is an
-                    // attempt that was not accepted, and the context stays for the next pass, as
-                    // a declined resend does. An interrupt is this thread's own, so its flag is
-                    // set again, and the loop ends where it next waits.
-                    if (retryFailure instanceof InterruptedException) {
-                      Thread.currentThread().interrupt();
-                    }
-                    txContext.ledger().add(CompletableFuture.failedFuture(retryFailure));
-                    logger.log(WARNING, String.format(
-                        "Resend of %s failed on its way out; the next pass asks again.", txContext.sig()
-                    ), retryFailure);
-                    continue;
-                  }
-                  if (sendContext == null) {
-                    // Declined: every send peer is docked. The context is left as it is, so
-                    // the next pass asks again once the delay has elapsed from the last send.
-                    logger.log(INFO, String.format("""
-                            Resend deferred, every send peer is docked:
-                             * retries so far: %d
-                             * blocksRemaining: %d
-                             * sig: %s
-                            """,
-                        txContext.retryCount(),
-                        blocksRemaining,
-                        txContext.sig()
-                    ));
-                  } else {
-                    // Recorded before the context is replaced, so the caller's reading after
-                    // the verdict sees it: a pass either resends a context or hands it off,
-                    // never both, so no send is added once the verdict is in.
-                    txContext.ledger().add(sendContext.sendFuture());
-                    final var nexContext = txContext.resent(sendContext);
-                    // One atomic write, never a remove and an add: between those two a
-                    // queueResult of the same signature could take the key with a fresh
-                    // future, the add of the resent context would be refused, and the
-                    // future this transaction's caller holds would never be completed.
-                    // This thread is the only writer of an existing entry, so the replace
-                    // holds. It is not followed by an admission check: it runs on the monitor
-                    // thread, before the loop can end, and the resent context keeps the same
-                    // future, which the stop's drain fails whichever context holds it.
-                    pendingTransactions.replace(txContext, txContext, nexContext);
-                    logger.log(INFO, String.format("""
-                            Resent transaction:
-                             * retry: %d
-                             * blocksRemaining: %d
-                             * sig: %s
-                            """,
-                        nexContext.retryCount(),
-                        blocksRemaining,
-                        sendContext.sig()
-                    ));
-                  }
-                }
-              }
-            }
-          }
+        // The context's block height is the block hash's last valid block
+        // height as RPC reports it, and the hash is still accepted one
+        // block later: a bank registers its hash at its final tick. Handing
+        // off once the settled height passes it is therefore exact, not
+        // early — the last block that could hold the transaction is then
+        // settled. The status poll ran before this height read, so a
+        // landing in that last block can be missed here; the expiration
+        // monitor's settle buffer, not this check, decides "never landed".
+        if (txContext.bigBlockHeight().compareTo(confirmedBlockHeight) < 0) {
+          expirationMonitorService.addTxContext(txContext);
+          pendingTransactions.remove(txContext, txContext);
+          ++numExpired;
+        } else if (txContext.retrySend() && now - txContext.sendTxContext().publishedAt() >= retrySendDelayMillis) {
+          noSigStatus[numDue++] = txContext;
         }
+      }
+      // Asked in RESEND_ORDER, not the batch's: the publisher declines what the peers have no
+      // capacity for, and the order decides who the refill goes to. Sorting and looping over
+      // nothing do nothing, so a pass with no due resend needs no guard here.
+      Arrays.sort(noSigStatus, 0, numDue, RESEND_ORDER);
+      for (int i = 0; i < numDue; ++i) {
+        final var txContext = noSigStatus[i];
+        final long blocksRemaining = txContext.bigBlockHeight().subtract(confirmedBlockHeight).longValue();
+        if (blocksRemaining <= minBlocksRemainingToResend) {
+          // Too near its expiry for a resend to be worth the weight: neither asked for, so
+          // it ends no pass, nor handed off yet.
+          continue;
+        }
+        final var previousSendContext = txContext.sendTxContext();
+        final SendTxContext sendContext;
+        try {
+          sendContext = transactionPublisher.retry(previousSendContext);
+        } catch (final Throwable retryFailure) {
+          // Throwable, since a publisher written without checked exceptions can throw
+          // one, and whatever left this pass would fail it, and stop the monitor for
+          // every caller if it kept failing. A resend that failed on its way out is an
+          // attempt that was not accepted, and the context stays for the next pass, as
+          // a declined resend does. An interrupt is this thread's own, so its flag is
+          // set again, and the loop ends where it next waits.
+          if (retryFailure instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+          }
+          txContext.ledger().add(CompletableFuture.failedFuture(retryFailure));
+          logger.log(WARNING, String.format(
+              "Resend of %s failed on its way out; the next pass asks again.", txContext.sig()
+          ), retryFailure);
+          continue;
+        }
+        if (sendContext == null) {
+          // Declined: every send peer is docked, so the rest of the pass's resends would be
+          // too, and asking would only let a later one take a refill ahead of this one (see
+          // RESEND_ORDER). The contexts are left as they are, their count and last send
+          // unchanged, and the next pass orders them the same way.
+          logger.log(INFO, String.format("""
+                  Resends deferred, every send peer is docked; this pass asks for no more. The first deferred:
+                   * retries so far: %d
+                   * blocksRemaining: %d
+                   * sig: %s
+                  """,
+              txContext.retryCount(),
+              blocksRemaining,
+              txContext.sig()
+          ));
+          break;
+        }
+        // Recorded before the context is replaced, so the caller's reading after
+        // the verdict sees it: a pass either resends a context or hands it off,
+        // never both, so no send is added once the verdict is in.
+        txContext.ledger().add(sendContext.sendFuture());
+        final var nexContext = txContext.resent(sendContext);
+        // One atomic write, never a remove and an add: between those two a
+        // queueResult of the same signature could take the key with a fresh
+        // future, the add of the resent context would be refused, and the
+        // future this transaction's caller holds would never be completed.
+        // This thread is the only writer of an existing entry, so the replace
+        // holds. It is not followed by an admission check: it runs on the monitor
+        // thread, before the loop can end, and the resent context keeps the same
+        // future, which the stop's drain fails whichever context holds it.
+        pendingTransactions.replace(txContext, txContext, nexContext);
+        logger.log(INFO, String.format("""
+                Resent transaction:
+                 * retry: %d
+                 * blocksRemaining: %d
+                 * sig: %s
+                """,
+            nexContext.retryCount(),
+            blocksRemaining,
+            sendContext.sig()
+        ));
       }
       if (numExpired > 0) {
         expirationMonitorService.notifyWorker();

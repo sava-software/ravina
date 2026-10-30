@@ -1222,9 +1222,15 @@ every rebuilt transaction landed.
   resent, and all seven twelve-time transactions iterate in their window's first four (computed
   from the log with Java's `String.hashCode` and the map's spread). Publish order counted for
   less: the first ten published in each window, whose first asks preceded most of the window's
-  demand, took 195 resends with 5 of the 50 never resent, the last ten 72 with 37. Resend demand
+  demand, took 195 resends with 5 of the 50 never resent, the last ten 72 with 37. Since
+  2026-10-30 a pass asks in ascending resend count, then oldest last send first
+  (`TxCommitmentMonitorService.RESEND_ORDER`), and a declined ask ends its resends (one
+  `Resends deferred` line a pass, where this run logged one `Resend deferred` per ask), so a due
+  resend is never carried ahead of one with fewer resends and a cohort of equal counts rotates
+  through the refill; this run predates that order, which has not been measured here. Resend demand
   is the same policy's cost: a lost transaction charges 5 weight a second at the defaults for the
-  resends actually sent, landed or not, and asks on every pass for the ones refused, and a bucket
+  resends actually sent, landed or not, and keeps asking on later passes for the ones refused
+  (since 2026-10-30 one ask a pass once declined, where this run asked for each), and a bucket
   sized for the live traffic alone rations the resends of a burst of losses, as the AGENTS.md rule
   on charged sends and declining resends says.
 - The rationing's other side: 1,506 courteous sleeps in `CourteousBalancedCall.call`, 208.6 s in

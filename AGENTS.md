@@ -560,14 +560,25 @@ them, because the list is the argument for the effort.
   has it (`TxPublisher.retry` returns null). The same signed bytes land at most once,
   which is what makes both safe. `soak/README.md` measures the before and after. A lost
   transaction's resends charge the send weight once per resend delay, 5 weight a second at
-  the defaults, and a refused resend is asked for again on every pass, floor or wake, until
-  a peer has the weight, so a burst of losses can ask for more than a bucket sized for the
-  live traffic refills; the pass then hands the refill out in its batch's iteration order,
-  the signatures' hash order and the same on every pass, so the same transactions win while
-  the rest wait for their expiry: the soak's blackhole run of 2026-10-27 resent 401 times
-  and deferred 5,657 against a 50-a-second bucket, 118 of its 200 swallowed transactions
-  never resent and 7 resent the full twelve times. Size the send peers' capacity for the
-  losses a deployment must resend through, not for its live sends alone.
+  the defaults, and a refused resend stays due and is asked for again on later passes, floor
+  or wake, once those ahead of it in the order below have been sent, until a peer has the
+  weight, so a burst of losses can ask for more than a bucket sized for the live traffic
+  refills. A pass asks for its resends in ascending resend count, then oldest
+  last send first (`TxCommitmentMonitorService.RESEND_ORDER`, a stable sort, so exact ties
+  keep the batch's order), and a declined ask ends the pass's resends, since no peer has the
+  capacity for the rest either, short of a refill between two asks that a later one would
+  take ahead of an earlier. So a due resend is never carried ahead of one with fewer resends,
+  nor, at one count, ahead of one sent longer ago, whose window closes first: what a pass
+  leaves keeps its count and last send, the next pass orders it the same way, and a cohort of
+  equal counts rotates through the refill, each transaction's first resend before any one's
+  second. Until 2026-10-30 a pass asked for every due resend in its batch's
+  iteration order, the signatures' hash order and the same on every pass, so the same
+  transactions won while the rest waited for their expiry: the soak's blackhole run of
+  2026-10-27 resent 401 times and deferred 5,657 against a 50-a-second bucket, 118 of its
+  200 swallowed transactions never resent and 7 resent the full twelve times; the new order
+  has not been measured. Size the send peers' capacity for the losses a deployment must
+  resend through, not for its live sends alone: the order shares a shortfall, it does not
+  remove one.
 - **A monitor that stops fails its pending futures; a pass that fails does not stop it.**
   Every caller of `processInstructions` waits, uninterruptibly, on a future that only a
   monitor pass completes, so a monitor loop that ended quietly stranded them all (until

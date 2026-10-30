@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
@@ -187,6 +188,9 @@ final class TxCommitmentMonitorServiceTests {
     Throwable retryFailure;
     /// When set, retry declines every resend, as the processor does while every peer is docked.
     boolean declineResends;
+    /// Resends accepted before retry declines the rest, as the processor does once the send
+    /// peers' capacity is spent; a test resets it for each pass. Unbounded by default.
+    int resendBudget = Integer.MAX_VALUE;
     int publishCount;
     /// Each publish's response future: never null, as `TxPublisher` promises; pending, the
     /// default, is a send still unanswered.
@@ -205,7 +209,11 @@ final class TxCommitmentMonitorServiceTests {
       if (retryFailure != null) {
         throwUnchecked(retryFailure);
       }
-      return declineResends ? null : TxPublisher.super.retry(sendTxContext);
+      if (declineResends || resendBudget == 0) {
+        return null;
+      }
+      --resendBudget;
+      return TxPublisher.super.retry(sendTxContext);
     }
 
     @Override
@@ -1343,6 +1351,201 @@ final class TxCommitmentMonitorServiceTests {
 
     assertTrue(publisher.retried.isEmpty());
     assertEquals(List.of(context), List.copyOf(service.pendingTransactions.values()));
+  }
+
+  // --------------------------------------------------------- the resend order --
+
+  /// Under rationed send capacity the publisher declines the resends the peers cannot carry,
+  /// so the order a pass asks in decides which transactions are resent. Asked in ascending
+  /// resend count, no resend is asked for ahead of one with fewer, whatever the batch's own
+  /// order: the batch here holds counts 2, 0 and 1 in that order. A declined context keeps
+  /// its count and last send, so the next pass orders it the same way, and a cohort of equal
+  /// counts rotates.
+  @Test
+  void resendsAreAskedInAscendingResendCount() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var sendA = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var sendB = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var sendC = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var twice = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, sendA, true, true).resent(sendA).resent(sendA);
+    final var never = txContext("sig-b", HORIZON + 10, FINALIZED, FINALIZED, sendB, true, true);
+    final var once = txContext("sig-c", HORIZON + 10, FINALIZED, FINALIZED, sendC, true, true).resent(sendC);
+    assertEquals(List.of(2, 0, 1), List.of(twice.retryCount(), never.retryCount(), once.retryCount()));
+    for (final var context : List.of(twice, never, once)) {
+      service.pendingTransactions.put(context, context);
+    }
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
+
+    service.processTransactions(contextMap(twice, never, once));
+
+    assertEquals(List.of(sendB, sendC, sendA), publisher.retried, "fewest resends first, whatever the batch's order");
+  }
+
+  /// Of one resend count the oldest last send is asked first, since its window closes first:
+  /// the batch here holds the newest first.
+  @Test
+  void ofOneResendCountTheOldestLastSendIsAskedFirst() {
+    final var clock = new TestClock();
+    final long now = clock.currentTimeMillis();
+    final var service = service(Duration.ofSeconds(1), 3, clock);
+    final var newest = sendTxContext(HORIZON + 10, now - 1_000);
+    final var middle = sendTxContext(HORIZON + 10, now - 2_000);
+    final var oldest = sendTxContext(HORIZON + 10, now - 3_000);
+    final var a = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, newest, true, true);
+    final var b = txContext("sig-b", HORIZON + 10, FINALIZED, FINALIZED, middle, true, true);
+    final var c = txContext("sig-c", HORIZON + 10, FINALIZED, FINALIZED, oldest, true, true);
+    for (final var context : List.of(a, b, c)) {
+      service.pendingTransactions.put(context, context);
+    }
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
+
+    service.processTransactions(contextMap(a, b, c));
+
+    assertEquals(List.of(oldest, middle, newest), publisher.retried, "oldest last send first, whatever the batch's order");
+  }
+
+  /// The count comes before the time: a transaction never resent is asked before one resent
+  /// once, though the latter's last send is the older.
+  @Test
+  void aLowerResendCountIsAskedFirstWhateverItsLastSendTime() {
+    final var clock = new TestClock();
+    final long now = clock.currentTimeMillis();
+    final var service = service(Duration.ofSeconds(1), 3, clock);
+    final var older = sendTxContext(HORIZON + 10, now - 5_000);
+    final var newer = sendTxContext(HORIZON + 10, now - 1_000);
+    final var once = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, older, true, true).resent(older);
+    final var never = txContext("sig-b", HORIZON + 10, FINALIZED, FINALIZED, newer, true, true);
+    service.pendingTransactions.put(once, once);
+    service.pendingTransactions.put(never, never);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
+
+    service.processTransactions(contextMap(once, never));
+
+    assertEquals(List.of(newer, older), publisher.retried);
+  }
+
+  /// A decline means no send peer has the capacity, so the rest of the pass's resends would
+  /// be declined too, and asking for them would only let a later one take a refill ahead of
+  /// the declined one: the first decline ends the pass's resends, and every context is left
+  /// as it was, its count and last send unchanged, for the next pass to order the same way.
+  @Test
+  void aDeclinedResendEndsThePassesResends() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var sendA = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var sendB = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var sendC = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var a = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, sendA, true, true);
+    final var b = txContext("sig-b", HORIZON + 10, FINALIZED, FINALIZED, sendB, true, true);
+    final var c = txContext("sig-c", HORIZON + 10, FINALIZED, FINALIZED, sendC, true, true);
+    for (final var context : List.of(a, b, c)) {
+      service.pendingTransactions.put(context, context);
+    }
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
+    publisher.declineResends = true;
+
+    service.processTransactions(contextMap(a, b, c));
+
+    assertEquals(List.of(sendA), publisher.retried, "the first decline ends the pass's resends");
+    assertEquals(List.of(a, b, c), List.copyOf(service.pendingTransactions.values()), "every context is left as it was");
+    for (final var context : List.of(a, b, c)) {
+      assertEquals(0, context.retryCount());
+      assertFalse(context.sigStatusFuture().isDone());
+    }
+  }
+
+  /// Only the resends that are due compete for capacity, so only they are sorted: a context
+  /// that did not opt into resending, which the fixtures build without a send context, is
+  /// neither compared nor asked for, and stays pending.
+  @Test
+  void contextsThatDoNotResendAreNeitherSortedNorAsked() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var sendB = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO);
+    final var a = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, null, true, false);
+    final var b = txContext("sig-b", HORIZON + 10, FINALIZED, FINALIZED, sendB, true, true);
+    final var c = txContext("sig-c", HORIZON + 10, FINALIZED, FINALIZED, null, true, false);
+    for (final var context : List.of(a, b, c)) {
+      service.pendingTransactions.put(context, context);
+    }
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
+
+    service.processTransactions(contextMap(a, b, c));
+
+    assertEquals(List.of(sendB), publisher.retried, "only the opted-in resend is asked for");
+    final var pending = List.copyOf(service.pendingTransactions.values());
+    assertEquals(3, pending.size());
+    assertSame(a, pending.getFirst(), "a context that does not resend is untouched");
+    assertSame(c, pending.getLast(), "a context that does not resend is untouched");
+    assertEquals(1, pending.get(1).retryCount());
+  }
+
+  /// A context at the block floor is skipped where it is reached, not asked for, so it ends
+  /// no pass: here it sorts first, as an older send nearer its expiry usually does, and the
+  /// one above the floor behind it is still asked for.
+  @Test
+  void aContextAtTheFloorIsSkippedAndEndsNoPass() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    final var sendAtFloor = sendTxContext(HORIZON + 4, PUBLISHED_LONG_AGO);
+    final var sendAbove = sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO + 1);
+    final var atFloor = txContext("sig-l", HORIZON + 4, FINALIZED, FINALIZED, sendAtFloor, true, true);
+    final var above = txContext("sig-a", HORIZON + 10, FINALIZED, FINALIZED, sendAbove, true, true);
+    service.pendingTransactions.put(atFloor, atFloor);
+    service.pendingTransactions.put(above, above);
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
+
+    service.processTransactions(contextMap(atFloor, above));
+
+    assertEquals(List.of(sendAbove), publisher.retried, "the one at the floor is skipped, the one behind it asked for");
+    final var pending = List.copyOf(service.pendingTransactions.values());
+    assertSame(atFloor, pending.getFirst(), "the context at the floor is left as it was");
+    assertEquals(1, pending.getLast().retryCount(), "the one above the floor was resent");
+  }
+
+  /// The order's point. A publisher with capacity for one resend a pass, which is what the
+  /// soak's blackhole run rationed the resends to, resends each of three transactions once
+  /// before any twice, and the fourth pass starts over with the one resent first. Every pass
+  /// asks twice, the resend it carries and the one it declines, which ends the pass's resends,
+  /// and its batch is rebuilt from the pending map as the loop rebuilds it, in the map's
+  /// (block height, signature) order; before the order the first in that batch won every
+  /// pass, and the other two were never resent.
+  @Test
+  void underRationedCapacityTheResendsRotateThroughTheBatch() {
+    final var service = service(Duration.ofSeconds(1), 3);
+    for (final var sig : List.of("sig-a", "sig-b", "sig-c")) {
+      final var context = txContext(sig, HORIZON + 10, FINALIZED, FINALIZED, sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true);
+      service.pendingTransactions.put(context, context);
+    }
+    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS, NIL_STATUS);
+    final var expectedAskOrders = List.of(
+        List.of("sig-a", "sig-b"),
+        List.of("sig-b", "sig-c"),
+        List.of("sig-c", "sig-a"),
+        List.of("sig-a", "sig-b")
+    );
+    final var expectedCounts = List.of(
+        Map.of("sig-a", 1, "sig-b", 0, "sig-c", 0),
+        Map.of("sig-a", 1, "sig-b", 1, "sig-c", 0),
+        Map.of("sig-a", 1, "sig-b", 1, "sig-c", 1),
+        Map.of("sig-a", 2, "sig-b", 1, "sig-c", 1)
+    );
+
+    for (int pass = 0; pass < expectedAskOrders.size(); ++pass) {
+      final var pending = List.copyOf(service.pendingTransactions.values());
+      final var sigOf = new HashMap<SendTxContext, String>();
+      for (final var context : pending) {
+        sigOf.put(context.sendTxContext(), context.sig());
+      }
+      publisher.retried.clear();
+      publisher.resendBudget = 1;
+
+      service.processTransactions(contextMap(pending.toArray(TxContext[]::new)));
+
+      assertEquals(expectedAskOrders.get(pass), publisher.retried.stream().map(sigOf::get).toList(), "ask order of pass " + (pass + 1));
+      final var counts = new HashMap<String, Integer>();
+      for (final var context : service.pendingTransactions.values()) {
+        counts.put(context.sig(), context.retryCount());
+      }
+      assertEquals(expectedCounts.get(pass), counts, "resend counts after pass " + (pass + 1));
+    }
   }
 
   @Test
