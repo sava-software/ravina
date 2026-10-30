@@ -127,9 +127,12 @@ the prior run's population exactly.
   `BlockhashNotFound` assertion rejects outright, and the unmutated route
   still short-circuits before subscribing. `KILLED` on a history-free run.
 - `BaseTxMonitorService.run` — its tests end the monitor loop only when
-  `processTransactions` throws (the recording monitor's stop), and the loop
-  is infinite by design, so a mutant that keeps the loop from calling it has
-  no finite completion. `EQUAL_ELSE` on the `pendingTransactions.isEmpty()`
+  `processTransactions` throws an `InterruptedException` (the recording
+  monitor's stop, which is the shutdown signal; since 2026-10-30 a
+  `RuntimeException` out of a pass is ridden out, and only
+  `MAX_CONSECUTIVE_FAILED_PASSES` in a row end the loop, which the loop tests
+  count rather than time), and the loop is infinite by design, so a mutant
+  that keeps the loop from calling it has no finite completion. `EQUAL_ELSE` on the `pendingTransactions.isEmpty()`
   guard skips the batch on every pass, and `VoidMethodCallMutator` removes
   the `processTransactions` call itself. The `EQUAL_IF` member predates the
   2026-09-24 inversion of that guard, when it was the mutant that read the

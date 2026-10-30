@@ -568,6 +568,46 @@ them, because the list is the argument for the effort.
   and deferred 5,657 against a 50-a-second bucket, 118 of its 200 swallowed transactions
   never resent and 7 resent the full twelve times. Size the send peers' capacity for the
   losses a deployment must resend through, not for its live sends alone.
+- **A monitor that stops fails its pending futures; a pass that fails does not stop it.**
+  Every caller of `processInstructions` waits, uninterruptibly, on a future that only a
+  monitor pass completes, so a monitor loop that ended quietly stranded them all (until
+  2026-10-30 any `RuntimeException` out of a pass did, after one ERROR log). Now
+  `BaseTxMonitorService.run` rides out a failed pass, whatever it threw (`Throwable`, since a
+  collaborator written without checked exceptions can throw one): it logs, waits the floor
+  whatever wakes arrived, and polls the same contexts again, since a failed pass settled
+  nothing. Only a failure that `MAX_CONSECUTIVE_FAILED_PASSES` passes in a row repeat ends
+  the loop, as a `VirtualMachineError` and the interrupt do (a pass failure with an
+  `InterruptedException` as its cause or its cause's cause is the interrupt, neither counted
+  nor logged as a failure: ravina's `Call` wrappers rethrow one wrapped once, the second
+  level is slack for a collaborator's wrapper, and there is no walk, since `initCause`
+  permits a cycle). A failed pass waits its whole floor, whatever wakes arrive before or
+  during it, so a burst of queued transactions cannot run the failing passes in
+  milliseconds. Whatever ends the loop, its `finally` runs `stop`: the monitor is marked
+  stopped, every pending future fails with `TxMonitorStoppedException`, which names the
+  signature and its block hash's last valid height, and every later queue is refused with
+  the same, because `queueResult` and `addTxContext` check the flag after each write that
+  installs a context, and the stop sets the flag, then a full fence, before it drains (the
+  install side is a CAS then a volatile read, the stop side a volatile write then plain
+  node reads, so without the fence the JMM lets both sides miss each other). That exception
+  means the outcome is unknown and the transaction may still land, so a caller must not
+  rebuild on it; `processInstructions` throws it as itself, and `batchProcess` wraps it with
+  the settled results like any failure. `TxMonitorService.stopped()` reports the stop, and
+  `processInstructions` asks it before each attempt, so a call made after the stop is
+  refused with nothing more sent rather than sending a transaction nobody will watch;
+  `sent()` then says whether an earlier attempt of the call may still land (only with
+  `verifyExpired` false, where the attempt's status was merely missing). Either loop's
+  stop counts, whatever the attempt would have needed. Two scope decisions: a persistent pass failure stops
+  the whole monitor and fails every pending future, not only the batch that provoked it,
+  because nothing says which context did; and the commitment and expiration monitors stop
+  independently, a stopped expiration monitor failing each hand-off at once rather than
+  stranding it, while the other monitor goes on settling its own entries. A stopped monitor
+  does not restart. Keep the bound a constant: nobody tunes it, and a `TxMonitorConfig` field
+  costs a parser ordinal, a parity fuzz case and config rows. A failure that belongs to one
+  node goes inside the read's future, not into the pass: a status read answered with another
+  number of statuses than signatures asked (a provider has answered an empty array for one
+  signature, which sava-rpc accepts) fails the read in `statusesFor`, so the `Call` wrapper
+  retries it with backoff and fails it over, where an index past the end thrown from the pass
+  would spend the bound on one bad provider.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

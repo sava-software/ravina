@@ -431,6 +431,67 @@ implementation locks the bug in.
   threw. The batch size now stops at one, a batch of one over a limit ends the
   run with its size limit error, and the service refuses a batch or reduce
   size below one; the three tests for it failed against the old code.
+- 2026-10-30: `BaseTxMonitorService.run` caught outside its infinite loop, so
+  any `RuntimeException` out of a pass ended the loop after one ERROR log, and
+  an `Error` killed the thread, with every pending future left uncompleted:
+  `processInstructions` sat in an uninterruptible `join()` for good, and
+  `queueResult` kept admitting new callers to the same fate, since nothing
+  recorded that the loop had ended. The send fixes above widened the exposure,
+  because a failed send that may have left now waits on the monitor where it
+  used to throw. Raised by the owner while reviewing them. The loop now rides
+  out a failed pass and ends only on an interrupt, a `VirtualMachineError` or
+  `MAX_CONSECUTIVE_FAILED_PASSES` failures in a row, and whatever ends it
+  fails every pending future with `TxMonitorStoppedException` and refuses
+  every later queue. The recording monitor's stop became an
+  `InterruptedException`, the shutdown signal, since a `RuntimeException` no
+  longer ends the loop. Against the old loop body with the new seam, the nine
+  tests under "a pass that fails" in `BaseTxMonitorServiceTests` and the drain
+  assertion in `theRunLoopBatchesAtMostMaxSigStatusSignatures` failed; the
+  admission and refusal tests need the stop itself and do not compile against
+  the old code. Review of the fix found two more ways to the same hang: a
+  wake arriving while a failed pass waited its floor cut the floor short, so
+  a burst of queues could run the stopping failures in milliseconds, and the
+  interrupt check walked the failure's cause chain, which `initCause` lets
+  cycle. The floor is now waited out whatever signals arrive, and the check
+  reads two fixed levels; `aWakeDuringAFailedPassesFloorDoesNotCutItShort`
+  failed against the plain await, and the depth-three half of
+  `aDeeperOrCyclicCauseChainIsAFailedPassNotTheShutdown` against the walk
+  (its cycle half would never have returned). A third round found the two
+  catches too narrow (`RuntimeException | Error`: a checked exception a
+  collaborator throws past an undeclared signature escaped both, ended the
+  loop at once and was reported as an interrupt with no cause), a wrapped
+  interrupt counted toward the bound, and the stop/admit handshake without a
+  fence on the stop side, which the memory model needs for a volatile write
+  followed by the traversal's plain reads to be ordered against the install
+  side's CAS and volatile read; the catches take `Throwable` after the
+  interrupt, a wrapped interrupt is neither counted nor logged, and
+  `stopping` ends with `VarHandle.fullFence()`.
+  `anErrorOrACheckedExceptionOutOfAPassIsAFailedPass` and
+  `aCheckedExceptionThatKeepsFailingIsTheStopsCause` failed against the
+  narrower catches, `aWrappedInterruptIsNotCountedTowardTheBound` against the
+  counting form; the fence has no test, since no test can provoke the
+  reordering. The same round found that a call made after the stop still
+  simulated, signed and sent before the refusal of its queue revealed the
+  stop, one unwatched transaction per retry; `TxMonitorService.stopped()`
+  now reports it and `processInstructions` asks before each attempt
+  (`aMonitorFoundStoppedBeforeTheSendRefusesTheCallWithNothingSent` failed
+  against the unasked form). A fourth round found the refusal after a
+  rebuild claiming nothing had been sent when, with `verifyExpired` false,
+  the earlier attempt's status was only missing and it may still land; the
+  refusal now names that attempt
+  (`aStopBeforeTheRebuildReportsTheAttemptThatMayStillLand` failed against
+  the blanket refusal). It also found two interrupt tests whose only exit was
+  the flag the loop sets again, so a mutant dropping it would have spun them
+  into a timeout member; each now throws its wrapped interrupt on one pass
+  only, and the count is the exit. The owner's reviewer of the
+  send fixes found the concrete trigger that had been missing: a provider
+  that answers an empty status array for one signature, which sava-rpc
+  accepts, threw `IndexOutOfBoundsException` out of `completeFutures` in
+  either monitor, ending its loop. Both reads now check the count inside the
+  read's future (`statusesFor`), so the failure reaches the `Call` wrapper,
+  which retries the read and fails it over to another peer, instead of the
+  pass; `aStatusReadAnsweredWithAnotherCountIsRetried` in each monitor's
+  tests failed against the unchecked read.
 
 ### Running the JFR soak harness
 

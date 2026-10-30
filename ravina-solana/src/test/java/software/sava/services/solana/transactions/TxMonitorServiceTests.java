@@ -18,6 +18,12 @@ import static org.junit.jupiter.api.Assertions.*;
 /// recording fake.
 final class TxMonitorServiceTests {
 
+  /// An implementation whose loop cannot stop leaves the default, which reports it running.
+  @Test
+  void anImplementationWithoutAStoppableLoopReportsRunning() {
+    assertFalse(new RecordingMonitorService().stopped());
+  }
+
   private static final class RecordingMonitorService implements TxMonitorService {
 
     private Commitment awaitCommitment;

@@ -6,12 +6,14 @@ import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
+import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.request_capacity.context.CallContext;
 import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.INFO;
@@ -138,7 +140,20 @@ public class BaseInstructionService implements InstructionService {
                                                      final String logContext) throws InterruptedException {
     // Refuse a misconfigured cap before any request is spent, not only once a simulation succeeds.
     SimulationFutures.requireNonNegativeFeeCap(maxLamportPriorityFee);
+    // The last attempt this call sent, for a refusal after a rebuild: with verifyExpired
+    // false its null verdict was the first missing status, so it may still land and the
+    // refusal reports it; with true it was verified expired, and nothing of the call can land.
+    String previousSig = null;
+    long previousHeight = 0;
     for (int retries = 0; ; ) {
+      // A stopped monitor does not restart, and would refuse the send's queue only after the
+      // send: asked here, before each attempt, it refuses the call with nothing more sent, so
+      // that a caller's retry cannot add a transaction nobody will watch.
+      if (txMonitorService.stopped()) {
+        throw previousSig != null && !verifyExpired
+            ? TxMonitorStoppedException.refusedAfter(previousSig, previousHeight)
+            : new TxMonitorStoppedException();
+      }
       final var simulationFutures = transactionProcessor.simulateAndEstimate(Settlement.COMMITMENT, instructions);
       final int base64Length = simulationFutures.base64Length();
       if (simulationFutures.exceedsSizeLimit()) {
@@ -213,15 +228,26 @@ public class BaseInstructionService implements InstructionService {
         error = txResult.error();
         reached = Settlement.awaiting(awaitCommitment);
       } else {
-        final var sigStatus = txMonitorService.queueResult(
-            awaitCommitment,
-            awaitCommitmentOnError,
-            sig,
-            sendContext,
-            verifyExpired,
-            retrySend,
-            ledger
-        ).join();
+        final TxStatus sigStatus;
+        try {
+          sigStatus = txMonitorService.queueResult(
+              awaitCommitment,
+              awaitCommitmentOnError,
+              sig,
+              sendContext,
+              verifyExpired,
+              retrySend,
+              ledger
+          ).join();
+        } catch (final CompletionException completion) {
+          // A monitor that stopped fails the future with the typed exception, thrown here as
+          // itself so that a caller catches it by type and a batch wraps it once. No rebuild:
+          // the transaction may still land.
+          if (completion.getCause() instanceof TxMonitorStoppedException stopped) {
+            throw stopped;
+          }
+          throw completion;
+        }
         if (sigStatus == null) {
           // A rebuild re-simulates, re-prices and takes a new block hash; a refusal tied to the
           // key, the provider or its rate would answer it the same way, one block hash window
@@ -230,6 +256,8 @@ public class BaseInstructionService implements InstructionService {
           if (!reading.accepted()) {
             throw SendNotAcceptedException.of(reading, sig, formattedSig, verifyExpired);
           }
+          previousSig = sig;
+          previousHeight = sendContext.blockHeight();
           if (++retries >= maxRetriesAfterExpired) {
             return TransactionResult.createResult(
                 instructions,

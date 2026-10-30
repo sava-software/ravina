@@ -80,14 +80,20 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
   void addTxContext(final TxContext txContext) {
     final var pending = pendingTransactions.putIfAbsent(txContext, txContext);
     if (pending == null) {
+      admitted(txContext);
       return;
     }
+    // A pending entry that stays was installed by an earlier call, whose own admission check
+    // or the stop's drain answers it once the monitor has stopped, and a forward follows.
     if (pending.atLeastAsStrictAs(txContext)) {
       forward(pending, txContext);
       return;
     }
     final var successor = txContext.atLeastAsStrictAs(pending) ? txContext : pending.joinedWith(txContext);
     if (takeOver(pending, successor)) {
+      // The replace is an install too: a drain that read the pending entry before the swap
+      // could not remove it, so the successor answers for itself here.
+      admitted(successor);
       forward(successor, pending);
       if (successor != txContext) {
         forward(successor, txContext);
@@ -96,6 +102,7 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
       // The pending entry settled and left between the two calls, so its waiter is answered;
       // this thread is the only one that adds here, so the key is free now.
       pendingTransactions.put(txContext, txContext);
+      admitted(txContext);
     }
   }
 
@@ -143,7 +150,7 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
           final boolean searchTransactionHistory = earliestGate != null
               && earliestGate.compareTo(confirmedBlockHeight) <= 0;
           return rpcClient.getSigStatusList(signatures, searchTransactionHistory)
-              .thenApply(sigStatusList -> new ExpirationPoll(confirmedBlockHeight, sigStatusList));
+              .thenApply(sigStatusList -> new ExpirationPoll(confirmedBlockHeight, statusesFor(signatures, sigStatusList)));
         }),
         2, // two requests served by the one client
         "rpcClient::getBlockHeightAndSigStatusList"

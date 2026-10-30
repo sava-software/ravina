@@ -259,10 +259,23 @@ public interface InstructionService {
   ///
   /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
   /// arrives with `verifyExpired` true only while the settled block height
-  /// advances (a cluster halt holds the expiration gate shut), the status and
-  /// block height reads succeed, and both monitor loops are alive; with `false`
-  /// it needs only a status read that succeeds and a live commitment monitor
-  /// loop. Until then the call waits.
+  /// advances (a cluster halt holds the expiration gate shut) and the status
+  /// and block height reads succeed, since a read that fails is retried and
+  /// failed over for as long as it takes; with `false` it needs only a status
+  /// read that succeeds. Until then the call waits, on the monitor loops. A
+  /// monitor loop that stops, on an interrupt, after
+  /// `BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES` passes that failed in
+  /// a row, or on a `VirtualMachineError`, ends the call with
+  /// `TxMonitorStoppedException` instead, thrown as itself; it does not
+  /// restart. A call that finds the monitor stopped before an attempt is
+  /// refused with nothing more sent; the exception's `sent()` then says
+  /// whether an earlier attempt of the call may still land, which is so only
+  /// with `verifyExpired` false, after a missing status, and `sig()` and
+  /// `lastValidBlockHeight()` name that attempt. Like a transaction the loop
+  /// stopped under, it may still land until the settled height passes
+  /// `lastValidBlockHeight()`, so a caller must not rebuild or retry when
+  /// `sent()` is true, and a catch of `RuntimeException` that retries must
+  /// exclude the exception.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,

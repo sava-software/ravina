@@ -41,6 +41,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -377,6 +378,23 @@ final class BaseInstructionServiceTests {
     IntFunction<CompletableFuture<String>> sendScript;
     /// When set, records the monitor's resends of each queued attempt in its ledger.
     ResendScript resendScript;
+    /// When set, the monitor reports itself stopped, and every queue is answered with the
+    /// stop, as a monitor whose loop has ended does.
+    boolean stopped;
+    /// When set, the monitor stops at the first queue: it reports itself running until then,
+    /// so the send goes out, and that queue is answered with the stop.
+    boolean stopsAtQueue;
+    /// When positive, the monitor reports itself stopped once this many queues have been
+    /// answered, each of them normally: a stop that lands between a verdict and the rebuild.
+    int stopsAfterQueues;
+    /// When set, every queued future fails with it: a failure the monitor forwarded from
+    /// another waiter's future, rather than its own stop.
+    Throwable queueFailure;
+
+    @Override
+    public boolean stopped() {
+      return stopped;
+    }
 
     int queueResultCalls;
     int webSocketCalls;
@@ -418,6 +436,16 @@ final class BaseInstructionServiceTests {
       queuedLedgers.add(ledger);
       if (resendScript != null) {
         resendScript.resend(webSocketCalls - 1, ledger);
+      }
+      if (stopped || stopsAtQueue) {
+        stopped = true;
+        return CompletableFuture.failedFuture(new TxMonitorStoppedException(sig, sendTxContext.blockHeight(), null));
+      }
+      if (queueFailure != null) {
+        return CompletableFuture.failedFuture(queueFailure);
+      }
+      if (stopsAfterQueues > 0 && queueResultCalls >= stopsAfterQueues) {
+        stopped = true;
       }
       return CompletableFuture.completedFuture(
           queueResultCalls <= expiredResponses ? null : queuedStatus
@@ -1084,6 +1112,103 @@ final class BaseInstructionServiceTests {
     assertEquals(1, thrown.attempted());
     assertEquals(monitor.sigs.getFirst(), thrown.sig());
     assertTrue(thrown.getMessage().contains(processor.formatter.formatSig(thrown.sig())), thrown.getMessage());
+  }
+
+  /// A monitor that stops with the sent transaction pending fails the queued future; the call
+  /// throws that failure as itself, not wrapped in the join's `CompletionException`, saying the
+  /// transaction was sent, and does not rebuild, since it may still land.
+  @Test
+  void aMonitorThatStopsUnderTheSendEndsTheCallAsItselfWithoutARebuild() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.stopsAtQueue = true;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertEquals(1, processor.simulatedBatches.size(), "a transaction that may still land is not rebuilt");
+    assertEquals(1, monitor.queueResultCalls);
+    assertTrue(thrown.sent());
+    assertEquals(monitor.sigs.getFirst(), thrown.sig());
+    assertEquals(processor.sentBlockHeights.getFirst(), thrown.lastValidBlockHeight());
+  }
+
+  /// A stop that lands between an attempt's verdict and its rebuild is refused before the
+  /// rebuild, and what the refusal reports depends on the verdict: with `verifyExpired` false
+  /// the attempt's status was only missing, so it may still land and the refusal names it;
+  /// with `verifyExpired` true it was verified expired, so nothing of the call can land.
+  @Test
+  void aStopBeforeTheRebuildReportsTheAttemptThatMayStillLand() {
+    for (final boolean verifyExpired : new boolean[]{false, true}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      monitor.expiredResponses = 1;
+      monitor.stopsAfterQueues = 1;
+      final var service = service(processor, monitor);
+
+      final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, 3, LOG_CONTEXT
+      ));
+
+      assertEquals(1, processor.simulatedBatches.size(), "the rebuild is refused before it simulates");
+      assertEquals(1, monitor.queueResultCalls);
+      assertNull(thrown.getCause());
+      if (verifyExpired) {
+        assertFalse(thrown.sent(), "a verified expiry leaves nothing that can land");
+        assertNull(thrown.sig());
+      } else {
+        assertTrue(thrown.sent(), "an attempt whose status was only missing may still land");
+        assertEquals(monitor.sigs.getFirst(), thrown.sig());
+        assertEquals(processor.sentBlockHeights.getFirst(), thrown.lastValidBlockHeight());
+        assertEquals(
+            TxMonitorStoppedException.refusedAfter(thrown.sig(), thrown.lastValidBlockHeight()).getMessage(),
+            thrown.getMessage()
+        );
+      }
+    }
+  }
+
+  /// Only the monitor's own stop is unwrapped: a queued future that fails for another reason,
+  /// such as a failure forwarded from another waiter's, is thrown as the join's `CompletionException`.
+  @Test
+  void aQueuedFutureThatFailsForAnotherReasonIsThrownWrapped() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var failure = new IllegalStateException("forwarded from another waiter");
+    monitor.queueFailure = failure;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(CompletionException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(1, processor.simulatedBatches.size(), "a failure the monitor forwarded is not rebuilt");
+  }
+
+  /// A monitor found stopped before the first attempt refuses the call with nothing sent,
+  /// whatever `verifyExpired` says: no simulation, no send, nothing a retry could duplicate.
+  @Test
+  void aMonitorFoundStoppedBeforeTheSendRefusesTheCallWithNothingSent() {
+    for (final boolean verifyExpired : new boolean[]{true, false}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      monitor.stopped = true;
+      final var service = service(processor, monitor);
+
+      final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, Integer.MAX_VALUE, LOG_CONTEXT
+      ));
+
+      assertFalse(thrown.sent());
+      assertNull(thrown.sig());
+      assertEquals(new TxMonitorStoppedException().getMessage(), thrown.getMessage());
+      assertTrue(processor.simulatedBatches.isEmpty(), "nothing is simulated for a monitor that will not watch it");
+      assertEquals(0, monitor.webSocketCalls, "nothing is sent");
+      assertEquals(0, monitor.queueResultCalls);
+    }
   }
 
   /// The check comes before the rebuild budget is spent, so a budget of 0 or 1, which returned

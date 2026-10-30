@@ -17,6 +17,21 @@ import java.util.concurrent.TimeUnit;
 
 public interface TxMonitorService extends Worker {
 
+  /// Whether the monitor has stopped: a loop of its ended, on an interrupt, after a bounded
+  /// run of passes that failed in a row, or on a `VirtualMachineError`, and it does not
+  /// restart. A caller asks this before it sends and refuses new work with nothing sent, as
+  /// `InstructionService.processInstructions` does, whatever the attempt would have needed:
+  /// a monitor with a stopped loop is not trusted with new work. The shipped service runs two
+  /// loops, commitment and expiration, and reports either's stop. A stopped loop failed every
+  /// future it held with [TxMonitorStoppedException] and refuses every later queue or hand-off
+  /// with the same, while the other loop goes on settling what it holds: with the expiration
+  /// loop stopped, a signature the commitment loop still polls settles on a landing, and fails
+  /// at the hand-off its expiry would make. An implementation whose loop cannot stop may
+  /// leave this default.
+  default boolean stopped() {
+    return false;
+  }
+
   /// If you do not intend to use the retry functionality transactionPublisher may be null.
   static TxMonitorService createService(final ChainItemFormatter formatter,
                                         final RpcCaller rpcCaller,
@@ -127,8 +142,18 @@ public interface TxMonitorService extends Worker {
   /// signature queued twice, each caller's ledger holds only its own sends, and
   /// resends go to the pending context's, so one caller may find a send
   /// accepted where another finds none. The future's contract is unchanged by
-  /// the ledger: `null` still means judged not landed, and the future never
-  /// completes exceptionally for a send that was not accepted.
+  /// the ledger: `null` still means judged not landed, and a send that was not
+  /// accepted never fails the future.
+  ///
+  /// The future fails, with [TxMonitorStoppedException], only when the
+  /// monitor's loop has stopped while the signature was pending, or had
+  /// stopped before the queue: on an interrupt, which is how the monitor is
+  /// shut down, after a bounded run of passes that failed in a row, a pass
+  /// that fails once being retried after its floor, or on a
+  /// `VirtualMachineError`. A stopped monitor does not restart, and
+  /// [#stopped()] reports it, so that a caller can refuse new work before it
+  /// sends. The transaction may still land, so a caller must not rebuild on
+  /// it; `InstructionService.processInstructions` throws it as itself.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,

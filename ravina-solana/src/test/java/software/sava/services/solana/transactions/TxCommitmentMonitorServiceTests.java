@@ -9,6 +9,7 @@ import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.JsonRpcException;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxResult;
+import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
@@ -37,6 +38,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
@@ -1578,6 +1580,89 @@ final class TxCommitmentMonitorServiceTests {
 
     assertThrows(NullPointerException.class,
         () -> service.queueResult(FINALIZED, FINALIZED, "sig", sendTxContext, true, true, null));
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  // --------------------------------------------------- a malformed status read --
+
+  /// A node that answers another number of statuses than signatures asked is answering some
+  /// other question: the read fails inside its future, so the `Call` wrapper retries it, and
+  /// the pass settles on the answer that fits. Thrown from the pass instead, the mismatch
+  /// would count against the monitor, not the node.
+  @Test
+  void aStatusReadAnsweredWithAnotherCountIsRetried() {
+    final var settled = status(FINALIZED);
+    for (final var malformed : List.<List<TxStatus>>of(List.of(), List.of(settled, settled))) {
+      final var service = service();
+      final var future = service.queueResult(
+          FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, false, new SendLedger("sig")
+      );
+      final var reads = new AtomicInteger();
+      rpcClient.sigStatuses = _ -> reads.getAndIncrement() == 0 ? malformed : List.of(settled);
+
+      service.processTransactions(contextMap(service.pendingTransactions.firstEntry().getValue()));
+
+      assertEquals(2, reads.get(), malformed.size() + " statuses for one signature: the read must be retried");
+      assertSame(settled, future.join());
+      assertTrue(service.pendingTransactions.isEmpty());
+    }
+  }
+
+  // ------------------------------------------------------ a stopped monitor --
+
+  /// The service reports either loop's stop, so that a caller refuses new work before it
+  /// sends: a stopped expiration stage can confirm a landing but never verify an expiry.
+  @Test
+  void theServiceReportsEitherLoopsStop() {
+    final var commitmentStopped = service();
+    assertFalse(commitmentStopped.stopped());
+    commitmentStopped.stop(null);
+    assertTrue(commitmentStopped.stopped());
+
+    final var expirationStopped = service();
+    expirationStopped.expirationMonitorService.stop(new IllegalStateException("every pass failed"));
+    assertTrue(expirationStopped.stopped());
+  }
+
+  /// Once the monitor has stopped, a queue is answered at once with the stop, never left to
+  /// wait on a loop that no longer polls, and nothing is kept pending.
+  @Test
+  void aQueueAfterTheStopIsRefused() {
+    final var service = service();
+    final var cause = new IllegalStateException("every pass failed");
+    service.stop(cause);
+
+    final var future = service.queueResult(
+        FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true, new SendLedger("sig")
+    );
+
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, future.exceptionNow());
+    assertSame(cause, thrown.getCause());
+    assertEquals("sig", thrown.sig());
+    assertTrue(service.pendingTransactions.isEmpty());
+    assertFalse(service.wakeRequested(), "a refused context, however old its publish, asks for no pass");
+  }
+
+  /// The stop fails every pending future, each naming its own signature, and a second caller
+  /// that shared a pending future is answered through it.
+  @Test
+  void theStopFailsEveryPendingFuture() {
+    final var service = service();
+    final var first = service.queueResult(
+        FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true, new SendLedger("sig")
+    );
+    final var shared = service.queueResult(
+        FINALIZED, FINALIZED, "sig", sendTxContext(HORIZON + 10, PUBLISHED_LONG_AGO), true, true, new SendLedger("sig")
+    );
+    final var other = service.queueResult(
+        FINALIZED, FINALIZED, "other-sig", sendTxContext(HORIZON + 11, PUBLISHED_LONG_AGO), true, true, new SendLedger("other-sig")
+    );
+    assertSame(first, shared);
+
+    service.stop(null);
+
+    assertEquals("sig", assertInstanceOf(TxMonitorStoppedException.class, first.exceptionNow()).sig());
+    assertEquals("other-sig", assertInstanceOf(TxMonitorStoppedException.class, other.exceptionNow()).sig());
     assertTrue(service.pendingTransactions.isEmpty());
   }
 

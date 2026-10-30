@@ -11,6 +11,7 @@ import java.util.OptionalInt;
 import java.util.function.Consumer;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
@@ -261,6 +262,100 @@ final class TxExpirationMonitorServiceTests {
 
     assertEquals(List.of(stricter), List.copyOf(service.pendingTransactions.values()));
     assertFalse(stricter.sigStatusFuture().isDone(), "a PROCESSED outcome must not have been forwarded to it");
+  }
+
+  // --------------------------------------------------- a malformed status read --
+
+  /// As in the commitment monitor: a count that does not fit fails the read inside its
+  /// future, the `Call` wrapper retries it, and the pass settles on the answer that fits.
+  @Test
+  void aStatusReadAnsweredWithAnotherCountIsRetried() {
+    for (final var malformed : List.<List<TxStatus>>of(List.of(), List.of(NIL_STATUS, NIL_STATUS))) {
+      final var rpcClient = new FakeRpcClient();
+      rpcClient.blockHeight = GATE;
+      final var service = service(rpcClient);
+      final var vanished = txContext("vanished", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+      service.addTxContext(vanished);
+      final var reads = new AtomicInteger();
+      rpcClient.sigStatuses = _ -> reads.getAndIncrement() == 0 ? malformed : List.of(NIL_STATUS);
+
+      service.processTransactions(contextMap(vanished));
+
+      assertEquals(2, reads.get(), malformed.size() + " statuses for one signature: the read must be retried");
+      assertTrue(vanished.sigStatusFuture().isDone());
+      assertNull(vanished.sigStatusFuture().join(), "the retried read's nil behind the gate is the expiry verdict");
+      assertTrue(service.pendingTransactions.isEmpty());
+    }
+  }
+
+  // ------------------------------------------------------ a stopped monitor --
+
+  /// A hand-off to a monitor that has stopped is answered at once, never queued on a loop
+  /// that no longer polls: the commitment thread's add fails the future instead.
+  @Test
+  void aHandOffAfterTheStopIsRefused() {
+    final var service = service(new FakeRpcClient());
+    final var cause = new IllegalStateException("every pass failed");
+    service.stop(cause);
+    final var context = txContext("sig", EXPIRED_HEIGHT, CONFIRMED, CONFIRMED);
+
+    service.addTxContext(context);
+
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, context.sigStatusFuture().exceptionNow());
+    assertSame(cause, thrown.getCause());
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  /// A follower of an entry the stop failed fails with it.
+  @Test
+  void aFollowerOfAStoppedEntryFailsWithIt() {
+    final var service = service(new FakeRpcClient());
+    final var stricter = txContext("sig", EXPIRED_HEIGHT, CONFIRMED, CONFIRMED);
+    service.addTxContext(stricter);
+    service.stop(null);
+    final var weaker = txContext("sig", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+
+    service.addTxContext(weaker);
+
+    assertInstanceOf(TxMonitorStoppedException.class, weaker.sigStatusFuture().exceptionNow());
+  }
+
+  /// The replace that installs a stricter newcomer is an install too. Wedged between the
+  /// stop's flag and its drain, it succeeds where the drain's remove then cannot, so the
+  /// newcomer answers for itself: it, the entry it took over and its own future all fail.
+  @Test
+  void aTakeOverBetweenTheStopsFlagAndItsDrainStillAnswersEveryone() {
+    final var holder = new TxExpirationMonitorService[1];
+    final var service = serviceWithWedgedTakeOver(new FakeRpcClient(), _ -> holder[0].stopping(null));
+    holder[0] = service;
+    final var weaker = txContext("sig", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+    service.addTxContext(weaker);
+    final var stricter = txContext("sig", EXPIRED_HEIGHT, CONFIRMED, CONFIRMED);
+
+    service.addTxContext(stricter);
+
+    assertInstanceOf(TxMonitorStoppedException.class, stricter.sigStatusFuture().exceptionNow());
+    assertInstanceOf(TxMonitorStoppedException.class, weaker.sigStatusFuture().exceptionNow());
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  /// A stop that drains the pending entry before the swap leaves the newcomer to the
+  /// else-branch put, which is an install the stop's drain has already passed: the newcomer
+  /// answers for itself there too.
+  @Test
+  void aStopBeforeTheSwapStillAnswersTheNewcomer() {
+    final var holder = new TxExpirationMonitorService[1];
+    final var service = serviceWithWedgedTakeOver(new FakeRpcClient(), _ -> holder[0].stop(null));
+    holder[0] = service;
+    final var weaker = txContext("sig", EXPIRED_HEIGHT, PROCESSED, PROCESSED);
+    service.addTxContext(weaker);
+    final var stricter = txContext("sig", EXPIRED_HEIGHT, CONFIRMED, CONFIRMED);
+
+    service.addTxContext(stricter);
+
+    assertInstanceOf(TxMonitorStoppedException.class, stricter.sigStatusFuture().exceptionNow());
+    assertInstanceOf(TxMonitorStoppedException.class, weaker.sigStatusFuture().exceptionNow());
+    assertTrue(service.pendingTransactions.isEmpty());
   }
 
   /// The expiration thread settles by key and value: settling a weaker entry

@@ -24,6 +24,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigInteger;
 import java.net.URI;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -33,6 +34,8 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.SequencedCollection;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
@@ -41,6 +44,7 @@ import java.util.function.Function;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.rpc.json.http.client.SolanaRpcClient.MAX_SIG_STATUS;
+import static software.sava.services.solana.transactions.BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES;
 import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
@@ -57,11 +61,13 @@ import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 ///    [RpcCaller] whose token bucket is generous enough never to wait. No
 ///    socket is opened.
 ///  * `run()` is an infinite loop, so [RecordingMonitor] ends it by throwing
-///    from `processTransactions` once it has seen the requested number of
-///    batches. `run()` catches [RuntimeException] and returns, so the loop can
-///    be driven synchronously on the test thread with no threads, sleeps or
-///    timing tolerances. Pairing that with a zero minimum polling interval
-///    makes every `Condition.await` return immediately.
+///    [InterruptedException], the shutdown signal, from `processTransactions`
+///    once it has seen the requested number of batches; `run()` catches it and
+///    returns, so the loop can be driven synchronously on the test thread with
+///    no threads, sleeps or timing tolerances. Anything else a pass throws is
+///    ridden out, up to `MAX_CONSECUTIVE_FAILED_PASSES` in a row. Pairing that
+///    with a minimal polling interval makes every `Condition.await` return at
+///    once.
 final class BaseTxMonitorServiceTests {
 
   /// The monitor sleeps for at least this long between signature status polls,
@@ -82,10 +88,15 @@ final class BaseTxMonitorServiceTests {
     int defaultMillisPerSlot = DEFAULT_MILLIS_PER_SLOT;
     Epoch epoch = epoch(slotStats(MEDIAN_MILLIS_PER_SLOT, ESTIMATED_STD_DEV));
     int awaitInitializedCalls;
+    /// When set, the wait for epoch info throws it, as a closed epoch service would.
+    RuntimeException awaitFailure;
 
     @Override
     public Epoch awaitInitialized() {
       ++awaitInitializedCalls;
+      if (awaitFailure != null) {
+        throw awaitFailure;
+      }
       return epoch;
     }
 
@@ -137,6 +148,15 @@ final class BaseTxMonitorServiceTests {
     Function<List<String>, List<TxStatus>> sigStatuses = signatures -> {
       throw new IllegalStateException("unexpected getSigStatusList for " + signatures);
     };
+    /// A read that fails inside its future is retried for good by the courteous call, so a
+    /// mutant that fails every read would hang every polling test; past this many reads of
+    /// either kind the fake throws synchronously, which escapes the retry and fails the test
+    /// instead. Both kinds are bounded because the expiration monitor reads statuses inside
+    /// the block height read's `thenCompose`, where a synchronous throw is only a failed
+    /// future, while the block height read itself is called outside any callback. No test
+    /// reads more than a few hundred times; a retry-forever mutant gets here in about a
+    /// second at the balanced item's 1 ms backoff.
+    int maxReads = 1_000;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -144,12 +164,21 @@ final class BaseTxMonitorServiceTests {
       final var name = method.getName();
       switch (name) {
         case "getBlockHeight" -> {
-          ++blockHeightCalls;
+          if (++blockHeightCalls > maxReads) {
+            throw new IllegalStateException(
+                "more than " + maxReads + " block height reads: a read that keeps failing is being retried for good"
+            );
+          }
           return CompletableFuture.completedFuture(new BlockHeight(blockHeight));
         }
         case "getSigStatusList" -> {
           final var signatures = List.copyOf((SequencedCollection<String>) args[0]);
           sigStatusRequests.add(signatures);
+          if (sigStatusRequests.size() > maxReads) {
+            throw new IllegalStateException(
+                "more than " + maxReads + " status reads: a read that keeps failing is being retried for good"
+            );
+          }
           searchTransactionHistoryFlags.add(args.length > 1 && (Boolean) args[1]);
           return CompletableFuture.completedFuture(sigStatuses.apply(signatures));
         }
@@ -221,15 +250,18 @@ final class BaseTxMonitorServiceTests {
     return new RpcCaller(null, balancer, null);
   }
 
-  /// Ends the otherwise infinite polling loop by throwing once the requested
-  /// number of batches has been seen; `run()` catches [RuntimeException] and
-  /// returns, so the whole loop runs on the calling thread.
+  /// Ends the otherwise infinite polling loop by throwing [InterruptedException]
+  /// once the requested number of batches has been seen; `run()` catches it
+  /// and returns, so the whole loop runs on the calling thread.
   static final class RecordingMonitor extends BaseTxMonitorService {
 
-    static final class StopLoop extends RuntimeException {
+    /// The recording monitor's stop: an `InterruptedException` out of the pass, the shutdown
+    /// signal, which is the one throw that ends the loop at once. A `RuntimeException` out of
+    /// a pass is ridden out; see the tests under "a pass that fails".
+    static final class StopLoop extends InterruptedException {
 
       StopLoop() {
-        super("stop", null, false, false);
+        super("stop");
       }
     }
 
@@ -250,7 +282,7 @@ final class BaseTxMonitorServiceTests {
     }
 
     @Override
-    protected void processTransactions(final Map<String, TxContext> batch) {
+    protected void processTransactions(final Map<String, TxContext> batch) throws InterruptedException {
       batches.add(Map.copyOf(batch));
       afterBatch.accept(batch);
       if (batches.size() >= stopAfterBatches) {
@@ -341,9 +373,15 @@ final class BaseTxMonitorServiceTests {
       final var context = txContext("sig-" + i, 1_000 + i, FINALIZED, PROCESSED);
       assertNull(service.pendingTransactions.put(context, context));
     }
+    // Observed during the pass: the loop's end drains the queue, so what batching left of it
+    // is visible only before the stop.
+    final var pendingDuringThePass = new AtomicInteger();
+    service.afterBatch = _ -> pendingDuringThePass.set(service.pendingTransactions.size());
 
     service.run();
 
+    assertEquals(MAX_SIG_STATUS + overflow, pendingDuringThePass.get(), "batching must not drain the queue");
+    assertTrue(service.pendingTransactions.isEmpty(), "the stop drains it");
     assertEquals(1, epochInfoService.awaitInitializedCalls, "the loop must wait for epoch info exactly once");
     assertEquals(1, service.batches.size());
     final var batch = service.batches.getFirst();
@@ -356,7 +394,6 @@ final class BaseTxMonitorServiceTests {
     for (int i = MAX_SIG_STATUS; i < MAX_SIG_STATUS + overflow; ++i) {
       assertFalse(batch.containsKey("sig-" + i), "sig-" + i + " should have been left for the next pass");
     }
-    assertEquals(MAX_SIG_STATUS + overflow, service.pendingTransactions.size(), "batching must not drain the queue");
   }
 
   @Test
@@ -411,12 +448,376 @@ final class BaseTxMonitorServiceTests {
     assertFalse(service.workLock.isLocked(), "the polling loop must not leak a hold on the work lock");
   }
 
+  // ------------------------------------------------------ a pass that fails --
+
+  /// A pass that throws settles nothing and ends nothing: the next pass polls the same
+  /// contexts, and the future a failed pass left pending is still open when the loop goes on.
+  @Test
+  void aPassThatThrowsDoesNotEndTheLoop() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = 2;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    final var openAtTheNextPass = new AtomicBoolean();
+    service.afterBatch = _ -> {
+      if (service.batches.size() == 1) {
+        throw new IllegalStateException("one bad pass");
+      }
+      openAtTheNextPass.set(!pending.sigStatusFuture().isDone());
+    };
+
+    service.run();
+
+    assertEquals(2, service.batches.size(), "the pass after a failed one must run");
+    assertTrue(openAtTheNextPass.get(), "a failed pass must not settle what it was polling");
+    assertFalse(service.workLock.isLocked());
+  }
+
+  /// An `Error` short of the JVM's own, and a checked exception a collaborator written
+  /// without them throws past a signature that does not declare it, are failed passes like
+  /// any other.
+  @Test
+  void anErrorOrACheckedExceptionOutOfAPassIsAFailedPass() {
+    for (final Throwable failure : List.of(new AssertionError("one bad pass"), new IOException("one bad pass"))) {
+      final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+      service.stopAfterBatches = 2;
+      final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+      service.pendingTransactions.put(pending, pending);
+      service.afterBatch = _ -> {
+        if (service.batches.size() == 1) {
+          throwUnchecked(failure);
+        }
+      };
+
+      service.run();
+
+      assertEquals(2, service.batches.size(), failure.getClass().getSimpleName());
+    }
+  }
+
+  /// A checked exception that keeps failing passes stops the monitor with it as the cause,
+  /// not as an interrupt with none.
+  @Test
+  void aCheckedExceptionThatKeepsFailingIsTheStopsCause() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = MAX_CONSECUTIVE_FAILED_PASSES + 1;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    final var failure = new IOException("every pass");
+    service.afterBatch = _ -> {
+      if (service.batches.size() <= MAX_CONSECUTIVE_FAILED_PASSES) {
+        throwUnchecked(failure);
+      }
+    };
+
+    service.run();
+
+    assertEquals(MAX_CONSECUTIVE_FAILED_PASSES, service.batches.size());
+    assertSame(failure, assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow()).getCause());
+  }
+
+  /// A wrapped interrupt is the shutdown, not a failure: it is neither counted toward the
+  /// bound nor reported as the stop's cause, however many failures came before it.
+  @Test
+  void aWrappedInterruptIsNotCountedTowardTheBound() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = MAX_CONSECUTIVE_FAILED_PASSES + 1;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    // The wrapped interrupt is thrown on one pass only, so that the loop keeps an exit of its
+    // own: a loop that lost the flag runs into the recording monitor's stop a pass later, and
+    // the count tells.
+    service.afterBatch = _ -> {
+      if (service.batches.size() < MAX_CONSECUTIVE_FAILED_PASSES) {
+        throw new IllegalStateException("a failure before the shutdown");
+      }
+      if (service.batches.size() == MAX_CONSECUTIVE_FAILED_PASSES) {
+        throw new RuntimeException("wrapped", new InterruptedException("shutdown"));
+      }
+    };
+
+    try {
+      service.run();
+    } finally {
+      assertFalse(Thread.interrupted());
+    }
+
+    assertEquals(MAX_CONSECUTIVE_FAILED_PASSES, service.batches.size(), "the interrupt ends the loop at the wait after it");
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    assertNull(thrown.getCause(), "an interrupt is not a failure, so the stop has no cause");
+    assertEquals(10, thrown.lastValidBlockHeight());
+  }
+
+  /// Throws `failure` as it is, declared or not: what a collaborator written in a language
+  /// without checked exceptions does. The cast is erased, so nothing is wrapped.
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> void throwUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
+  }
+
+  /// Passes that keep failing end the loop, and the loop's end fails what was pending with
+  /// the last failure as the cause: a failure every pass repeats would otherwise spin for good
+  /// with every caller waiting on it. The bound is counted, never timed: the recording
+  /// monitor's own stop sits one pass past it, so a loop that ignored the bound would record
+  /// one pass more and still end.
+  @Test
+  void passesThatKeepFailingEndTheLoopAndFailThePendingFutures() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = MAX_CONSECUTIVE_FAILED_PASSES + 1;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    final var failure = new IllegalStateException("every pass");
+    service.afterBatch = _ -> {
+      if (service.batches.size() <= MAX_CONSECUTIVE_FAILED_PASSES) {
+        throw failure;
+      }
+    };
+
+    service.run();
+
+    assertEquals(MAX_CONSECUTIVE_FAILED_PASSES, service.batches.size(), "the pass after the bound must not run");
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    assertSame(failure, thrown.getCause());
+    assertEquals("sig", thrown.sig());
+    assertTrue(service.pendingTransactions.isEmpty(), "a stopped monitor keeps nothing pending");
+    assertFalse(service.workLock.isLocked());
+  }
+
+  /// The bound is exact: one failure short of it, the loop goes on.
+  @Test
+  void onePassShortOfTheBoundGoesOn() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = MAX_CONSECUTIVE_FAILED_PASSES + 1;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    service.afterBatch = _ -> {
+      if (service.batches.size() < MAX_CONSECUTIVE_FAILED_PASSES) {
+        throw new IllegalStateException("one short");
+      }
+    };
+
+    service.run();
+
+    assertEquals(MAX_CONSECUTIVE_FAILED_PASSES + 1, service.batches.size());
+  }
+
+  /// Failures count in a row: a pass that succeeds forgives the ones before it, so
+  /// intermittent failures never add up to the bound.
+  @Test
+  void aPassThatSucceedsResetsTheFailureCount() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    final int passes = 2 * MAX_CONSECUTIVE_FAILED_PASSES + 1;
+    service.stopAfterBatches = passes;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    service.afterBatch = _ -> {
+      // Every odd pass but the last fails: as many failures as the bound, never two in a row.
+      final int pass = service.batches.size();
+      if (pass % 2 == 1 && pass < passes) {
+        throw new IllegalStateException("intermittent");
+      }
+    };
+
+    service.run();
+
+    assertEquals(passes, service.batches.size());
+  }
+
+  /// The interrupt is the shutdown: the loop ends at once, and fails what was pending with no
+  /// cause, since nothing failed.
+  @Test
+  void anInterruptEndsTheLoopAndFailsThePendingFutures() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+
+    service.run();
+
+    assertEquals(1, service.batches.size());
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    assertNull(thrown.getCause());
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  /// ravina's `Call` wrappers rethrow an interrupt as a `RuntimeException` with it as the
+  /// cause, and a collaborator's wrapper may add one level; a pass that fails either way is
+  /// the shutdown too, not a hiccup to ride out, and the thread's flag is set again for the
+  /// wait to see.
+  @Test
+  void aPassFailureCausedByAnInterruptEndsTheLoop() {
+    for (final var failure : List.of(
+        new RuntimeException("wrapped once", new InterruptedException("mid-call")),
+        new RuntimeException("wrapped twice", new RuntimeException(new InterruptedException("mid-call")))
+    )) {
+      final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+      service.stopAfterBatches = 2;
+      final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+      service.pendingTransactions.put(pending, pending);
+      // Thrown on the first pass only, so that a loop that lost the flag ends through the
+      // recording monitor's stop a pass later and the count tells.
+      service.afterBatch = _ -> {
+        if (service.batches.size() == 1) {
+          throw failure;
+        }
+      };
+
+      try {
+        service.run();
+      } finally {
+        assertFalse(Thread.interrupted(), "the wait that saw the interrupt clears the flag");
+      }
+
+      assertEquals(1, service.batches.size(), failure.getMessage() + ": the loop must end at the wait after the pass");
+      assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    }
+  }
+
+  /// The two levels are the contract: an interrupt wrapped deeper is a failed pass like any
+  /// other, and a cause chain that cycles, which `initCause` permits, is one the loop never
+  /// walks into.
+  @Test
+  void aDeeperOrCyclicCauseChainIsAFailedPassNotTheShutdown() {
+    final var cycleA = new RuntimeException("a");
+    final var cycleB = new RuntimeException("b", cycleA);
+    cycleA.initCause(cycleB);
+    for (final var failure : List.of(
+        new RuntimeException("wrapped thrice", new RuntimeException(new RuntimeException(new InterruptedException("deep")))),
+        cycleB
+    )) {
+      final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+      service.stopAfterBatches = 2;
+      final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+      service.pendingTransactions.put(pending, pending);
+      service.afterBatch = _ -> {
+        if (service.batches.size() == 1) {
+          throw failure;
+        }
+      };
+
+      service.run();
+
+      assertEquals(2, service.batches.size(), failure.getMessage() + ": the loop must go on to the next pass");
+    }
+  }
+
+  /// A wake that lands while a failed pass's floor is being waited does not cut it short
+  /// either: the loop parks again for the rest of the floor. The floor is a day, and the
+  /// signalled loop either parks again or, were the floor cut, runs the second pass and ends
+  /// through the stop; the spin ends on either state, never on time.
+  @Test
+  void aWakeDuringAFailedPassesFloorDoesNotCutItShort() throws InterruptedException {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ofDays(1));
+    service.stopAfterBatches = 2;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    service.afterBatch = _ -> {
+      if (service.batches.size() == 1) {
+        throw new IllegalStateException("one bad pass");
+      }
+    };
+
+    final var loop = new Thread(service::run, "monitor-loop");
+    loop.start();
+    try {
+      while (!parkedOnFloor(service) && loop.isAlive()) {
+        Thread.onSpinWait();
+      }
+      assertTrue(parkedOnFloor(service), "the failed pass must park on its floor first");
+      service.notifyWorker();
+      while (!parkedOnFloor(service) && loop.isAlive()) {
+        Thread.onSpinWait();
+      }
+      assertTrue(parkedOnFloor(service), "a signal must not cut a failed pass's floor short");
+      assertEquals(1, service.batches.size());
+    } finally {
+      loop.interrupt();
+      loop.join(2_000);
+    }
+    assertFalse(loop.isAlive(), "the interrupted loop must end");
+    assertFalse(service.workLock.isLocked());
+  }
+
+  /// A JVM in trouble is not ridden out: the error leaves the loop, and the loop's end still
+  /// fails what was pending, so that no caller waits on a monitor the JVM is losing.
+  @Test
+  void aVirtualMachineErrorLeavesTheLoopAndStillFailsThePendingFutures() {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), MIN_POLL_SLEEP);
+    service.stopAfterBatches = 2;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    final var error = new OutOfMemoryError("test");
+    service.afterBatch = _ -> {
+      throw error;
+    };
+
+    assertSame(error, assertThrows(OutOfMemoryError.class, service::run));
+
+    assertEquals(1, service.batches.size());
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    assertSame(error, thrown.getCause());
+    assertFalse(service.workLock.isLocked());
+  }
+
+  /// A failure out of the wait for epoch info, before any pass, ends the loop with that
+  /// failure as the stop's cause, and leaves through the loop's own end rather than the
+  /// thread's: a JVM error is the only thing rethrown.
+  @Test
+  void aFailureAwaitingEpochInfoEndsTheLoopWithItAsTheCause() {
+    final var epochInfoService = new FakeEpochInfoService();
+    final var failure = new IllegalStateException("epoch service closed");
+    epochInfoService.awaitFailure = failure;
+    final var service = new RecordingMonitor(null, epochInfoService, MIN_POLL_SLEEP);
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+
+    service.run();
+
+    assertTrue(service.batches.isEmpty(), "no pass runs without epoch info");
+    final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
+    assertSame(failure, thrown.getCause());
+    assertTrue(service.stopped());
+  }
+
+  /// A failed pass waits its floor whatever wakes arrived: a burst of queued transactions
+  /// must not run the failing passes that stop the loop in milliseconds. The floor is a day,
+  /// so the loop parks on it after the failed pass despite the wake; the spin ends on the
+  /// parked state, never on time.
+  @Test
+  void aFailedPassWaitsTheFloorDespiteAWake() throws InterruptedException {
+    final var service = new RecordingMonitor(null, new FakeEpochInfoService(), Duration.ofDays(1));
+    service.stopAfterBatches = 2;
+    final var pending = txContext("sig", 10, FINALIZED, PROCESSED);
+    service.pendingTransactions.put(pending, pending);
+    service.afterBatch = _ -> {
+      if (service.batches.size() == 1) {
+        service.notifyWorker();
+        throw new IllegalStateException("one bad pass");
+      }
+    };
+
+    final var loop = new Thread(service::run, "monitor-loop");
+    loop.start();
+    try {
+      while (!parkedOnFloor(service) && loop.isAlive()) {
+        Thread.onSpinWait();
+      }
+      assertTrue(parkedOnFloor(service), "after a failed pass the loop must wait its floor, wake or no wake");
+      assertEquals(1, service.batches.size());
+    } finally {
+      loop.interrupt();
+      loop.join(2_000);
+    }
+    assertFalse(loop.isAlive(), "the interrupted loop must end");
+    assertFalse(service.workLock.isLocked());
+  }
+
   @Test
   void notifyWorkerAcquiresAndReleasesTheWorkLock() {
     final var service = monitor();
 
     assertDoesNotThrow(service::notifyWorker, "signalling requires the work lock to be held");
     service.notifyWorker();
+    assertTrue(service.wakeRequested(), "the wake is kept for the next floor");
 
     assertFalse(service.workLock.isLocked(), "notifyWorker must not leak a hold on the work lock");
   }

@@ -60,7 +60,9 @@ public interface BatchInstructionService extends InstructionService {
   /// with an exception, checked or not, ends the run with a [BatchProcessException] that
   /// carries the results of the batches settled before it, the exception as its cause, so a
   /// caller retries only what is left; whether the failing batch can still land is the cause's
-  /// to say, as a `SendNotAcceptedException`'s `expiryVerified()` does. An interrupt
+  /// to say, as a `SendNotAcceptedException`'s `expiryVerified()` does, and a
+  /// `TxMonitorStoppedException` whose `sent()` is true says it may, so that batch is not
+  /// retried either. An interrupt
   /// propagates as `InterruptedException`, which carries no results, and the batch it
   /// interrupted may still land; an `Error` is not wrapped. A ComputeBudget instruction
   /// anywhere in `instructions` is refused before any batch is sent.

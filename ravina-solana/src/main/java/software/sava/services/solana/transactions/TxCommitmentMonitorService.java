@@ -29,7 +29,8 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 final class TxCommitmentMonitorService extends BaseTxMonitorService implements TxMonitorService {
 
   private final WebSocketManager webSocketManager;
-  private final TxExpirationMonitorService expirationMonitorService;
+  // package-private: tests stop it to assert that the service reports either loop's stop.
+  final TxExpirationMonitorService expirationMonitorService;
   private final long webSocketConfirmationTimeoutMillis;
   private final TxPublisher transactionPublisher;
   private final long retrySendDelayMillis;
@@ -74,6 +75,13 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   public void run(final Executor executor) {
     executor.execute(expirationMonitorService);
     executor.execute(this);
+  }
+
+  /// Either loop's stop: a monitor whose expiration stage has stopped can confirm a landing
+  /// but never verify an expiry, so it takes no new work either.
+  @Override
+  public boolean stopped() {
+    return super.stopped() || expirationMonitorService.stopped();
   }
 
   @Override
@@ -215,7 +223,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   protected void processTransactions(final Map<String, TxContext> contextMap) {
     final var signatures = List.copyOf(contextMap.keySet());
     final var sigStatusList = rpcCaller.courteousGet(
-        rpcClient -> rpcClient.getSigStatusList(signatures),
+        rpcClient -> rpcClient.getSigStatusList(signatures).thenApply(list -> statusesFor(signatures, list)),
         "rpcClient::getSigStatusList"
     );
 
@@ -269,8 +277,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                     sendContext = transactionPublisher.retry(previousSendContext);
                   } catch (final Throwable retryFailure) {
                     // Throwable, since a publisher written without checked exceptions can throw
-                    // one, and whatever left this pass would end the monitor's loop with every
-                    // caller still waiting on it. A resend that failed on its way out is an
+                    // one, and whatever left this pass would fail it, and stop the monitor for
+                    // every caller if it kept failing. A resend that failed on its way out is an
                     // attempt that was not accepted, and the context stays for the next pass, as
                     // a declined resend does. An interrupt is this thread's own, so its flag is
                     // set again, and the loop ends where it next waits.
@@ -307,7 +315,9 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                     // future, the add of the resent context would be refused, and the
                     // future this transaction's caller holds would never be completed.
                     // This thread is the only writer of an existing entry, so the replace
-                    // holds.
+                    // holds. It is not followed by an admission check: it runs on the monitor
+                    // thread, before the loop can end, and the resent context keeps the same
+                    // future, which the stop's drain fails whichever context holds it.
                     pendingTransactions.replace(txContext, txContext, nexContext);
                     logger.log(INFO, String.format("""
                             Resent transaction:
@@ -341,7 +351,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
                                                  final boolean retrySend,
                                                  final SendLedger ledger) {
     // Refused here, on the caller's thread: a null ledger would otherwise surface at the first
-    // due resend, on the monitor's, and end its loop with every caller still waiting.
+    // due resend, on the monitor's, as a pass that fails, and one that keeps failing stops the
+    // monitor for every caller.
     Objects.requireNonNull(ledger, "ledger");
     final var txContext = TxContext.createContext(
         awaitCommitment,
@@ -364,8 +375,8 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       // context resends. A fresh context, one whose subscription was refused or had no
       // socket, is not worth a pass of its own: a pass run at once would rarely find a status
       // yet and could not resend, and the floor after it would push the first useful poll
-      // out, not bring it in.
-      if (clock.currentTimeMillis() - sendTxContext.publishedAt() >= retrySendDelayMillis) {
+      // out, not bring it in. A monitor that has stopped fails the future instead.
+      if (admitted(txContext) && clock.currentTimeMillis() - sendTxContext.publishedAt() >= retrySendDelayMillis) {
         notifyWorker();
       }
       return txContext.sigStatusFuture();

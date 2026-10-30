@@ -528,6 +528,25 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
   }
 
+  /// A monitor that stopped under a batch is a failing batch like any other: the batches
+  /// settled before it are reported, with the stop as the cause, so a caller knows which
+  /// instructions executed and that the failing batch may still land.
+  @Test
+  void aStoppedMonitorEndsTheRunWithTheBatchesSettledBeforeIt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketScript = call -> call == 0 ? new TxResult(null, "confirmed", null) : null;
+    monitor.stopsAtQueue = true;
+    final var service = service(processor, monitor, 1, 1);
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+
+    assertInstanceOf(TxMonitorStoppedException.class, thrown.getCause());
+    assertEquals(1, thrown.settled().size());
+  }
+
   /// An interrupt is not a failing batch: it propagates as itself and carries no results, as
   /// the interface documents.
   @Test
