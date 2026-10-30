@@ -17,6 +17,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
@@ -48,9 +49,11 @@ final class HeliusJsonRpcClient extends BaseSolanaJsonRpcClient implements Heliu
     this.id = new AtomicLong(System.currentTimeMillis());
   }
 
+  // Request bodies are JSON, whose numbers are ASCII digits, so they are formatted in the root
+  // locale rather than the JVM default, which may write another script's digits.
   @Override
   public CompletableFuture<PriorityFeesEstimates> getPriorityFeeEstimate(final String params) {
-    return sendPostRequest(PRIORITY_FEES, String.format("""
+    return sendPostRequest(PRIORITY_FEES, String.format(Locale.ROOT, """
                 {"jsonrpc":"2.0","id":%d,"method":"getPriorityFeeEstimate","params":[{%s}]}""",
             id.incrementAndGet(), params
         )
@@ -94,7 +97,7 @@ final class HeliusJsonRpcClient extends BaseSolanaJsonRpcClient implements Heliu
 
   @Override
   public CompletableFuture<BigDecimal> getRecommendedPriorityFeeEstimate(final String params) {
-    final var body = String.format("""
+    final var body = String.format(Locale.ROOT, """
             {"jsonrpc":"2.0","id":%d,"method":"getPriorityFeeEstimate","params":[{%s}]}""",
         id.incrementAndGet(), params
     );

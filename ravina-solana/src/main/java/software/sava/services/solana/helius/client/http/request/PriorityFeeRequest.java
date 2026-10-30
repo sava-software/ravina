@@ -1,11 +1,16 @@
 package software.sava.services.solana.helius.client.http.request;
 
 import java.util.List;
+import java.util.Locale;
 
 /// Serializes Helius priority-fee request parameters.
 ///
 /// A lookback is a count of recent Solana slots, not a wall-clock duration.
 /// Helius accepts between 1 and 150 slots, inclusive.
+///
+/// The parameters are JSON, whose numbers are ASCII digits, so they are formatted in the root
+/// locale rather than the JVM default, which may write another script's digits; exception
+/// messages keep the default locale.
 public final class PriorityFeeRequest {
 
   /// Smallest recent-slot lookback accepted by Helius.
@@ -23,7 +28,7 @@ public final class PriorityFeeRequest {
     final var accountKeysString = numKeys == 1
         ? accountKeys.getFirst()
         : String.join("\",\"", accountKeys);
-    return String.format("""
+    return String.format(Locale.ROOT, """
             "accountKeys":["%s"],
             "options":{
               "includeAllPriorityFeeLevels":true,
@@ -42,7 +47,7 @@ public final class PriorityFeeRequest {
                                        final String transactionEncoding,
                                        final int lookBackSlots) {
     validateLookBackSlots(lookBackSlots);
-    return String.format("""
+    return String.format(Locale.ROOT, """
             "transaction":"%s",
             "options":{
               "transactionEncoding":"%s",
@@ -80,7 +85,7 @@ public final class PriorityFeeRequest {
     final var accountKeysString = numKeys == 1
         ? accountKeys.getFirst()
         : String.join("\",\"", accountKeys);
-    return String.format("""
+    return String.format(Locale.ROOT, """
             "accountKeys":["%s"],
             "options":{
               "recommended":true
@@ -90,7 +95,7 @@ public final class PriorityFeeRequest {
   }
 
   public static String serializeRecommendedParams(final String transaction, final Encoding transactionEncoding) {
-    return String.format("""
+    return String.format(Locale.ROOT, """
             "transaction":"%s",
             "options":{
               "transactionEncoding":"%s",

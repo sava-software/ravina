@@ -369,7 +369,7 @@ final class HeliusJsonRpcClientTests {
     );
   }
 
-  private static String idOf(final String body) {
+  static String idOf(final String body) {
     final var matcher = ID.matcher(body);
     assertTrue(matcher.find(), () -> "no request id in " + body);
     return matcher.group(1);
