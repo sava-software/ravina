@@ -41,12 +41,14 @@ import java.util.function.Consumer;
 /// notice can be correlated with the wrong connection attempt; a zero initial delay that
 /// escalates passes through that state once instead of staying in it.
 ///
-/// Disabling that throttle needs `subscriptionResendDelay(long)`, which is an additive capability
-/// a Builder may decline by inheriting its throwing default: an unset resend delay is derived
-/// from the reconnect delay, so zeroing the latter alone would silently re-pace subscription
-/// escalation. A builder that declines it must therefore already report `reConnectDelay() == 0`,
-/// in which case nothing needs preserving; otherwise the factory throws `IllegalArgumentException`
-/// naming that remedy. The stock builder implements the capability and is unaffected.
+/// Disabling that throttle needs `subscriptionResendDelay(long)`, which a Builder may decline by
+/// throwing `UnsupportedOperationException`: an unset resend delay is derived from the reconnect
+/// delay, so zeroing the latter alone would silently re-pace subscription escalation. A builder
+/// that declines it must therefore already report `reConnectDelay() == 0`, in which case nothing
+/// needs preserving; otherwise the factory throws `IllegalArgumentException` naming that remedy,
+/// provided the builder answers `subscriptionResendDelay()`, since that read comes first and a
+/// builder that throws there fails as itself. The stock builder implements the capability and is
+/// unaffected.
 public interface WebSocketManager extends AutoCloseable {
 
   static WebSocketManager createManager(final Backoff backoff,

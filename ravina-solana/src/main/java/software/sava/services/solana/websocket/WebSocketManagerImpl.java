@@ -141,9 +141,9 @@ class WebSocketManagerImpl implements WebSocketManager, Consumer<SolanaRpcWebsoc
     // A prototype with no throttle to disable needs no preservation: the derived resend delay is
     // a pure function of the reconnect and check delays, so re-asserting the value it already
     // reports cannot move it. Skipping the write there keeps the manager off
-    // `subscriptionResendDelay(long)`, which is an additive 25.9.0 capability a Builder may
-    // inherit as a throwing default — unlike `reConnectDelay(long)`, which every Builder must
-    // implement.
+    // `subscriptionResendDelay(long)`, which a Builder may decline by throwing
+    // UnsupportedOperationException, the one setter the manager tolerates that from:
+    // `reConnectDelay(0L)` below is called outright.
     var normalized = suppliedPrototype;
     if (suppliedPrototype.reConnectDelay() != 0L) {
       final long subscriptionResendDelay = suppliedPrototype.subscriptionResendDelay();

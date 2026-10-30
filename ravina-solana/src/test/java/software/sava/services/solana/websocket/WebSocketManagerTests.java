@@ -217,9 +217,9 @@ final class WebSocketManagerTests {
     private long subscriptionAndPingCheckDelay = 59;
     private long keepAliveDelay = 30_000;
     private long subscriptionResendDelay = 3_000;
-    /// Models a Builder that predates the additive `subscriptionResendDelay(long)` capability and
-    /// therefore inherits its throwing interface default.
-    private boolean legacyResendDelaySetter;
+    /// Models a Builder that declines the `subscriptionResendDelay(long)` capability by throwing
+    /// `UnsupportedOperationException` from the setter.
+    private boolean resendDelaySetterThrows;
     /// Models an immutable or decorating Builder whose timing setters return a NEW instance
     /// rather than `this`. The manager must thread those return values through instead of
     /// assuming the prototype mutated in place.
@@ -360,11 +360,12 @@ final class WebSocketManagerTests {
 
     @Override
     public SolanaRpcWebsocket.Builder subscriptionResendDelay(final long subscriptionResendDelay) {
-      if (legacyResendDelaySetter) {
-        // Delegate to the library's own default rather than simulating it, so the fixture keeps
-        // describing a Builder that predates this additive capability even if sava-rpc changes
-        // what declining it does.
-        return SolanaRpcWebsocket.Builder.super.subscriptionResendDelay(subscriptionResendDelay);
+      if (resendDelaySetterThrows) {
+        // The refusal, with the message sava-rpc's default used: the manager tells a declined
+        // capability apart by the exception's type.
+        throw new UnsupportedOperationException(
+            "subscriptionResendDelay is not configurable by this SolanaRpcWebsocket.Builder implementation."
+        );
       }
       if (immutableTimingSetters) {
         final var copy = new FakeBuilder(this);
@@ -2018,15 +2019,16 @@ final class WebSocketManagerTests {
   }
 
   /// `subscriptionResendDelay(long)` is an additive 25.9.0 capability whose interface default
-  /// throws, so a Builder predating it — or any third-party implementation that declines the
-  /// capability — inherits a throwing setter. A prototype that already has no reconnect throttle
+  /// threw `UnsupportedOperationException` until sava-rpc 25.13.1 declared the Builder's timing
+  /// setters and getters abstract, so a Builder now declines it only by throwing from its own
+  /// setter, which is what the fixture does. A prototype that already has no reconnect throttle
   /// needs no preservation at all, since the derived resend delay is a pure function of the
   /// reconnect and check delays; the manager must not reject such a builder for a capability it
   /// never needed to use.
   @Test
-  void aBuilderWithoutTheOptionalResendSetterIsAcceptedWhenItHasNoThrottle() {
+  void aBuilderWhoseResendSetterThrowsIsAcceptedWhenItHasNoThrottle() {
     final var builder = new FakeBuilder();
-    builder.legacyResendDelaySetter = true;
+    builder.resendDelaySetterThrows = true;
     builder.reConnectDelay = 0L;
 
     final var manager = assertDoesNotThrow(() -> new WebSocketManagerImpl(
@@ -2067,9 +2069,9 @@ final class WebSocketManagerTests {
   /// construction, naming the remedy, beats either propagating a bare
   /// `UnsupportedOperationException` or silently changing the caller's timing.
   @Test
-  void aBuilderWithoutTheOptionalResendSetterIsRejectedWhenItHasAThrottle() {
+  void aBuilderWhoseResendSetterThrowsIsRejectedWhenItHasAThrottle() {
     final var builder = new FakeBuilder();
-    builder.legacyResendDelaySetter = true;
+    builder.resendDelaySetterThrows = true;
     builder.reConnectDelay = 47L;
 
     final var failure = assertThrows(IllegalArgumentException.class, () -> new WebSocketManagerImpl(
