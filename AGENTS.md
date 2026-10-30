@@ -86,6 +86,19 @@ parsing, and KMS-backed signing.
   `~/.gradle/gradle.properties`).
 - `./gradlew check` — full build + tests. CI (reusable workflows from
   sava-build) runs exactly this; keep it green.
+- Every dependency is verified against `gradle/verification-metadata.xml`, the
+  signatures and checksums policy sava-build's `verificationPolicy` task guards as
+  part of `check`; the rules and the update procedure are sava-build's README,
+  "Verifying sava artifacts". Check a dependency or policy change with
+  `./gradlew --no-configuration-cache check resolveVerificationTools` and
+  `./gradlew --no-configuration-cache -p soak testClasses soakModulePath`: a reused
+  configuration-cache entry resolves nothing and so verifies nothing, and the soak
+  build reads the policy through its own `soak/gradle/` links. A refusal names the
+  artifact; the README's four cases, and for a listed key its section's heading in
+  `gradle/verification/version-scoped-keys.txt`, say what to do, and the files are only ever
+  edited in their own shape (a key's version and its `gradle/verification/` list line
+  move together). A `-PsavaBuildLocalRepo` build needs `--dependency-verification
+  lenient`, since the test repo's artifacts are unsigned.
 - Commits follow Conventional Commits (`feat(core): ...`, `fix(gradle): ...`);
   release-please cuts releases from them.
 

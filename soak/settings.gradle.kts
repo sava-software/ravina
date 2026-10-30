@@ -10,7 +10,9 @@
 // pluginManagement (including its -PsavaBuildLocalRepo toggle) for the whole composite.
 // A '-PsavaBuildLocalRepo=<abs path>' passed on this build's command line therefore still
 // reaches the root build; prefer an absolute value, since a relative one resolves against
-// each build's own settings dir.
+// each build's own settings dir, and pass '--dependency-verification lenient' with it: the
+// test publication is unsigned. This build reads the root's dependency verification policy
+// through the two symlinks in gradle/, since a build invoked directly reads only its own.
 rootProject.name = "ravina-soak"
 
 includeBuild("..")

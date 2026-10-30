@@ -8,7 +8,11 @@ pluginManagement {
   // and every id below then resolves to the 0.0.0-test module regardless of the
   // version the plugins block requests — which the plugin announces at the end of
   // each build, so this block stays silent. The useModule call also bypasses plugin
-  // markers, which the test repo does not contain.
+  // markers, which the test repo does not contain. Pass '--dependency-verification
+  // lenient' with the property, on every command: the test repo's artifacts are unsigned
+  // local build output, so the strict verification policy (gradle/verification-metadata.xml)
+  // refuses them, and lenient reports the refusals instead of failing. Never relax the mode
+  // in a committed or user-wide gradle.properties, and never add trust for 0.0.0-test.
   val savaBuildLocalRepo = providers.gradleProperty("savaBuildLocalRepo")
     .orNull?.takeIf { it.isNotBlank() }
   if (savaBuildLocalRepo != null) {
@@ -42,8 +46,8 @@ pluginManagement {
 }
 
 plugins {
-  id("software.sava.build") version "21.7.1"
-  id("software.sava.build.feature.jdk-provisioning") version "21.7.1"
+  id("software.sava.build") version "21.8.0"
+  id("software.sava.build.feature.jdk-provisioning") version "21.8.0"
 }
 
 javaModules {

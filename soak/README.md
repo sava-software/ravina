@@ -51,7 +51,10 @@ repeating it. Resolution needs the same GitHub Packages credentials as the root 
 No sava-build plugin is applied, only the built-in `java` and `application`. The root build's
 `pluginManagement`, including its `-PsavaBuildLocalRepo` toggle, configures the whole composite;
 pass that property as an absolute path, since a relative one resolves against each build's own
-settings directory.
+settings directory, and `--dependency-verification lenient` with it, since the test publication
+is unsigned. Dependencies resolve under the root's verification policy, which `soak/gradle/`
+links to (`verification-metadata.xml` and `verification-keyring.keys`), because a build invoked
+directly reads only its own `gradle/` directory.
 
 ### Why the sources live in `src-main/java`
 
