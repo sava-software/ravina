@@ -270,9 +270,11 @@ not one, since the lost-claim test above asserts it is the one record written. T
 warning `TxCommitmentMonitorService.tryAwaitCommitmentViaWebSocket` logs when a signature
 notification times out: the await then yields `null` and the polling monitor carries the
 outcome, so the line is diagnostic only. Two more in the same class: the `INFO`
-`processTransactions` logs when a resend is deferred because every send peer is docked (the
-context left untouched for the next pass is the observable behaviour, asserted by
-`aDeclinedResendLeavesTheContextForTheNextPass`), and the warning `validateResponse` logs
+`processTransactions` logs when a resend is deferred because every send peer is docked, which
+since 2026-10-30 ends the pass's resends, so it is one line a pass (the context left untouched
+and the pass asking for no more are the observable behaviour, asserted by
+`aDeclinedResendLeavesTheContextForTheNextPass` and `aDeclinedResendEndsThePassesResends`),
+and the warning `validateResponse` logs
 when a failed send is sent again on another peer (the second response, or its failure, is
 the outcome the failover tests assert). Three more, since 2026-10-29, record a send that
 failed without proof that it never left, which is now awaited where it used to be thrown:
