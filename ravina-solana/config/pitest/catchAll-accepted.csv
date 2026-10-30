@@ -46,7 +46,7 @@ software.sava.services.solana.websocket.WebSocketManagerImpl,createAndConnect,Re
 software.sava.services.solana.transactions.TxCommitmentMonitorService,processTransactions,VoidMethodCallMutator,SURVIVED # log-removal # line 360
 software.sava.services.solana.transactions.TxCommitmentMonitorService,unanswered,VoidMethodCallMutator,SURVIVED # log-removal # line 181
 software.sava.services.solana.transactions.TxCommitmentMonitorService,validateResponse,VoidMethodCallMutator,SURVIVED # log-removal # line 154
-software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 97
+software.sava.services.solana.websocket.WebSocketManager,createManager,NakedReceiverMutator,SURVIVED # restating-default # line 99
 software.sava.services.solana.transactions.BaseTxMonitorService,run,ConditionalsBoundaryMutator,SURVIVED # zero-await-noop # line 157
 software.sava.services.solana.transactions.BaseTxMonitorService,stop,IncrementsMutator,SURVIVED # log-text-only # line 205
 software.sava.services.solana.transactions.BaseTxMonitorService,stop,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # log-text-only # line 210
