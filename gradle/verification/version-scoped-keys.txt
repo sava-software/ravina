@@ -26,7 +26,7 @@ AC1A3DD4471FE0F6EA28300F1BA25353622A192B ArcMutate signer, publisher identity un
 # A dependency bump moves the version once the release is checked against the publisher.
 1DE5E75F1040F8B0DC3A4320F2B5B2B1B9B1180A re2j signer (James Ring): keys.openpgp.org verifies the identity, but re2j's publisher names no fingerprint
 49CF4E3B2996BE658A57DD39655CCC51B9BD2C38 conscrypt signer (Juerg Wullschleger), publisher identity unauthenticated
-63213B28A8C13E7172220DA4037DB4EF77494A5B cel-java signer (Sokwhan Huh), publisher identity unauthenticated; the keyring's copy shows the encryption subkey expired on 2025-01-19 and no expiry on the signing primary, which signed 0.13.0 on 2026-05-15
+63213B28A8C13E7172220DA4037DB4EF77494A5B cel-java signer (Sokwhan Huh), publisher identity unauthenticated; the key expired on 2025-01-19 (its self-signature's two-year expiry, which the keyring's copy carries only on the subkey binding) and still signed 0.13.0 on 2026-05-15, a reason to ask the publisher before a bump
 7616EB882DAF57A11477AAF559A252FB1199D873 jsr305 3.0.2 signer (Tagir Valeev), publisher identity unauthenticated; the last release of a finished project, so a new one is a reason to stop
 147B691A19097624902F4EA9689CBE64F4BC997F mockito-bom 4.11.0 signer (Szczepan Faber), publisher identity unauthenticated; mockito publishes no KEYS file (mockito/mockito#2851)
 
