@@ -3,16 +3,19 @@
 # no version, and when a key that is not listed here has one. One key per line:
 # <fingerprint> <why it stays version-scoped>
 #
-# Not listed, by decision: four keys whose publisher publishes no fingerprint are trusted
+# Not listed, by decision: five keys whose publisher publishes no fingerprint are trusted
 # for their groups with no version on the corroboration of gradle/gradle's own policy
 # alone, as sava's policy trusts its own such keys: the Google API client libraries key
 # (47504B76CF89C15C0512D9AFE16AB52D79FD224F), the protobuf release key
 # (1A55F091AD28C07F831FA44D7905DE25C78AD456), the grpc-java team's key
-# (B02335AA54CCF21E52BBF9ABD9C565AA72BA2FDD) and Eamonn McManus's
-# (C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7). Version-scoping them would pin about
-# fifteen group-and-version rules that move together whenever the catalog's Google pins
-# move, which invites rubber-stamping. Overturn it deliberately: a rule's version and the
-# key's line here move together, then run check.
+# (B02335AA54CCF21E52BBF9ABD9C565AA72BA2FDD), Eamonn McManus's
+# (C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7) and, since 2026-10-31, Szczepan Faber's
+# mockito key (147B691A19097624902F4EA9689CBE64F4BC997F), which gradle/gradle trusts for
+# all of org.mockito; mockito publishes no KEYS file (mockito/mockito#2851).
+# Version-scoping the Google keys would pin about fifteen group-and-version rules that
+# move together whenever the catalog's Google pins move, which invites rubber-stamping.
+# Overturn it deliberately: a rule's version and the key's line here move together, then
+# run check.
 
 # Tool signers not independently authenticated: no publisher-published fingerprint,
 # GitHub-registered key or verified identity was found. A tool bump moves the version
@@ -28,7 +31,6 @@ AC1A3DD4471FE0F6EA28300F1BA25353622A192B ArcMutate signer, publisher identity un
 49CF4E3B2996BE658A57DD39655CCC51B9BD2C38 conscrypt signer (Juerg Wullschleger), publisher identity unauthenticated
 63213B28A8C13E7172220DA4037DB4EF77494A5B cel-java signer (Sokwhan Huh), publisher identity unauthenticated; the key expired on 2025-01-19 (its self-signature's two-year expiry, which the keyring's copy carries only on the subkey binding) and still signed 0.13.0 on 2026-05-15, a reason to ask the publisher before a bump
 7616EB882DAF57A11477AAF559A252FB1199D873 jsr305 3.0.2 signer (Tagir Valeev), publisher identity unauthenticated; the last release of a finished project, so a new one is a reason to stop
-147B691A19097624902F4EA9689CBE64F4BC997F mockito-bom 4.11.0 signer (Szczepan Faber), publisher identity unauthenticated; mockito publishes no KEYS file (mockito/mockito#2851)
 
 # Keys that must not vouch for new releases: expired keys, DSA-1024 keys (about 80 bits of
 # security, whoever still signs with them) and retired release managers' keys that signed
