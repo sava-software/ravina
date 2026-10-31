@@ -19,7 +19,31 @@ import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.function.BiPredicate;
 
-
+/// Builds the Google Cloud KMS [SigningService] around a caller's [KeyManagementServiceClient],
+/// or around one it creates with default settings and application-default credentials from a
+/// parsed JSON or properties configuration.
+///
+/// Transport. Since sava-build 21.8.1 the `gcp-kms` convention this module builds with excludes
+/// from the KMS client's dependencies the DirectPath bundle (`grpc-xds`, `grpc-alts`,
+/// `grpc-googleapis` and `grpc-services`, with the dev.cel, re2j and threeten-extra jars only they
+/// pull in), the in-process channel `grpc-inprocess`, conscrypt (an optional TLS provider that
+/// gax-httpjson loads inside a `LinkageError` catch and does without), the Apache HTTP transport
+/// (`httpclient`, `httpcore`, `commons-codec`) and three annotation jars (jsr305, the android
+/// annotations, javax.annotation-api); ravina-kms-google's published POM and module metadata carry
+/// those excludes, so a consumer inherits them. They cost a client built here nothing: gax's
+/// channel provider attempts DirectPath only when a caller sets `attemptDirectPath` on it, which
+/// the default settings never do, so the client reaches the public endpoint over TLS with
+/// service-account or application-default credentials, before and after the exclusions. A
+/// deployment on Compute Engine that wants DirectPath builds its own client, with
+/// `setAttemptDirectPath(true)` on the channel provider and Compute Engine credentials, declares
+/// `io.grpc:grpc-xds`, `grpc-alts` and `grpc-googleapis` itself, with versions, since the catalog
+/// pins none (the convention then trims `grpc-xds` of the dev.cel jars and threeten-extra), and
+/// hands the client to a static `createService` overload here. `KmsClientClassPathTests` proves
+/// the client links without the excluded jars, and `KmsLivePathTests`, run by
+/// `:ravina-kms-google:liveTest` and never by `check`, proves the TLS handshake and the token
+/// fetch still reach Google's servers. Neither runs on Compute Engine, so re-read the default at
+/// a KMS or gax bump: a release that attempted DirectPath by default would fail a factory-built
+/// client there at creation, for want of `grpc-alts`, and no test here would notice.
 public final class GoogleKMSClientFactory implements SigningServiceFactory, FieldBufferPredicate {
 
   CryptoKeyVersionName.Builder builder; // package-private: tests assert the parsed key name

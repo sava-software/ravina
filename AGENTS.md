@@ -57,7 +57,15 @@ parsing, and KMS-backed signing.
     ours to maintain. Only the Helius half was carried over — Jito was
     unreferenced and deliberately left behind.
 - `ravina-kms/core|http|google` — signing-service abstraction, HTTP-backed and
-  Google Cloud KMS implementations.
+  Google Cloud KMS implementations. Since sava-build 21.8.1 the `gcp-kms`
+  convention keeps the DirectPath bundle (grpc-xds, grpc-alts, grpc-googleapis,
+  grpc-services, with the dev.cel jars, re2j and threeten-extra), grpc-inprocess,
+  conscrypt, the Apache HTTP transport and three annotation jars off the KMS
+  client's dependency edges, in the published metadata too. A factory-built
+  client never attempts DirectPath (gax does so only when a caller sets
+  `attemptDirectPath`), so it loses nothing; `GoogleKMSClientFactory`'s javadoc
+  says what a Compute Engine deployment that wants DirectPath builds and
+  declares itself.
 - `soak/` — an opt-in JFR soak harness for the transaction pipeline, a
   **standalone** Gradle build (`includeBuild("..")`) with its sources under
   `soak/src-main/java`, never `soak/src/`: the root `settings.gradle.kts`

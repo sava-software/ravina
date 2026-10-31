@@ -57,9 +57,9 @@ and 2 accepted (see the credentials section). Enabled.
 `VoidMethodCallMutator`: log output is not part of any behavioral contract.
 
 **Redundant setter null-guards** `# setter-null-guard` — `GoogleKMSClientFactory.createService`
-(properties overload) lines 99/103/107/111/115,
-`RemoveConditionalMutator_EQUAL_IF` on each
-`if (project != null) builder.setProject(project);`. Measured, not assumed:
+(properties overload), `RemoveConditionalMutator_EQUAL_IF` on each of its five
+`if (<field> != null) builder.set<Field>(<field>);` guards (project, location,
+keyRing, cryptoKey, cryptoKeyVersion). Measured, not assumed:
 `CryptoKeyVersionName.Builder` accepts a null without throwing and its getter
 then returns null — exactly what the getter returns when the setter is never
 called. Forcing the branch is therefore indistinguishable in builder state.
@@ -73,11 +73,14 @@ requires a real Cloud KMS endpoint, which unit tests must not contact. They
 are the module's genuine I/O debt. Rows in this section are labelled
 `# needs-live-kms`.
 
-- `GoogleKMSClientFactory.createService` `NullReturnValsMutator` on the
-  `return new GoogleKMSClient(...)` sites (lines 70, 87, 124, 142). Every unit
-  test fails earlier at `KeyManagementServiceClient.create()` with
-  `UncheckedIOException` for want of credentials, so the return is never
-  reached.
+- `GoogleKMSClientFactory.createService` `NullReturnValsMutator` on four
+  return sites: the `return new GoogleKMSClient(...)` of the JSON and the
+  properties overloads that take an `ErrorTrackerFactory`, and the
+  `return createService(...)` of the two overloads that delegate to them with
+  `GoogleKMSErrorTrackerFactory.INSTANCE`. Every unit test fails earlier at
+  `KeyManagementServiceClient.create()` with `UncheckedIOException` for want of
+  credentials, so the return is never reached. The two static overloads that
+  take a client have no row: their returns are asserted non-null.
 - `GoogleKMSClient.lambda$publicKey$0` (line 46) and `lambda$sign$0`
   (line 68) `NullReturnValsMutator`: these map a live KMS response and cannot
   run without one.
