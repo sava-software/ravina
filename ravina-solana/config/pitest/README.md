@@ -460,9 +460,10 @@ The tests assert the waiters' outcomes, which are identical either way; the cond
 one dead callback, not a behaviour.
 
 **Single-element join is the identity** `# single-join-identity` (`catchAll`) —
-`PriorityFeeRequest` lines 13 and 69 `_ELSE`, i.e. forcing the `String.join`
-branch: joining a one-element list returns that element, exactly what the
-`getFirst()` branch returns. The `_IF` direction is killed.
+`PriorityFeeRequest.serializeParams(List, int)` and `serializeRecommendedParams(List)`
+`_ELSE`, i.e. forcing the `String.join` branch: joining a one-element list returns
+that element, exactly what the `getFirst()` branch returns. The `_IF` direction is
+killed.
 
 **Capacity hints** `# capacity-hint` (`catchAll`) —
 `HeliusJsonRpcClient.getProgramAccounts` `MathMutator` on the `StringBuilder`
