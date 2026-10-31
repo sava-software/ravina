@@ -1,17 +1,21 @@
 # Signing keys that ../verification-metadata.xml trusts only for exact versions.
 # The verificationPolicy check (part of check) fails when a rule for one of these keys has
-# no version, and when a key that is not listed here has one. One key per line:
+# no version or is a regex, when a key that is not listed here has one, and when a listed
+# key is used by no rule any more. One key per line:
 # <fingerprint> <why it stays version-scoped>
 #
-# Not listed, by decision: five keys whose publisher publishes no fingerprint are trusted
-# for their groups with no version on the corroboration of gradle/gradle's own policy
-# alone, as sava's policy trusts its own such keys: the Google API client libraries key
-# (47504B76CF89C15C0512D9AFE16AB52D79FD224F), the protobuf release key
-# (1A55F091AD28C07F831FA44D7905DE25C78AD456), the grpc-java team's key
-# (B02335AA54CCF21E52BBF9ABD9C565AA72BA2FDD), Eamonn McManus's
-# (C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7) and, since 2026-10-31, Szczepan Faber's
-# mockito key (147B691A19097624902F4EA9689CBE64F4BC997F), which gradle/gradle trusts for
-# all of org.mockito; mockito publishes no KEYS file (mockito/mockito#2851).
+# Not listed, by decision: eight keys are trusted for their groups or modules with no version
+# on the corroboration of gradle/gradle's own policy alone, no publisher source having been
+# found for them (audited 2026-10-31): the Google API client libraries key
+# 47504B76CF89C15C0512D9AFE16AB52D79FD224F, the protobuf release key
+# 1A55F091AD28C07F831FA44D7905DE25C78AD456, the grpc-java team's
+# B02335AA54CCF21E52BBF9ABD9C565AA72BA2FDD, Eamonn McManus's
+# C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7 (gson), Szczepan Faber's mockito key
+# 147B691A19097624902F4EA9689CBE64F4BC997F, which gradle/gradle trusts for all of
+# org.mockito (mockito publishes no KEYS file, mockito/mockito#2851), Aleksey Shipilev's
+# 019082BC00E0324E2AEF4CF00D3B328562A119A7 (jmh), the javaparser key
+# 6DE9B8077FBB2F8A019F4904BD17A565509DEE20 and the Spock robot's
+# 76E94E8FF0AB5AF3B6F8366972FEFD1572EB75E1.
 # Version-scoping the Google keys would pin about fifteen group-and-version rules that
 # move together whenever the catalog's Google pins move, which invites rubber-stamping.
 # Overturn it deliberately: a rule's version and the key's line here move together, then
@@ -23,27 +27,14 @@
 18CD85CBC5C1DB1684C5E59FA8E3B39F19E1CCE7 PIT signer, publisher identity unauthenticated
 AC1A3DD4471FE0F6EA28300F1BA25353622A192B ArcMutate signer, publisher identity unauthenticated
 
-# Library signers whose link to the publisher is not independently established: no
-# publisher-published fingerprint or GitHub-registered key ties the key to the library,
-# and where keys.openpgp.org verifies an identity it is a person's, not the publisher's.
-# A dependency bump moves the version once the release is checked against the publisher.
-1DE5E75F1040F8B0DC3A4320F2B5B2B1B9B1180A re2j signer (James Ring): keys.openpgp.org verifies the identity, but re2j's publisher names no fingerprint
-49CF4E3B2996BE658A57DD39655CCC51B9BD2C38 conscrypt signer (Juerg Wullschleger), publisher identity unauthenticated
-63213B28A8C13E7172220DA4037DB4EF77494A5B cel-java signer (Sokwhan Huh), publisher identity unauthenticated; the key expired on 2025-01-19 (its self-signature's two-year expiry, which the keyring's copy carries only on the subkey binding) and still signed 0.13.0 on 2026-05-15, a reason to ask the publisher before a bump
-7616EB882DAF57A11477AAF559A252FB1199D873 jsr305 3.0.2 signer (Tagir Valeev), publisher identity unauthenticated; the last release of a finished project, so a new one is a reason to stop
-
-# Keys that must not vouch for new releases: expired keys, DSA-1024 keys (about 80 bits of
-# security, whoever still signs with them) and retired release managers' keys that signed
-# old releases in the graph. A new version under any of them is a reason to stop.
+# Keys that must not vouch for new releases: revoked keys, expired keys, DSA-1024 keys (about
+# 80 bits of security, whoever still signs with them) and retired release managers' keys that
+# signed old releases in the graph. A new version under any of them is a reason to stop.
+1BD97A6A154E7810EE0BC832E2F38302C8075E3D Gradle Inc. publishing key, revoked 2026-08-08 as superseded (gradle.org/keys); signed foojay-resolver 1.0.0 while active
 0CDE80149711EB46DFF17AE421A24B3F8B0F594A expired key
 808D78B17A5A2D7C3668E31FBFFC9B54721244AD expired key
 44FBDBBC1A00FE414F1C1873586654072EAD6677 DSA-1024 key
 517B94F8D0A46317A28D8AB30DA8A5EC02D11EAD DSA-1024 key
-F254B35617DC255D9344BCFA873A8E86B4372146 DSA-1024 key
-0785B3EFF60B1B1BEA94E0BB7C25280EAE63EBE5 DSA-1024 key, Oleg Kalnichevski's (Apache httpcomponents KEYS), still signing the last 4.x httpclient and httpcore releases of 2022
-0F07D1201BDDAB67CFB84EB479752DB6C966F0B8 DSA-1024 key, Rob Manning's, signed com.google.android:annotations 4.1.1.4 in 2012; publisher identity unauthenticated
 2E3A1AFFE42B5F53AF19F780BCF4173966770193 expired key
-12D16069219C90212A974D119AE296FD02E9F65B release-manager key of an old release
 41A1A08C62FCA78B79D3081164A16FAAEC16A4BE release-manager key of an old release
 694621A7227D8D5289699830ABE9F3126BB741C1 release-manager key of an old release
-D6F1BC78607808EC8E9F69437A8860944FAD5F62 release-manager key of an old release
