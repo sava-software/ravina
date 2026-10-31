@@ -5,9 +5,45 @@ plugins {
 
 testModuleInfo {
   requires("org.junit.jupiter.api")
+  // KmsClientClassPathTests and KmsLivePathTests build the Google client themselves: gax for
+  // NoCredentialsProvider, the auth library for a service-account credential. Both are in the
+  // gcp-kms convention's client family, so these edges carry its exclusions too.
+  requires("com.google.api.gax")
+  requires("com.google.auth.oauth2")
   // LogSilencer pins expected-failure loggers through the JDK logging backend.
   requires("java.logging")
   runtimeOnly("org.junit.jupiter.engine")
+}
+
+// KmsLivePathTests reaches cloudkms.googleapis.com and the OAuth token endpoint, so it is tagged
+// 'live' and runs only through liveTest below: never under test, check, CI or PIT (the googleKms
+// suite excludes the class from its selection). AGENTS.md's "tests never hit the network" names
+// this as its one opt-in exception.
+tasks.test {
+  useJUnitPlatform {
+    excludeTags("live")
+  }
+}
+
+tasks.register<Test>("liveTest") {
+  group = "verification"
+  description = "Runs the 'live'-tagged KMS tests against Google's public endpoints (network)."
+  // The tagged class comes from the test source set but runs on the class path: it exercises the
+  // Google client's transport and auth paths, where module boundaries add nothing, and the gradlex
+  // whitebox wiring reaches only the suite's own test task.
+  val test = sourceSets.test.get()
+  testClassesDirs = test.output.classesDirs
+  classpath = test.runtimeClasspath
+  modularity.inferModulePath = false
+  useJUnitPlatform {
+    includeTags("live")
+  }
+  // The outcome is the remote side's answer, which Gradle cannot track.
+  doNotTrackState("Reaches Google's public endpoints, whose answers Gradle cannot track.")
+  testLogging {
+    events("passed", "skipped", "failed")
+    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+  }
 }
 
 hardening {
@@ -32,5 +68,9 @@ hardening {
       "software.sava.kms.google.LogSilencer*"
     )
     targetTests = "software.sava.kms.google.*Test*"
+    excludeTestClass(
+      "software.sava.kms.google.KmsLivePathTests",
+      "reaches Google's public endpoints over the network; run only by liveTest, never by test or PIT"
+    )
   }
 }

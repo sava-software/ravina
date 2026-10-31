@@ -108,7 +108,15 @@ parsing, and KMS-backed signing.
   in the **same package** as the code under test (JPMS whitebox patching is
   wired by the build plugin) — package-private classes like `CapacityStateVal`
   are constructed directly.
-- Tests never hit the network.
+- Tests never hit the network, with one opt-in exception: `KmsLivePathTests`
+  drives the KMS client's TLS handshake and token fetch against Google's public
+  endpoints and expects their refusal. It is tagged `live`, which the module's
+  `test` task excludes and the `googleKms` suite's `excludeTestClass` keeps out
+  of PIT, so `check`, CI and the gate never run it; `./gradlew
+  :ravina-kms-google:liveTest` runs it on the class path, on purpose. A new
+  network-reaching test takes the `live` tag and its own `excludeTestClass`
+  entry in its suite; the tag exclusion on `test` and the `liveTest` task exist
+  only in ravina-kms-google's build script, so another module adds both first.
 - **Determinism via `NanoClock`** (`software.sava.services.core.NanoClock`):
   time-dependent code takes a clock; every `Call` factory has a clock overload
   (the clockless ones default to `NanoClock.SYSTEM`). Tests use a local
