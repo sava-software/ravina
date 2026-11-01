@@ -46,13 +46,15 @@ public final class SendNeverLeftException extends PublicationException {
     return thrown;
   }
 
-  /// A fresh instance for the call that made `earlier` before this attempt: every attempt of
-  /// the call, this one last, with the same cause and suppressed failures.
+  /// A fresh instance for the call that made `earlier` before this attempt: the call's earlier
+  /// attempts, then every attempt this instance names, the monitor's one, or all of those of a
+  /// call whose verdict escaped into this one, its never-left attempt last, with the same cause
+  /// and suppressed failures. Nothing either names drops out of what may still land.
   SendNeverLeftException inCall(final List<TxAttempt> earlier) {
-    final var attempts = new ArrayList<TxAttempt>(earlier.size() + 1);
-    attempts.addAll(earlier);
-    attempts.add(attempts().getLast());
-    final var thrown = create(attempts, getCause());
+    final var all = new ArrayList<TxAttempt>(earlier.size() + attempts().size());
+    all.addAll(earlier);
+    all.addAll(attempts());
+    final var thrown = create(all, getCause());
     for (final var suppressed : getSuppressed()) {
       thrown.addSuppressed(suppressed);
     }

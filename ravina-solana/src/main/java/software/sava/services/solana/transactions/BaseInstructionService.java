@@ -148,15 +148,18 @@ public class BaseInstructionService implements InstructionService {
     // exit: the guard below presumes that the send of a failure it catches is unrecorded.
     final var attempts = new ArrayList<TxAttempt>();
     for (int retries = 0; ; ) {
-      // Per attempt, so that the guard reports this attempt's send, never the previous one's.
+      // Per attempt, so that the guard reports this attempt's send, never the previous one's, and
+      // knows the verdict this call built from any other a collaborator throws.
       SendTxContext sendContext = null;
       SendLedger ledger = null;
+      PublicationException verdict = null;
       try {
         // A stopped monitor does not restart, and would refuse the send's queue only after the
         // send: asked here, before each attempt, it refuses the call with nothing more sent, so
         // that a caller's retry cannot add a transaction nobody will watch.
         if (txMonitorService.stopped()) {
-          throw TxMonitorStoppedException.refused(attempts);
+          verdict = TxMonitorStoppedException.refused(attempts);
+          throw verdict;
         }
         final var simulationFutures = transactionProcessor.simulateAndEstimate(Settlement.COMMITMENT, instructions);
         final int base64Length = simulationFutures.base64Length();
@@ -231,11 +234,13 @@ public class BaseInstructionService implements InstructionService {
           );
         } catch (final SendNeverLeftException neverLeft) {
           // The monitor's instance speaks for this attempt alone; the call's names the earlier ones.
-          throw neverLeft.inCall(attempts);
+          verdict = neverLeft.inCall(attempts);
+          throw verdict;
         } catch (final TxMonitorStoppedException stopped) {
           // A monitor that reports its stop by throwing, rather than through the queued future.
           attempts.add(new TxAttempt(sig, blockHeight, TxAttempt.Status.PENDING, ledger.reading()));
-          throw TxMonitorStoppedException.pending(attempts, stopped.getCause());
+          verdict = TxMonitorStoppedException.pending(attempts, stopped.getCause());
+          throw verdict;
         }
 
         final TransactionError error;
@@ -264,10 +269,10 @@ public class BaseInstructionService implements InstructionService {
             // future is the monitor's too. Either way there is no rebuild: the transaction may
             // still land.
             attempts.add(new TxAttempt(sig, blockHeight, TxAttempt.Status.PENDING, ledger.reading()));
-            if (completion.getCause() instanceof TxMonitorStoppedException stopped) {
-              throw TxMonitorStoppedException.pending(attempts, stopped.getCause());
-            }
-            throw OutcomeUnknownException.of(attempts, completion.getCause());
+            verdict = completion.getCause() instanceof TxMonitorStoppedException stopped
+                ? TxMonitorStoppedException.pending(attempts, stopped.getCause())
+                : OutcomeUnknownException.of(attempts, completion.getCause());
+            throw verdict;
           }
           if (sigStatus == null) {
             // A rebuild re-simulates, re-prices and takes a new block hash; a refusal tied to the
@@ -280,7 +285,8 @@ public class BaseInstructionService implements InstructionService {
             );
             if (!reading.accepted()) {
               attempts.add(attempt);
-              throw SendNotAcceptedException.of(attempts);
+              verdict = SendNotAcceptedException.of(attempts);
+              throw verdict;
             }
             if (++retries >= maxRetriesAfterExpired) {
               attempts.add(attempt);
@@ -353,18 +359,31 @@ public class BaseInstructionService implements InstructionService {
           );
         }
       } catch (final Throwable failure) {
-        // An interrupt names nothing, as before; an Error is no verdict; a verdict built above
-        // already holds every attempt. The rethrow is precise: the body declares only
-        // InterruptedException, so a checked exception a collaborator threw past its signature
-        // propagates unchanged.
-        if (failure instanceof InterruptedException
-            || failure instanceof Error
-            || failure instanceof PublicationException) {
+        // The verdict this call built above, from the await, the queued future, the ledger or
+        // its own stop check, passes as it is: it already holds every attempt. Matched by
+        // identity, since a hook, a processor or a monitor can throw a verdict of its own, which
+        // speaks for its own transaction, never for this call's.
+        if (failure == verdict) {
+          throw verdict;
+        }
+        // An interrupt names nothing, as before, and an Error is no verdict. The rethrow is
+        // precise: the body declares only InterruptedException, so a checked exception a
+        // collaborator threw past its signature propagates unchanged.
+        if (failure instanceof InterruptedException || failure instanceof Error) {
           throw failure;
+        }
+        // A never-left verdict thrown before this attempt's send names the transaction it says
+        // never left, and any a nested call made; the call's own instance puts every earlier
+        // attempt of this call ahead of them, whatever may land.
+        // Thrown once the send is dispatched, it cannot vouch for that transaction, which only
+        // the await can, and is a failure like any other below.
+        if (sendContext == null && failure instanceof SendNeverLeftException neverLeft) {
+          throw neverLeft.inCall(attempts);
         }
         // A failure is wrapped exactly when something the call sent may still land, so that a
         // bare one means nothing can: a hook, signing or simulation failure before any send, or
-        // on a rebuild after attempts that were all verified expired, propagates as it is.
+        // on a rebuild after attempts that were all verified expired, propagates as it is, a
+        // verdict a collaborator threw included.
         if (sendContext == null && attempts.stream().noneMatch(TxAttempt::mayStillLand)) {
           throw failure;
         }

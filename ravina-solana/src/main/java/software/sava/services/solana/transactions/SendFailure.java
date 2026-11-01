@@ -110,10 +110,17 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
     /// as [Reason#UNAUTHORIZED] (a 403 is a plan, key or allow-list refusal that pacing does not
     /// fix, though `HttpErrorTracker` docks capacity for it as a rate limit), 429 as
     /// [Reason#RATE_LIMITED], a 5xx as [Reason#SERVER_ERROR]; a 408, a gateway's own timeout, is
-    /// decided then, between [Reason#UNANSWERED] and [Reason#REFUSED]. Until then
-    /// `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pins this coarse
-    /// reading against sava-rpc's own throws, so the refinement changes a test, not silently a
-    /// behaviour.
+    /// decided then, between [Reason#UNANSWERED] and [Reason#REFUSED], and an
+    /// `HttpResponseException` with a suppressed failure is a body sava-rpc could not read. The
+    /// bump does not ask for that refinement by itself: the coarse test goes on matching, and
+    /// `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient`, which pins this
+    /// reading against sava-rpc's own throws, keeps every value. The sentinel beside it,
+    /// `theTypedStatusesAreNotYetOnTheModulePath`, is what fails then. The bump also reclassifies
+    /// two cases that pin does not cover: an `error` member that is not a readable object, and a
+    /// body the parser cannot read, which escape as the parser's own exception here and read as
+    /// [Reason#UNANSWERED], become `HttpResponseException`s, refused; and a date-valued
+    /// `retry-after`, whose `NumberFormatException` reads as unanswered here, stops throwing and
+    /// leaves the server's JSON-RPC error to be read. Neither changes `mayStillLand`.
     static Refused ofSavaRpc(final Throwable failure) {
       if (failure instanceof JsonRpcException rpcException) {
         return new Refused(

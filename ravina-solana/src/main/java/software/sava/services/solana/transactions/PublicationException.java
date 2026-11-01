@@ -18,8 +18,13 @@ import java.util.List;
 /// last attempt reached a server. [TxMonitorStoppedException]: the transaction monitor's loop
 /// stopped. [OutcomeUnknownException]: another failure ended the call while something it sent
 /// may still land. A `TxMonitorService` throws, or fails a queued future with, an instance of
-/// its own that speaks for its one transaction alone; `processInstructions` never rethrows one,
-/// it throws its own.
+/// its own that speaks for its one transaction alone; `processInstructions` never rethrows the
+/// one the await or the queued future hands it, it throws its own. It passes through only the
+/// verdict it built: one a hook, a processor or a monitor throws elsewhere is a failure like
+/// any other, the cause of an [OutcomeUnknownException] while something the call sent may still
+/// land and propagated as it is while nothing can, except a [SendNeverLeftException] thrown in
+/// an attempt before that attempt's send, which the call throws again with its earlier attempts
+/// ahead of the ones it names.
 ///
 /// Rebuild on one whose `mayStillLand()` is false, pacing by its `reason()`; on one whose
 /// `mayStillLand()` is true, do not, until the settled block height has passed

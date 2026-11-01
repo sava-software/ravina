@@ -225,7 +225,8 @@ public interface InstructionService {
   /// land. Once that is not so, after a send and until its status settles, and
   /// on a rebuild with `verifyExpired` false after an attempt whose status was
   /// only missing, the call ends without a result only by throwing a
-  /// [PublicationException], whose accessors are the whole verdict:
+  /// [PublicationException], short of an interrupt or an `Error`, which
+  /// propagate as themselves; its accessors are the whole verdict:
   /// `mayStillLand()` says whether anything the call sent may still land,
   /// `landable()` names each such transaction and `landableUntil()` the last
   /// block height at which any of them can, `reason()` says why the call
@@ -253,18 +254,24 @@ public interface InstructionService {
   /// ended the call while a transaction it sent may still land, that failure
   /// its cause: an answer carrying another signature, a signature already
   /// awaited with weaker settings, a monitor failure other than its stop, a
-  /// hook or signing failure on such a rebuild. Every other failed send may
-  /// still land, a refusal by a server included, so it is awaited and
-  /// monitored like an accepted one, under the `verifyExpired` rule below. A
-  /// `RuntimeException` that is not a `PublicationException` therefore means
-  /// nothing this call sent can land, given a `TransactionProcessor` whose
-  /// `signAndSendTx` throws only before its send is dispatched, as ravina's
-  /// does. Rebuild on such an exception, or on a `PublicationException` whose
-  /// `mayStillLand()` is false, pacing by its `reason()`; on one whose
-  /// `mayStillLand()` is true, do not, until the settled block height has
-  /// passed `landableUntil()` by the expiration monitor's settle buffer and a
-  /// history-searching `getSignatureStatuses` read of `landable()` says what
-  /// landed. An interrupt carries no verdict, and what was in flight may land.
+  /// hook or signing failure on such a rebuild. A verdict a hook or another
+  /// collaborator throws is not the call's own: it is the cause of an
+  /// `OutcomeUnknownException` while something the call sent may still land,
+  /// and propagates as it is while nothing can, except a
+  /// `SendNeverLeftException` thrown in an attempt before that attempt's send,
+  /// which the call throws again with its earlier attempts ahead of the ones it
+  /// names. Every other failed send may still land, a refusal by a server
+  /// included, so it is awaited and monitored like an accepted one, under the
+  /// `verifyExpired` rule below. A `RuntimeException` that is not a
+  /// `PublicationException` therefore means nothing this call sent can land,
+  /// given a `TransactionProcessor` whose `signAndSendTx` throws only before
+  /// its send is dispatched, as ravina's does. Rebuild on such an exception, or
+  /// on a `PublicationException` whose `mayStillLand()` is false, pacing by its
+  /// `reason()`; on one whose `mayStillLand()` is true, do not, until the
+  /// settled block height has passed `landableUntil()` by the expiration
+  /// monitor's settle buffer and a history-searching `getSignatureStatuses`
+  /// read of `landable()` says what landed. An interrupt or an `Error` carries
+  /// no verdict, and what was in flight may land.
   /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every

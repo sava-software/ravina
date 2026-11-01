@@ -945,6 +945,26 @@ final class TxCommitmentMonitorServiceTests {
     assertEquals(List.of(first), publisher.failedOver);
   }
 
+  /// A failover that fails to connect on its way out may still have been dispatched, so even
+  /// after a first send that never left the transaction is awaited, and its ledger holds
+  /// nothing but connect failures: a not-accepted verdict over it reads as unreachable, while
+  /// its type, not its reason, says the sends were awaited.
+  @Test
+  void aFailoverThatFailsToConnectOnItsWayOutIsAwaitedAndReadsUnreachable() throws InterruptedException {
+    final var service = service();
+    final var first = new SendTxContext(
+        null, CompletableFuture.failedFuture(new ConnectException("Connection refused")), null, null, 1, 0);
+    publisher.failOverFailure = new ConnectException("failover refused on its way out");
+    final var ledger = new SendLedger("sig");
+
+    assertNull(service.validateResponse(first, "sig", ledger), "awaited, since the failover may have been dispatched");
+    final var reading = ledger.reading();
+    assertEquals(Set.of(UNREACHABLE), reading.failures());
+
+    final var notAccepted = SendNotAcceptedException.of(List.of(new TxAttempt("sig", 1, TxAttempt.Status.EXPIRED, reading)));
+    assertEquals(PublicationException.Reason.UNREACHABLE, notAccepted.reason());
+  }
+
   /// An interrupt out of a failover is the caller's: it propagates, as one out of the first
   /// send's wait does, instead of being taken for a failover that failed on its way out.
   @Test

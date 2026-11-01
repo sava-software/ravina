@@ -12,6 +12,10 @@ import java.util.List;
 /// [Status#MISSING] or [Status#PENDING] was sent and its outcome is not settled, so it may still
 /// land until the settled block height has passed its `lastValidBlockHeight`, and a rebuild in
 /// that window can execute the instructions twice.
+///
+/// Equality is component-wise, through the reading to its `SendFailure`s, whose failures
+/// compare by identity, so two attempts are equal only when their sends carry the same failure
+/// instances; a verdict's message names the attempt it speaks for by identity, not equality.
 public record TxAttempt(String sig, long lastValidBlockHeight, Status status, SendLedger.Reading sends) {
 
   /// What a transaction's status came to by the time the call ended.

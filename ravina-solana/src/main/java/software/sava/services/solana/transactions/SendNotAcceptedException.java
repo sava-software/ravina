@@ -21,7 +21,11 @@ import java.util.List;
 ///
 /// [#reason()] is the first in [Reason] declaration order among the classes of the last
 /// attempt's failed sends, its `sends().failures()`, so that a key to fix is told from a rate to
-/// pace, or [Reason#UNANSWERED] when no send failed. The cause is the last failed send's
+/// pace, or [Reason#UNANSWERED] when no send failed. It is [Reason#UNREACHABLE] when every send
+/// of the attempt failed to connect and the attempt was awaited all the same, as one is whose
+/// failover failed to connect on its way out, since it may have been dispatched: `reason()`
+/// alone never establishes that nothing left; the type does, and this one says the sends were
+/// awaited. The cause is the last failed send's
 /// failure, with the first attached as suppressed when it is another instance. A `null` cause
 /// means every send went unanswered or was answered with another signature. The exception does
 /// not claim that the provider refused: a send that timed out was not accepted either.

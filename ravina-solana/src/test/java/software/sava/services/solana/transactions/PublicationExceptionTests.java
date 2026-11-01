@@ -138,6 +138,19 @@ final class PublicationExceptionTests {
     }
   }
 
+  /// A not-accepted verdict reads as unreachable when every send of its attempt failed to
+  /// connect and the attempt was awaited all the same, as one is whose failover failed to
+  /// connect on its way out: the reason alone never says nothing left, the type does.
+  @Test
+  void aNotAcceptedVerdictCanReadAsUnreachable() {
+    final var sends = new SendLedger.Reading(3, false, null, null, Set.of(UNREACHABLE));
+
+    final var notAccepted = SendNotAcceptedException.of(List.of(new TxAttempt("c", 7, EXPIRED, sends)));
+
+    assertEquals(UNREACHABLE, notAccepted.reason());
+    assertFalse(notAccepted.mayStillLand());
+  }
+
   /// An unknown outcome is one while something sent may still land, so the factory refuses
   /// attempts none of which may, and names the pending attempt the failure came after, or
   /// says the failure came before a new send.

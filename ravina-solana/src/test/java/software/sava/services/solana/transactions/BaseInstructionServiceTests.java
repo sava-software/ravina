@@ -405,6 +405,9 @@ final class BaseInstructionServiceTests {
     /// When set, queueResult throws it, as the real monitor refuses a signature already
     /// awaited with weaker settings.
     RuntimeException queueRefusal;
+    /// When set, what queueResult throws for the queue of each number, counted from one, or
+    /// null to answer it: a monitor wrapping another that throws on the caller's thread.
+    IntFunction<RuntimeException> queueRefusalScript;
     /// When set, every queued future fails with it: a failure the monitor forwarded from
     /// another waiter's future, rather than its own stop.
     Throwable queueFailure;
@@ -457,6 +460,12 @@ final class BaseInstructionServiceTests {
       }
       if (queueRefusal != null) {
         throw queueRefusal;
+      }
+      if (queueRefusalScript != null) {
+        final var refusal = queueRefusalScript.apply(queueResultCalls);
+        if (refusal != null) {
+          throw refusal;
+        }
       }
       if (sharedQueuedFuture != null) {
         return sharedQueuedFuture;
@@ -2063,6 +2072,205 @@ final class BaseInstructionServiceTests {
     assertEquals(List.of(TxAttempt.Status.PENDING), statuses(unknown.attempts()));
     assertEquals(unknown.attempts(), unknown.landable());
     assertEquals(1, processor.simulatedBatches.size(), "a failure the monitor forwarded is not rebuilt");
+  }
+
+  // ------------------------------------------------- foreign verdicts --
+
+  /// A never-left verdict the call did not build, here from a hook on a rebuild after an
+  /// attempt whose status was only missing, speaks for its own transaction alone: the call
+  /// throws an instance of its own, naming that earlier attempt as landable.
+  @Test
+  void aForeignNeverLeftFromAHookOnARebuildNamesTheEarlierAttempt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var connect = new ConnectException("Connection refused");
+    final var reading = new SendLedger.Reading(
+        1, false, SendFailure.of(connect), SendFailure.of(connect), Set.of(PublicationException.Reason.UNREACHABLE)
+    );
+    final var hooks = new ArrayList<SendNeverLeftException>();
+    final var hookCalls = new AtomicInteger();
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        tx -> {
+          if (hookCalls.getAndIncrement() == 1) {
+            final var neverLeft = SendNeverLeftException.of("hookSig", 77, reading, connect, null);
+            hooks.add(neverLeft);
+            throw neverLeft;
+          }
+          return tx;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    ));
+
+    assertNotSame(hooks.getFirst(), thrown, "the call's instance, not the hook's");
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.NEVER_LEFT), statuses(thrown.attempts()));
+    assertEquals(List.of(thrown.attempts().getFirst()), thrown.landable());
+    assertEquals(monitor.sigs.getFirst(), thrown.landable().getFirst().sig());
+    assertEquals(1_000_300L, thrown.landableUntil());
+    assertSame(connect, thrown.getCause());
+    assertEquals(2, processor.simulatedBatches.size());
+    assertEquals(1, processor.sentTransactions.size(), "the rebuild sent nothing");
+  }
+
+  /// A stop the call did not build, thrown on the caller's thread by a monitor that wraps
+  /// another, after an attempt whose status was only missing: no verdict of the call's, so it is
+  /// the cause of an unknown outcome naming both transactions the call sent.
+  @Test
+  void aForeignStopFromTheQueueAfterAMissingStatusIsAnUnknownOutcome() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var foreignStop = new TxMonitorStoppedException("wrappedSig", 77, new IllegalStateException("inner monitor stopped"));
+    monitor.queueRefusalScript = queue -> queue == 2 ? foreignStop : null;
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    ));
+
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown, "a foreign stop is not the call's verdict");
+    assertSame(foreignStop, unknown.getCause());
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.PENDING), statuses(unknown.attempts()));
+    assertEquals(unknown.attempts(), unknown.landable());
+    assertEquals(monitor.sigs.getFirst(), unknown.landable().getFirst().sig());
+    assertEquals(1_000_300L, unknown.landableUntil());
+  }
+
+  /// A never-left verdict a nested call built, escaping from a hook on a rebuild, names that
+  /// call's attempts, one of which may still land: the outer call's instance keeps every one of
+  /// them after its own, so nothing either call sent drops out of what may land.
+  @Test
+  void aCallLevelNeverLeftFromAHookKeepsEveryAttemptItNames() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var connect = new ConnectException("Connection refused");
+    final var reading = new SendLedger.Reading(
+        1, false, SendFailure.of(connect), SendFailure.of(connect), Set.of(PublicationException.Reason.UNREACHABLE)
+    );
+    final var nestedEarlier = new TxAttempt("nestedEarlierSig", 2_000_000L, TxAttempt.Status.MISSING, SendLedger.Reading.NONE);
+    // What a nested call's verdict carries: its earlier attempt, which may still land, then the
+    // one that never left.
+    final var nested = SendNeverLeftException.of("nestedSig", 77, reading, connect, null).inCall(List.of(nestedEarlier));
+    final var hookCalls = new AtomicInteger();
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        tx -> {
+          if (hookCalls.getAndIncrement() == 1) {
+            throw nested;
+          }
+          return tx;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    ));
+
+    assertNotSame(nested, thrown);
+    assertEquals(
+        List.of(TxAttempt.Status.MISSING, TxAttempt.Status.MISSING, TxAttempt.Status.NEVER_LEFT),
+        statuses(thrown.attempts())
+    );
+    assertEquals(List.of(monitor.sigs.getFirst(), "nestedEarlierSig"), sigs(thrown.landable()));
+    assertEquals(2_000_000L, thrown.landableUntil());
+    assertSame(connect, thrown.getCause());
+  }
+
+  /// A foreign never-left verdict on the first attempt is still the call's to throw, as an
+  /// instance of its own, whatever may land: here nothing can.
+  @Test
+  void aForeignNeverLeftOnTheFirstAttemptIsThrownAsTheCallsOwn() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var connect = new ConnectException("Connection refused");
+    final var reading = new SendLedger.Reading(
+        1, false, SendFailure.of(connect), SendFailure.of(connect), Set.of(PublicationException.Reason.UNREACHABLE)
+    );
+    final var hookThrew = SendNeverLeftException.of("hookSig", 77, reading, connect, null);
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        _ -> {
+          throw hookThrew;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertNotSame(hookThrew, thrown);
+    assertEquals(hookThrew.attempts(), thrown.attempts());
+    assertFalse(thrown.mayStillLand());
+    assertTrue(processor.sentTransactions.isEmpty());
+  }
+
+  /// Any other verdict a collaborator throws while nothing the call sent can land propagates
+  /// as it is, as any other failure does then: the call has nothing to add to it.
+  @Test
+  void aForeignStopWithNothingLandablePropagatesAsItIs() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var foreignStop = new TxMonitorStoppedException("hookSig", 77, null);
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        _ -> {
+          throw foreignStop;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertSame(foreignStop, thrown);
+  }
+
+  /// A never-left verdict thrown once the send is dispatched, here by a monitor's own queue on
+  /// the caller's thread, cannot vouch for the dispatched transaction, which the await found
+  /// may have left: it is the cause of an unknown outcome naming that transaction as pending.
+  @Test
+  void aForeignNeverLeftAfterTheSendIsTheCauseOfAnUnknownOutcome() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var connect = new ConnectException("Connection refused");
+    final var reading = new SendLedger.Reading(
+        1, false, SendFailure.of(connect), SendFailure.of(connect), Set.of(PublicationException.Reason.UNREACHABLE)
+    );
+    final var foreign = SendNeverLeftException.of("wrappedSig", 77, reading, connect, null);
+    monitor.queueRefusalScript = _ -> foreign;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(OutcomeUnknownException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertSame(foreign, thrown.getCause());
+    assertEquals(List.of(TxAttempt.Status.PENDING), statuses(thrown.attempts()));
+    assertEquals(monitor.sigs.getFirst(), thrown.attempts().getFirst().sig());
+    assertTrue(thrown.mayStillLand());
+  }
+
+  /// The rethrow is precise: a checked exception a hook throws past its signature on the first
+  /// attempt, with nothing landable, escapes as itself, neither wrapped nor declared.
+  @Test
+  void aCheckedExceptionFromAFirstAttemptsHookEscapesAsItself() {
+    final var processor = new FakeTxProcessor();
+    final var failure = new IOException("hook broke");
+    final var service = service(processor, new FakeMonitor());
+
+    assertSame(failure, assertThrows(IOException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        tx -> {
+          throwUnchecked(failure);
+          return tx;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    )));
+    assertTrue(processor.sentTransactions.isEmpty());
   }
 
   /// An interrupt carries no verdict: it propagates as itself, even after a send.

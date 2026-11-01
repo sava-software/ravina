@@ -191,6 +191,23 @@ final class SendFailureTests {
     assertEquals(6, httpClient.requests);
   }
 
+  /// The sentinel for the refinement: sava-rpc's typed HTTP failures change no value of the
+  /// pin above, because `HttpResponseException` extends the `UncheckedIOException` over an
+  /// `UnknownServiceException` the coarse test matches, so this is the test that fails once the
+  /// catalog brings them onto the module path.
+  @Test
+  void theTypedStatusesAreNotYetOnTheModulePath() {
+    assertThrows(
+        NoSuchMethodException.class,
+        () -> JsonRpcException.class.getMethod("httpStatus"),
+        "sava-rpc now types its HTTP failures: refine SendFailure.Refused.ofSavaRpc to read"
+            + " HttpResponseException.statusCode() and JsonRpcException.httpStatus() into httpStatus, and"
+            + " Refused.reason() to read 401 and 403 as UNAUTHORIZED, 429 as RATE_LIMITED and a 5xx as"
+            + " SERVER_ERROR (an HttpResponseException with a suppressed failure is an unreadable body),"
+            + " then update savaRpcStatusFailuresClassifyThroughTheRealClient and delete this test"
+    );
+  }
+
   private record Answer(int status, String body, Map<String, List<String>> headers) {
   }
 

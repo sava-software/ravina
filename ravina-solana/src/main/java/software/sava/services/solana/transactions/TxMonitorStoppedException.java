@@ -12,9 +12,11 @@ import java.util.List;
 ///
 /// The monitor's instance, the one a future it held fails with, names that one transaction as
 /// a `PENDING` attempt whose `sends` is `SendLedger.Reading.NONE`, since a monitor never reads a
-/// caller's ledger. `processInstructions` never rethrows it: it throws an instance of its own,
-/// whose attempts are the call's, the pending one last with the sends its ledger recorded, and
-/// whose cause is the failure that stopped the loop, none for an interrupt. A call that finds
+/// caller's ledger. `processInstructions` never rethrows the instance the await or the queued
+/// future hands it: it throws an instance of its own, whose attempts are the call's, the pending
+/// one last with the sends its ledger recorded, and whose cause is the failure that stopped the
+/// loop, none for an interrupt. An instance thrown anywhere else, by a hook or by a monitor's
+/// `queueResult` itself, is no verdict of the call's (see `PublicationException`). A call that finds
 /// the monitor stopped before an attempt is refused with nothing more sent, and carries no
 /// cause; [#mayStillLand()] then says whether an earlier attempt of the call may still land,
 /// which is so only with `verifyExpired` false, after a missing status.
