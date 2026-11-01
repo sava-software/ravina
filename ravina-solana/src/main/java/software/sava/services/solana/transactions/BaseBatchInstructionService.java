@@ -69,6 +69,15 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     // A batch of one item over a v1 limit has no smaller batch to try, so its result, the size
     // limit error, is returned and ends the run like any other error.
     if (transactionResult.exceedsSizeLimit() && batchItems > 1) {
+      // A rebuild over a limit after an attempt whose status was only missing: the smaller
+      // batches would resend these instructions while that attempt may still land, and both
+      // would execute, so the batch ends here, naming it, instead of shrinking.
+      if (!transactionResult.landable().isEmpty()) {
+        throw OutcomeUnknownException.of(transactionResult.attempts(), new IllegalStateException(String.format(
+            "A rebuild of %d %s instructions exceeds a v1 transaction limit while an earlier attempt of them may still land, so the batch is not shrunk.",
+            batch.size(), logContext
+        )));
+      }
       logger.log(WARNING, String.format("""
                   Reducing %s batch size from %d, because the transaction exceeds a v1 transaction limit. [instructions=%d] [base64Length=%d]
                   """,

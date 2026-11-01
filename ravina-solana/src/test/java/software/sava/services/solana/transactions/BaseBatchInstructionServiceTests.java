@@ -259,6 +259,60 @@ final class BaseBatchInstructionServiceTests {
     assertTrue(results.stream().allMatch(r -> r.error() == null));
   }
 
+  /// A rebuild over a v1 limit after an attempt whose status was only missing: shrinking would
+  /// resend these instructions in smaller batches while that attempt may still land, and both
+  /// would execute. The batch call ends instead, naming the attempt that may land. Ravina's own
+  /// processor decides the limits from the instructions and the fee payer alone, so its rebuild
+  /// never exceeds one the sent attempt did not; the scripted simulator stands for a processor
+  /// whose check can differ between two simulations of the same instructions.
+  @Test
+  void aRebuildOverALimitAfterAMissingStatusEndsTheBatchInsteadOfShrinking() {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor, 2, 1);
+    final var ixs = instructions(2);
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, false, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+
+    assertTrue(thrown.settled().isEmpty());
+    assertTrue(thrown.mayStillLand());
+    final var verdict = assertInstanceOf(OutcomeUnknownException.class, thrown.publicationFailure().orElseThrow());
+    assertEquals(List.of(TxAttempt.Status.MISSING), statuses(verdict.attempts()));
+    assertEquals(monitor.sigs.getFirst(), verdict.landable().getFirst().sig());
+    assertEquals(FRESH_BLOCK_HASH.lastValidBlockHeight(), verdict.landableUntil());
+    assertInstanceOf(IllegalStateException.class, verdict.getCause());
+    assertEquals(ixs, thrown.failedInstructions());
+    assertEquals(List.of(2, 2), batchSizes(processor), "no smaller batch is simulated");
+    assertEquals(1, processor.sentTransactions.size(), "nothing more is sent");
+    assertEquals(2, service.batchSize, "the batch size is not reduced");
+  }
+
+  /// With nothing that can land, the same rebuild over a limit shrinks the batch as before:
+  /// the first attempt was verified expired.
+  @Test
+  void aRebuildOverALimitAfterAVerifiedExpiryStillShrinks() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor, 2, 1);
+
+    final var results = service.batchProcess(
+        1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    assertEquals(List.of(2, 2, 1, 1), batchSizes(processor));
+    assertEquals(2, results.size());
+    assertTrue(results.stream().allMatch(r -> r.error() == null && r.landable().isEmpty()));
+    assertEquals(1, service.batchSize);
+  }
+
   @Test
   void aReduceSizeGreaterThanOneShrinksFaster() throws InterruptedException {
     final var processor = new FakeTxProcessor();

@@ -54,8 +54,12 @@ public interface BatchInstructionService extends InstructionService {
   /// Processes `instructions` in consecutive batches of the service's batch size, each through
   /// `processInstructions`, and returns one result per batch, in order. A batch whose
   /// transaction exceeds a v1 limit is tried again at a size smaller by the reduce size, never
-  /// below one, and a batch of one over a v1 limit is a result with the size limit error. The
-  /// run stops at the first result with an error, which is returned last.
+  /// below one, and a batch of one over a v1 limit is a result with the size limit error. A
+  /// shrink never discards an attempt that may still land: a rebuild over a limit after an
+  /// attempt whose status was only missing ends the run with a [BatchProcessException] whose
+  /// verdict, an `OutcomeUnknownException`, names that attempt, since smaller batches would
+  /// resend instructions it may still execute. The run stops at the first result with an
+  /// error, which is returned last, its `landable()` naming any attempt that may still land.
   /// The service refuses a batch size or a reduce size below one. A batch that fails
   /// with an exception, checked or not, ends the run with a [BatchProcessException] that
   /// carries the results of the batches settled before it, which are never run again, the
