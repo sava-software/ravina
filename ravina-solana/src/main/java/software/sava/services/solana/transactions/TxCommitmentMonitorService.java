@@ -9,9 +9,6 @@ import software.sava.services.solana.epoch.EpochInfoService;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 
-import java.net.ConnectException;
-import java.net.UnknownHostException;
-import java.net.http.HttpConnectTimeoutException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -147,7 +144,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
       return null;
     }
     if (failedOver == null) {
-      unanswered(sig, failure, null);
+      unanswered(sendTxContext, sig, ledger, failure, null);
       return null;
     }
     ledger.add(failedOver.sendFuture());
@@ -165,7 +162,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     if (secondPreflight != null) {
       return secondPreflight;
     }
-    unanswered(sig, second, failure);
+    unanswered(sendTxContext, sig, ledger, second, failure);
     return null;
   }
 
@@ -175,19 +172,20 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   /// polling, resends of the same bytes and expiry check settle it either way. Thrown instead,
   /// it would leave a caller free to rebuild under a new block hash while the original can
   /// still land, and both would execute. When no attempt left, nothing is in flight, and the
-  /// last failure is thrown with the first attached.
-  private static void unanswered(final String sig, final Throwable last, final Throwable first) {
+  /// send is thrown as [SendNeverLeftException], the last failure its cause, with the first
+  /// attached when it is another.
+  private static void unanswered(final SendTxContext sendTxContext,
+                                 final String sig,
+                                 final SendLedger ledger,
+                                 final Throwable last,
+                                 final Throwable first) {
     if (mayStillLand(last) || first != null && mayStillLand(first)) {
       logger.log(WARNING, String.format(
           "Send of %s failed without proof that it never left; awaiting its status, since it may still land.", sig
       ), last);
       return;
     }
-    final var thrown = new RuntimeException(last);
-    if (first != null) {
-      thrown.addSuppressed(first);
-    }
-    throw thrown;
+    throw SendNeverLeftException.of(sig, sendTxContext.blockHeight(), ledger.reading(), last, first);
   }
 
   /// Whether a failed send may have been forwarded, so that its transaction may still land.
@@ -204,11 +202,10 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   /// caller rebuild and execute twice. The three that read `false` assume the JDK client's
   /// defaults: a client that follows 307 or 308 redirects, or one run with
   /// `jdk.httpclient.enableAllMethodRetry`, can report a failed connection after an earlier hop
-  /// or attempt already received the request.
+  /// or attempt already received the request. The classification has one home,
+  /// [SendFailure#of], and this is its `NeverConnected` arm.
   static boolean mayStillLand(final Throwable failure) {
-    return !(failure instanceof ConnectException
-        || failure instanceof HttpConnectTimeoutException
-        || failure instanceof UnknownHostException);
+    return !(SendFailure.of(failure) instanceof SendFailure.NeverConnected);
   }
 
   /// A send's answer is the signature it was given; anything else is a wrong response.

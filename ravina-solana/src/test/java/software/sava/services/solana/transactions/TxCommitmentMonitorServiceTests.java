@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,6 +54,9 @@ import static software.sava.rpc.json.http.request.Commitment.CONFIRMED;
 import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 import static software.sava.services.solana.transactions.BaseTxMonitorServiceTests.*;
+import static software.sava.services.solana.transactions.PublicationException.Reason.SERVER_ERROR;
+import static software.sava.services.solana.transactions.PublicationException.Reason.UNANSWERED;
+import static software.sava.services.solana.transactions.PublicationException.Reason.UNREACHABLE;
 import static software.sava.services.solana.transactions.TxCommitmentMonitorService.mayStillLand;
 
 /// Drives the commitment monitor's bookkeeping directly: send-response
@@ -580,7 +584,7 @@ final class TxCommitmentMonitorServiceTests {
     final var cause = new ConnectException("Connection refused");
     final var context = new SendTxContext(null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(context, "sig"));
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.validateResponse(context, "sig"));
     assertSame(cause, thrown.getCause());
   }
 
@@ -604,7 +608,7 @@ final class TxCommitmentMonitorServiceTests {
     final var ledger = new SendLedger("sig");
 
     assertNull(service.validateResponse(context, "sig", ledger), "a matching signature is not an error");
-    assertEquals(new SendLedger.Reading(1, true, null, null), ledger.reading());
+    assertEquals(new SendLedger.Reading(1, true, null, null, Set.of()), ledger.reading());
   }
 
   /// The message names the offending endpoint redacted: a hosted RPC provider's key sits in its
@@ -677,7 +681,7 @@ final class TxCommitmentMonitorServiceTests {
     final var context = new SendTxContext(
         null, CompletableFuture.failedFuture(cause), null, null, 1, 0);
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(context, "sig"));
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.validateResponse(context, "sig"));
     assertSame(cause, thrown.getCause());
   }
 
@@ -694,7 +698,10 @@ final class TxCommitmentMonitorServiceTests {
 
     assertNull(service.validateResponse(first, "sig", ledger), "the second response settled the send");
     assertEquals(List.of(first), publisher.failedOver);
-    assertEquals(new SendLedger.Reading(2, true, refusal, refusal), ledger.reading());
+    assertEquals(
+        new SendLedger.Reading(2, true, SendFailure.of(refusal), SendFailure.of(refusal), Set.of(SERVER_ERROR)),
+        ledger.reading()
+    );
   }
 
   /// The client's response deadline cancels an exchange that did not answer;
@@ -719,10 +726,14 @@ final class TxCommitmentMonitorServiceTests {
 
     final var ledger = new SendLedger("sig");
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig", ledger));
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.validateResponse(first, "sig", ledger));
     assertSame(cause, thrown.getCause());
     assertEquals(List.of(first), publisher.failedOver, "the publisher was asked, once");
-    assertEquals(new SendLedger.Reading(1, false, cause, cause), ledger.reading(), "a declined failover is no send");
+    assertEquals(
+        new SendLedger.Reading(1, false, SendFailure.of(cause), SendFailure.of(cause), Set.of(UNREACHABLE)),
+        ledger.reading(),
+        "a declined failover is no send"
+    );
   }
 
   /// Neither send left: the second failure is thrown, carrying the first.
@@ -736,11 +747,39 @@ final class TxCommitmentMonitorServiceTests {
 
     final var ledger = new SendLedger("sig");
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig", ledger));
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.validateResponse(first, "sig", ledger));
     assertSame(secondFailure, thrown.getCause());
     assertArrayEquals(new Throwable[]{firstFailure}, thrown.getSuppressed(), "the first failure travels with it");
     assertEquals(1, publisher.failedOver.size(), "one failover, never a chain of them");
-    assertEquals(new SendLedger.Reading(2, false, firstFailure, secondFailure), ledger.reading());
+    assertEquals(
+        new SendLedger.Reading(2, false, SendFailure.of(firstFailure), SendFailure.of(secondFailure), Set.of(UNREACHABLE)),
+        ledger.reading()
+    );
+  }
+
+  /// A send that never left, the first send and its failover both failing to connect, is
+  /// signalled by a type of its own, not a bare `RuntimeException` a caller cannot tell from any
+  /// other failure.
+  @Test
+  void aSendThatNeverLeftIsSignalledByItsOwnType() {
+    final var service = service();
+    final var firstFailure = new ConnectException("Connection refused");
+    final var first = new SendTxContext(null, CompletableFuture.failedFuture(firstFailure), null, null, 1, 0);
+    final var secondFailure = new HttpConnectTimeoutException("HTTP connect timed out");
+    publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
+    final var ledger = new SendLedger("sig");
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig", ledger));
+    assertNotEquals(RuntimeException.class, thrown.getClass(), "a send that never left is signalled by its own type");
+    final var neverLeft = assertInstanceOf(SendNeverLeftException.class, thrown);
+    assertSame(secondFailure, neverLeft.getCause());
+    assertArrayEquals(new Throwable[]{firstFailure}, neverLeft.getSuppressed());
+    final var sends = new SendLedger.Reading(
+        2, false, new SendFailure.NeverConnected(firstFailure), new SendFailure.NeverConnected(secondFailure), Set.of(UNREACHABLE)
+    );
+    assertEquals(List.of(new TxAttempt("sig", 1, TxAttempt.Status.NEVER_LEFT, sends)), neverLeft.attempts());
+    assertFalse(neverLeft.mayStillLand(), "nothing of a send that never left is in flight");
+    assertEquals(PublicationException.Reason.UNREACHABLE, neverLeft.reason());
   }
 
   @Test
@@ -751,7 +790,7 @@ final class TxCommitmentMonitorServiceTests {
     final var secondFailure = new ConnectException("Connection refused");
     publisher.failOverResult = new SendTxContext(null, CompletableFuture.failedFuture(secondFailure), null, null, 1, 0);
 
-    final var thrown = assertThrows(RuntimeException.class, () -> service.validateResponse(first, "sig"));
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.validateResponse(first, "sig"));
     assertSame(secondFailure, thrown.getCause());
     assertArrayEquals(new Throwable[]{firstFailure}, thrown.getSuppressed());
   }
@@ -850,7 +889,10 @@ final class TxCommitmentMonitorServiceTests {
     final var ledger = new SendLedger("sig");
 
     assertNull(service.validateResponse(first, "sig", ledger));
-    assertEquals(new SendLedger.Reading(2, false, neverLeft, reset), ledger.reading());
+    assertEquals(
+        new SendLedger.Reading(2, false, SendFailure.of(neverLeft), SendFailure.of(reset), Set.of(UNANSWERED, UNREACHABLE)),
+        ledger.reading()
+    );
   }
 
   /// A failover whose own exchange was cancelled is as unanswered as a first
@@ -885,8 +927,8 @@ final class TxCommitmentMonitorServiceTests {
     final var reading = ledger.reading();
     assertEquals(2, reading.attempted(), "a failover that could not be dispatched is an attempted send");
     assertFalse(reading.accepted());
-    assertInstanceOf(ConnectException.class, reading.firstFailure());
-    assertSame(dispatchFailure, reading.lastFailure());
+    assertInstanceOf(ConnectException.class, reading.firstFailure().failure());
+    assertSame(dispatchFailure, reading.lastFailure().failure());
   }
 
   /// A publisher written without checked exceptions can throw one out of its failover: that
@@ -1742,8 +1784,8 @@ final class TxCommitmentMonitorServiceTests {
     final var first = firstLedger.reading();
     assertEquals(2, first.attempted());
     assertFalse(first.accepted());
-    assertSame(failure, first.lastFailure());
-    assertSame(failure, secondLedger.reading().lastFailure());
+    assertSame(failure, first.lastFailure().failure());
+    assertSame(failure, secondLedger.reading().lastFailure().failure());
     assertEquals(contexts, List.copyOf(service.pendingTransactions.values()), "both contexts stay as they were");
     assertFalse(Thread.interrupted(), "only an interrupt sets the thread's flag again");
   }
@@ -1770,7 +1812,7 @@ final class TxCommitmentMonitorServiceTests {
     }
 
     assertTrue(flagSetAgain);
-    assertSame(interrupt, ledger.reading().lastFailure());
+    assertSame(interrupt, ledger.reading().lastFailure().failure());
     assertSame(context, service.pendingTransactions.firstEntry().getValue(), "the context stays for the next pass");
   }
 
@@ -1915,8 +1957,8 @@ final class TxCommitmentMonitorServiceTests {
     assertEquals(passes, publisher.retried.size());
     assertEquals(passes + 1, reading.attempted());
     assertFalse(reading.accepted());
-    assertSame(refusals.getFirst(), reading.firstFailure());
-    assertSame(refusals.getLast(), reading.lastFailure());
+    assertSame(refusals.getFirst(), reading.firstFailure().failure());
+    assertSame(refusals.getLast(), reading.lastFailure().failure());
     assertEquals(1, ledger.unread(), "only the unanswered first send is held");
 
     // The height moves past the block hash: the next pass hands the context off instead of

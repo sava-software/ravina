@@ -225,8 +225,10 @@ public interface TxMonitorService extends Worker {
   /// it either way, as they do an accepted send. Any failure a server answered, a 429 or a
   /// JSON-RPC error included, is such a failure, since the server may be a gateway that
   /// forwarded the send first. A failure is thrown only when no attempt reached a server,
-  /// because each connection never formed, so nothing is in flight; a response carrying
-  /// another signature is thrown as a wrong response.
+  /// because each connection never formed, so nothing is in flight: it is thrown as
+  /// [SendNeverLeftException], one attempt, whose `landable()` speaks for that transaction
+  /// alone. A response carrying another signature is thrown as a wrong response, an
+  /// `IllegalStateException`.
   ///
   /// An implementation must add each attempt to `ledger`: the first send, and the failover,
   /// or the failure that kept a failover from being dispatched, since a ledger left empty

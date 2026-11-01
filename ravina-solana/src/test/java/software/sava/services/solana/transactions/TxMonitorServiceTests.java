@@ -104,7 +104,7 @@ final class TxMonitorServiceTests {
   private static void assertFreshLedger(final SendLedger ledger) {
     assertNotNull(ledger);
     assertEquals("sig", ledger.sig());
-    assertEquals(new SendLedger.Reading(0, false, null, null), ledger.reading());
+    assertEquals(SendLedger.Reading.NONE, ledger.reading());
   }
 
   @Test

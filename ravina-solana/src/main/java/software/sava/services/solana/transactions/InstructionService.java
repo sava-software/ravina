@@ -222,10 +222,11 @@ public interface InstructionService {
   /// propagate to the caller, as does an `IllegalArgumentException` for an
   /// instruction that invokes the ComputeBudget program or a negative
   /// `maxLamportPriorityFee`. A publication failure propagates only when no
-  /// attempt reached a server, or one was answered with another signature; any
-  /// other failed send may still land, a refusal by a server included, so it is
-  /// awaited and monitored like an accepted one, under the `verifyExpired` rule
-  /// below (see `TxMonitorService.validateResponse`). When no send of an
+  /// attempt reached a server, as `SendNeverLeftException`, or one was answered
+  /// with another signature; any other failed send may still land, a refusal by
+  /// a server included, so it is awaited and monitored like an accepted one,
+  /// under the `verifyExpired` rule below (see
+  /// `TxMonitorService.validateResponse`). When no send of an
   /// attempt that this call made, or that the monitor made for it, was
   /// accepted (answered with the signature), and its status then settles as not
   /// landed, the call throws `SendNotAcceptedException` instead of rebuilding,

@@ -43,6 +43,7 @@ public final class SendNotAcceptedException extends RuntimeException {
                                      final String formattedSig,
                                      final boolean expiryVerified) {
     final int attempted = reading.attempted();
+    final var last = reading.lastFailure();
     final var exception = new SendNotAcceptedException(
         String.format(
             "No send of %s was accepted (%d attempted); %s.",
@@ -54,16 +55,16 @@ public final class SendNotAcceptedException extends RuntimeException {
                 : "no status was found and no expiry of this call was verified,"
                 + " so this attempt or an earlier one may still land"
         ),
-        reading.lastFailure(),
+        last == null ? null : last.failure(),
         sig,
         attempted,
         expiryVerified
     );
     final var first = reading.firstFailure();
-    // An identity test: one failure recorded once is the cause alone, never reported both as
-    // the cause and as suppressed.
-    if (first != reading.lastFailure()) {
-      exception.addSuppressed(first);
+    // An identity test: one failure, or one instance recorded twice, is the cause alone, never
+    // reported both as the cause and as suppressed.
+    if (first != null && first.failure() != exception.getCause()) {
+      exception.addSuppressed(first.failure());
     }
     return exception;
   }
