@@ -5,20 +5,24 @@ plugins {
 
 testModuleInfo {
   requires("org.junit.jupiter.api")
-  // KmsClientClassPathTests and KmsLivePathTests build the Google client themselves: gax for
-  // NoCredentialsProvider, the auth library for a service-account credential. Both are in the
-  // gcp-kms convention's client family, so these edges carry its exclusions too.
+  // The live tests and KmsClientClassPathTests build the Google client themselves: gax for
+  // NoCredentialsProvider, the auth library for a service-account or access-token credential and
+  // its credentials base for the Credentials type gax takes. All three are in the gcp-kms
+  // convention's client family, so these edges carry its exclusions too (the two auth module
+  // names are mapped in gradle/modules.properties until sava-build 21.8.2 maps them itself).
   requires("com.google.api.gax")
   requires("com.google.auth.oauth2")
+  requires("com.google.auth")
   // LogSilencer pins expected-failure loggers through the JDK logging backend.
   requires("java.logging")
   runtimeOnly("org.junit.jupiter.engine")
 }
 
-// KmsLivePathTests reaches cloudkms.googleapis.com and the OAuth token endpoint, so it is tagged
-// 'live' and runs only through liveTest below: never under test, check, CI or PIT (the googleKms
-// suite excludes the class from its selection). AGENTS.md's "tests never hit the network" names
-// this as its one opt-in exception.
+// KmsLivePathTests reaches cloudkms.googleapis.com and the OAuth token endpoint, and
+// KmsLiveSigningTests signs with a real key, so both are tagged 'live' and run only through
+// liveTest below: never under test, check, CI or PIT (the googleKms suite excludes both classes
+// from its selection). AGENTS.md's "tests never hit the network" names them as its opt-in
+// exception.
 tasks.test {
   useJUnitPlatform {
     excludeTags("live")
@@ -38,6 +42,15 @@ tasks.register<Test>("liveTest") {
   useJUnitPlatform {
     includeTags("live")
   }
+  // The signing tests take their key version and credential source from Gradle properties
+  // (LiveKms names them; keep the key name in ~/.gradle/gradle.properties rather than on the
+  // command line), forwarded here as system properties; without the key they are skipped.
+  listOf("sava.kms.live.keyVersion", "sava.kms.live.credentials").forEach { name ->
+    providers.gradleProperty(name).orNull?.let { systemProperty(name, it) }
+  }
+  // grpc-netty-shaded loads a native library; under JDK 25 that warns unless native access is
+  // granted to the class path's unnamed module.
+  jvmArgs("--enable-native-access=ALL-UNNAMED")
   // The outcome is the remote side's answer, which Gradle cannot track.
   doNotTrackState("Reaches Google's public endpoints, whose answers Gradle cannot track.")
   testLogging {
@@ -65,12 +78,20 @@ hardening {
       "software.sava.kms.google.*Tests*",
       // test-only logging scope; named for what it does rather than *Tests*,
       // so it needs an exclusion of its own (trailing * covers nested types)
-      "software.sava.kms.google.LogSilencer*"
+      "software.sava.kms.google.LogSilencer*",
+      // the live tests' fixtures, named for what they do too: their only tests
+      // are the live classes PIT never runs, so mutating them records nothing
+      "software.sava.kms.google.LiveKms*",
+      "software.sava.kms.google.Ed25519Jdk*"
     )
     targetTests = "software.sava.kms.google.*Test*"
     excludeTestClass(
       "software.sava.kms.google.KmsLivePathTests",
       "reaches Google's public endpoints over the network; run only by liveTest, never by test or PIT"
+    )
+    excludeTestClass(
+      "software.sava.kms.google.KmsLiveSigningTests",
+      "signs with a real KMS key over the network; run only by liveTest, never by test or PIT"
     )
   }
 }

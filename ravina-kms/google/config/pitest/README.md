@@ -93,6 +93,10 @@ are the module's genuine I/O debt. Rows in this section are labelled
   `KeyManagementServiceClient` receives the request (wrong key name / empty
   payload), which is the same integration-test debt as the rows above.
 
-Closing these needs an integration test against a real or emulated KMS, not a
-unit test — deliberately out of scope for `check`.
+`KmsLiveSigningTests` exercises the `GoogleKMSClient` rows against a real key
+under `liveTest`, and the properties overload's rows where application-default
+credentials are configured; the JSON overload has no live test. PIT never runs
+the class by design (the suite excludes it), so the rows stand; closing them in
+PIT's own run would need an emulated KMS inside `check`, deliberately out of
+scope.
 
