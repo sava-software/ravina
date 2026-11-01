@@ -297,4 +297,88 @@ final class NotifyClientTests {
       executorService.shutdownNow();
     }
   }
+
+  /// Decodes the body of a JSON string literal by RFC 8259 section 7, the oracle for the escaping
+  /// tests below, independent of any parser: it accepts nothing the grammar forbids (a raw control
+  /// character, an unescaped quote, an escape the grammar does not define, a truncated one) and
+  /// returns the text a conforming receiver reads.
+  private static String decodeJsonStringBody(final String body) {
+    final var decoded = new StringBuilder(body.length());
+    for (int i = 0; i < body.length(); ++i) {
+      final char c = body.charAt(i);
+      if (c < 0x20) {
+        throw new AssertionError(String.format("raw control character U+%04X at %d in [%s]", (int) c, i, body));
+      } else if (c == '"') {
+        throw new AssertionError("unescaped quote at " + i + " ends the string early: [" + body + ']');
+      } else if (c != '\\') {
+        decoded.append(c);
+      } else if (++i == body.length()) {
+        throw new AssertionError("trailing backslash: [" + body + ']');
+      } else {
+        final char e = body.charAt(i);
+        switch (e) {
+          case '"', '\\', '/' -> decoded.append(e);
+          case 'b' -> decoded.append('\b');
+          case 'f' -> decoded.append('\f');
+          case 'n' -> decoded.append('\n');
+          case 'r' -> decoded.append('\r');
+          case 't' -> decoded.append('\t');
+          case 'u' -> {
+            if (i + 4 >= body.length()) {
+              throw new AssertionError("truncated \\u escape in [" + body + ']');
+            }
+            final var hex = body.substring(i + 1, i + 5);
+            for (int k = 0; k < 4; ++k) {
+              // HEXDIG is ASCII: Character.digit would also take fullwidth and other digits.
+              final char h = hex.charAt(k);
+              if (!(h >= '0' && h <= '9' || h >= 'a' && h <= 'f' || h >= 'A' && h <= 'F')) {
+                throw new AssertionError("invalid escape \\u" + hex + " in [" + body + ']');
+              }
+            }
+            decoded.append((char) Integer.parseInt(hex, 16));
+            i += 4;
+          }
+          default -> throw new AssertionError(String.format("invalid escape \\%c at %d in [%s]", e, i, body));
+        }
+      }
+    }
+    return decoded.toString();
+  }
+
+  /// The template puts the message inside a JSON string literal, so every character RFC 8259
+  /// section 7 requires escaped there must be: the quote, the backslash and every control
+  /// character below U+0020, each read back as itself by a conforming receiver. Escaping only
+  /// the quote and LF sends a tab, a CR or a bare backslash raw, which a strict receiver
+  /// rejects (Slack answers 400, and the page is lost), and a backslash before an escape letter
+  /// as valid JSON that decodes to other text, which nothing rejects.
+  @Test
+  void everyCharacterJsonRequiresEscapedIsEscapedAndReadsBackAsItself() {
+    final var messages = List.of(
+        "C:\\tmp\\new\\u0041 backslashes before escape letters",
+        "C:\\Users\\quux backslashes before letters JSON defines no escape for",
+        "trailing backslash \\",
+        "backslash before a quote \\\" and two of them \\\\\"",
+        "tab\tseparated",
+        "line1\r\nline2",
+        "back\bspace and form\ffeed",
+        "nul\0byte",
+        "bell\u0007 escape\u001B unit\u001F separator",
+        "several classes at once: \"\\\n\r\t\u0001"
+    );
+    // Every message is checked, so a failure names each class that is still wrong.
+    assertAll(messages.stream().map(msg -> () -> {
+      final var forwarded = postAndCapture(new RecordingWebHookClient(ENDPOINT_A), msg);
+      assertEquals(msg, decodeJsonStringBody(forwarded), () -> "a conforming receiver must read back [" + msg + ']');
+    }));
+  }
+
+  /// RFC 8259 leaves DEL, the C1 controls, the slash and every non-ASCII character unescaped, so
+  /// a message of nothing else is forwarded as the same instance, like the plain one above.
+  @Test
+  void charactersJsonAllowsRawAreForwardedUnchanged() {
+    final var hook = new RecordingWebHookClient(ENDPOINT_A);
+    final var msg = "del\u007F c1\u0085\u009B slash / percent %s non-ASCII \u00e9 \u6f22\u5b57 \ud83d\ude00";
+    assertSame(msg, postAndCapture(hook, msg));
+  }
+
 }

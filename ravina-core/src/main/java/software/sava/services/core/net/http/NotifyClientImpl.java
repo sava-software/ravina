@@ -3,6 +3,7 @@ package software.sava.services.core.net.http;
 import software.sava.services.core.config.ServiceConfigUtil;
 import software.sava.services.core.remote.call.ClientCaller;
 import software.sava.services.core.request_capacity.context.CallContext;
+import systems.comodal.jsoniter.JIUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,29 +28,12 @@ final class NotifyClientImpl implements NotifyClient {
     this.callContext = callContext;
   }
 
-  private static String escape(final String msg) {
-    final char[] chars = msg.toCharArray();
-    final char[] escaped = new char[chars.length << 1];
-    char c;
-    int i = 0, j = 0;
-    for (; i < chars.length; ++i, ++j) {
-      c = chars[i];
-      if (c == '"') {
-        escaped[j++] = '\\';
-        escaped[j] = c;
-      } else if (c == '\n') {
-        escaped[j++] = '\\';
-        escaped[j] = 'n';
-      } else {
-        escaped[j] = c;
-      }
-    }
-    return i == j ? msg : new String(escaped, 0, j);
-  }
-
   @Override
   public ArrayList<CompletableFuture<String>> postMsg(final String msg) {
-    final var escaped = escape(msg);
+    // The webhook's template puts the message inside a JSON string literal, so every character
+    // RFC 8259 requires escaped there is: the quote, the backslash and the controls below U+0020.
+    // A message that needs none is forwarded as the same instance.
+    final var escaped = JIUtil.escapeJson(msg);
 
     final var responseFutures = new ArrayList<CompletableFuture<String>>(webHookClients.size());
 

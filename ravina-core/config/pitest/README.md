@@ -379,7 +379,8 @@ accepted: it is killed by
 `courteousBalancedCallReSortsBeforeSelectingTheFailoverItem`.
 
 **Discarded `exceptionally` handler** `# discarded-handler` (`catchAll`) —
-`NotifyClientImpl.lambda$postMsg$1` line 74 `EmptyObjectReturnVals`: the future
+`NotifyClientImpl.lambda$postMsg$1`, the `exceptionally` handler in `postMsg`,
+`EmptyObjectReturnVals`: the future
 derived from `exceptionally(...)` is never stored or returned, so the handler's
 return value is unobservable. The path is covered by
 `failedHookStillYieldsAFutureInTheReturnedList`, which drains the executor
