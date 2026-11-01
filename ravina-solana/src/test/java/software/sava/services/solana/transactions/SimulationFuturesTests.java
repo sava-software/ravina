@@ -92,14 +92,21 @@ final class SimulationFuturesTests {
   }
 
   private static Transaction transaction(final List<Instruction> instructions) {
-    return createV1Transaction(FEE_PAYER, instructions, 200_000, 98_304, 777);
+    return createV1Transaction(FEE_PAYER, instructions, TxConfig.DEFAULT, 200_000, 98_304, 777);
   }
 
   private static SimulationFutures futures(final Transaction simulated,
                                            final List<Instruction> instructions,
                                            final BigDecimal feeEstimate) {
+    return futures(TxConfig.DEFAULT, simulated, instructions, feeEstimate);
+  }
+
+  private static SimulationFutures futures(final TxConfig txConfig,
+                                           final Transaction simulated,
+                                           final List<Instruction> instructions,
+                                           final BigDecimal feeEstimate) {
     return new SimulationFutures(
-        null, instructions, simulated, 0, null,
+        null, instructions, txConfig, simulated, 0, null,
         feeEstimate == null ? null : CompletableFuture.completedFuture(feeEstimate)
     );
   }
@@ -254,7 +261,7 @@ final class SimulationFuturesTests {
   @Test
   void theFinalTransactionCarriesTheSimulatedDataSize() {
     final var instructions = List.of(ix(3, List.of(AccountMeta.createWrite(key(10)))));
-    final var simulated = createSimulationTransaction(FEE_PAYER, instructions);
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
     final var futures = futures(simulated, instructions, BigDecimal.valueOf(27));
 
     final var fromSimulation = futures.createTransaction(NO_CAP, simulation(123_456, 98_765));
@@ -275,7 +282,7 @@ final class SimulationFuturesTests {
   @Test
   void anExplicitZeroDataSizeLimitIsSimd0385sZeroBytes() {
     final var instructions = List.of(ix(3));
-    final var futures = futures(createSimulationTransaction(FEE_PAYER, instructions), instructions, BigDecimal.ZERO);
+    final var futures = futures(createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT), instructions, BigDecimal.ZERO);
 
     final var zero = futures.createTransaction(NO_CAP, 200_000, 0);
 
@@ -312,7 +319,7 @@ final class SimulationFuturesTests {
   void aZeroPriorityFeeOmitsItsConfigValue() {
     final var instructions = List.of(ix(3));
     final var withFee = transaction(instructions);
-    final var withoutFee = createV1Transaction(FEE_PAYER, instructions, 200_000, 98_304, 0);
+    final var withoutFee = createV1Transaction(FEE_PAYER, instructions, TxConfig.DEFAULT, 200_000, 98_304, 0);
 
     assertEquals(0, decode(withoutFee).priorityFeeLamports());
     // SIMD-0385: bits 0-1 unset mean a priority fee of 0, and the u64 value is not serialized.
@@ -341,7 +348,7 @@ final class SimulationFuturesTests {
   @Test
   void theSimulationTransactionReservesAZeroPriorityFeeAtTheMaximumLimit() {
     final var instructions = List.of(ix(3, List.of(AccountMeta.createWrite(key(10)))));
-    final var simulated = createSimulationTransaction(FEE_PAYER, instructions);
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
 
     final var skeleton = decode(simulated);
     assertEquals(1, skeleton.version());
@@ -405,10 +412,10 @@ final class SimulationFuturesTests {
     // The largest instruction whose fee-bearing transaction is exactly 4,096 bytes.
     final int base = transaction(List.of(ix(0))).size();
     final int atLimit = V1_MAX_SIZE - base;
-    assertFalse(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit)))));
+    assertFalse(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit)), TxConfig.DEFAULT)));
     // One byte more is refused before simulation, even though a fee-less build would still fit.
-    assertTrue(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit + 1)))));
-    assertFalse(createV1Transaction(FEE_PAYER, List.of(ix(atLimit + 1)), 200_000, 98_304, 0).exceedsSizeLimit());
+    assertTrue(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit + 1)), TxConfig.DEFAULT)));
+    assertFalse(createV1Transaction(FEE_PAYER, List.of(ix(atLimit + 1)), TxConfig.DEFAULT, 200_000, 98_304, 0).exceedsSizeLimit());
   }
 
   @Test
@@ -457,7 +464,7 @@ final class SimulationFuturesTests {
     for (final var instructions : cases) {
       boolean writable;
       try {
-        createV1Transaction(FEE_PAYER, instructions, 200_000, 98_304, 777);
+        createV1Transaction(FEE_PAYER, instructions, TxConfig.DEFAULT, 200_000, 98_304, 777);
         writable = true;
       } catch (final IllegalStateException e) {
         writable = false;
@@ -482,13 +489,122 @@ final class SimulationFuturesTests {
           () -> requireNoComputeBudgetInstructions(computeBudgetProgram, instructions)
       );
       assertTrue(ex.getMessage().contains("ComputeBudget"), ex.getMessage());
+      // A RequestHeapFrame has a replacement, which the refusal names.
+      assertTrue(ex.getMessage().contains("TxConfig"), ex.getMessage());
     }
     // Keyed on the program argument, not on an instruction's shape.
     assertDoesNotThrow(() -> requireNoComputeBudgetInstructions(computeBudgetProgram, List.of(other, other)));
     assertDoesNotThrow(() -> requireNoComputeBudgetInstructions(key(99), List.of(computeBudgetIx, other)));
   }
 
+  // ------------------------------------------------------------- heap size ---
+
+  /// SIMD-0385 assigns bit 4 of the TransactionConfigMask to the requested heap size, a u32 ConfigValue.
+  private static final int HEAP_SIZE_BIT = 0b1_0000;
+  private static final int HEAP_SIZE_SLOT_LENGTH = 4;
+  private static final TxConfig HEAP_64_KIB = new TxConfig(64 * 1_024);
+
+  @Test
+  void theSimulatedTransactionCarriesTheRequestedHeapSize() {
+    final var instructions = List.of(ix(3, List.of(AccountMeta.createWrite(key(10)))));
+
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, HEAP_64_KIB);
+
+    final var skeleton = decode(simulated);
+    assertEquals(64 * 1_024, skeleton.heapSize());
+    assertEquals(HEAP_SIZE_BIT, configMask(simulated) & HEAP_SIZE_BIT);
+    // The rest of the recipe is as without a heap request.
+    assertEquals(1, skeleton.version());
+    assertEquals(MAX_COMPUTE_UNIT_LIMIT, skeleton.computeUnitLimit());
+    assertEquals(MAX_ACCOUNT_DATA_SIZE_LIMIT, skeleton.accountDataSizeLimit());
+    assertEquals(0, skeleton.priorityFeeLamports());
+    assertEquals(0b11, configMask(simulated) & 0b11);
+    assertEquals(instructions, simulated.instructions());
+    // The 4-byte ConfigValue is the only difference on the wire.
+    final var plain = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
+    assertEquals(plain.size() + HEAP_SIZE_SLOT_LENGTH, simulated.size());
+  }
+
+  @Test
+  void everyTransactionBuiltFromTheSimulationCarriesItsHeapSize() {
+    final var instructions = List.of(ix(3, List.of(AccountMeta.createWrite(key(10)))));
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, HEAP_64_KIB);
+    final var futures = futures(HEAP_64_KIB, simulated, instructions, BigDecimal.valueOf(27));
+    assertSame(HEAP_64_KIB, futures.txConfig());
+
+    final var fromSimulation = futures.createTransaction(NO_CAP, simulation(123_456, 98_765));
+    final var budgetOnly = futures.createTransaction(NO_CAP, 200_000);
+    final var explicit = futures.createTransaction(NO_CAP, 200_000, 5 * PAGE);
+    for (final var built : List.of(fromSimulation, budgetOnly, explicit)) {
+      assertEquals(64 * 1_024, decode(built).heapSize());
+      assertEquals(HEAP_SIZE_BIT, configMask(built) & HEAP_SIZE_BIT);
+      // So the simulation, which carried the same request, still bounds the size of what is sent.
+      assertEquals(simulated.size(), built.size());
+    }
+    assertEquals(123_456, decode(fromSimulation).computeUnitLimit());
+    assertEquals(5 * PAGE, decode(fromSimulation).accountDataSizeLimit());
+    assertEquals(MAX_ACCOUNT_DATA_SIZE_LIMIT, decode(budgetOnly).accountDataSizeLimit());
+    assertEquals(5 * PAGE, decode(explicit).accountDataSizeLimit());
+    assertEquals(6, decode(explicit).priorityFeeLamports());
+  }
+
+  @Test
+  void theDefaultConfigurationWritesNoHeapSize() {
+    final var instructions = List.of(ix(3));
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
+    assertEquals(0, configMask(simulated) & HEAP_SIZE_BIT);
+    assertEquals(0, decode(simulated).heapSize());
+
+    final var futures = futures(TxConfig.DEFAULT, simulated, instructions, BigDecimal.valueOf(27));
+    for (final var built : List.of(
+        futures.createTransaction(NO_CAP, simulation(123_456, 98_765)),
+        futures.createTransaction(NO_CAP, 200_000),
+        futures.createTransaction(NO_CAP, 200_000, 5 * PAGE))) {
+      assertEquals(0, configMask(built) & HEAP_SIZE_BIT);
+      assertEquals(0, decode(built).heapSize());
+      assertEquals(simulated.size(), built.size());
+    }
+  }
+
+  /// 32KiB is the heap a transaction gets without a request, but a request for it is still written: it costs 4
+  /// bytes, and it is the slot a `beforeSend` hook can retune, where a transaction without one has none.
+  @Test
+  void aRequestForTheDefaultHeapIsWrittenWhereTheDefaultConfigurationIsNot() {
+    final var instructions = List.of(ix(3));
+    final var requested = createSimulationTransaction(FEE_PAYER, instructions, new TxConfig(32 * 1_024));
+    final var unrequested = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
+
+    assertEquals(32 * 1_024, decode(requested).heapSize());
+    assertEquals(HEAP_SIZE_BIT, configMask(requested) & HEAP_SIZE_BIT);
+    assertEquals(0, configMask(unrequested) & HEAP_SIZE_BIT);
+    assertEquals(unrequested.size() + HEAP_SIZE_SLOT_LENGTH, requested.size());
+
+    assertSame(requested, requested.setHeapSize(256 * 1_024));
+    assertEquals(256 * 1_024, decode(requested).heapSize());
+    assertThrows(IllegalStateException.class, () -> unrequested.setHeapSize(256 * 1_024));
+  }
+
+  @Test
+  void theHeapRequestCountsTowardsTheSizeLimitTheSimulationStandsFor() {
+    // The largest instruction whose fee-bearing transaction with a heap request is exactly 4,096 bytes: 4 bytes
+    // smaller than without one.
+    final int base = createV1Transaction(FEE_PAYER, List.of(ix(0)), HEAP_64_KIB, 200_000, 98_304, 777).size();
+    final int atLimit = V1_MAX_SIZE - base;
+    assertEquals(V1_MAX_SIZE - transaction(List.of(ix(0))).size() - HEAP_SIZE_SLOT_LENGTH, atLimit);
+    final var fits = createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit)), HEAP_64_KIB);
+    assertEquals(V1_MAX_SIZE, fits.size());
+    assertFalse(exceedsV1Limits(fits));
+    // One byte more is refused before simulation, though without the request it would fit.
+    assertTrue(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit + 1)), HEAP_64_KIB)));
+    assertFalse(exceedsV1Limits(createSimulationTransaction(FEE_PAYER, List.of(ix(atLimit + 1)), TxConfig.DEFAULT)));
+  }
+
   // --------------------------------------------------- the futures record ---
+
+  @Test
+  void futuresWithoutAConfigurationAreRefused() {
+    assertThrows(NullPointerException.class, () -> new SimulationFutures(null, List.of(), null, null, 0, null, null));
+  }
 
   @Test
   void anUnencodableBatchExceedsTheSizeLimit() {
@@ -508,7 +624,7 @@ final class SimulationFuturesTests {
   @Test
   void theFinalTransactionCarriesTheBudgetAndTheCappedFee() {
     final var instructions = List.of(ix(3, List.of(AccountMeta.createWrite(key(10)))));
-    final var simulated = createSimulationTransaction(key(42), instructions);
+    final var simulated = createSimulationTransaction(key(42), instructions, TxConfig.DEFAULT);
     final var futures = futures(simulated, instructions, BigDecimal.valueOf(27));
 
     final var transaction = futures.createTransaction(NO_CAP, 200_000);
@@ -532,7 +648,7 @@ final class SimulationFuturesTests {
   @Test
   void theFinalTransactionTakesItsBudgetFromTheSimulation() {
     final var instructions = List.of(ix(3));
-    final var futures = futures(createSimulationTransaction(FEE_PAYER, instructions), instructions, BigDecimal.valueOf(27));
+    final var futures = futures(createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT), instructions, BigDecimal.valueOf(27));
 
     final var fromSimulation = futures.createTransaction(NO_CAP, simulation(123_456));
 
@@ -543,7 +659,7 @@ final class SimulationFuturesTests {
   @Test
   void aFinalTransactionIsNeverLargerThanItsSimulation() {
     final var instructions = List.of(ix(40, readAccounts(100, 5)));
-    final var simulated = createSimulationTransaction(FEE_PAYER, instructions);
+    final var simulated = createSimulationTransaction(FEE_PAYER, instructions, TxConfig.DEFAULT);
 
     final var bidding = futures(simulated, instructions, BigDecimal.valueOf(27)).createTransaction(NO_CAP, 200_000);
     assertEquals(simulated.size(), bidding.size());

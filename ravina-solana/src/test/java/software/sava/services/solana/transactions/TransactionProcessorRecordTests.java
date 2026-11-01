@@ -889,7 +889,8 @@ final class TransactionProcessorRecordTests {
     return new SimulationFutures(
         Commitment.CONFIRMED,
         INSTRUCTIONS,
-        SimulationFutures.createSimulationTransaction(FEE_PAYER, INSTRUCTIONS),
+        TxConfig.DEFAULT,
+        SimulationFutures.createSimulationTransaction(FEE_PAYER, INSTRUCTIONS, TxConfig.DEFAULT),
         0,
         null,
         CompletableFuture.completedFuture(BigDecimal.valueOf(cuPrice))
@@ -949,7 +950,8 @@ final class TransactionProcessorRecordTests {
     final var futures = new SimulationFutures(
         Commitment.CONFIRMED,
         instructions,
-        SimulationFutures.createSimulationTransaction(PAYER.publicKey(), instructions),
+        TxConfig.DEFAULT,
+        SimulationFutures.createSimulationTransaction(PAYER.publicKey(), instructions, TxConfig.DEFAULT),
         0,
         null,
         CompletableFuture.completedFuture(BigDecimal.valueOf(10_000))
@@ -1454,6 +1456,121 @@ final class TransactionProcessorRecordTests {
     assertThrows(
         IllegalArgumentException.class,
         () -> harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(key(10)), computeBudgetIx))
+    );
+    assertNull(harness.rpc().simulateBase64);
+    assertNull(harness.feeProvider().requestedBase64);
+  }
+
+  // ------------------------------------------------- v1 configuration ---
+
+  private static final TxConfig HEAP_64_KIB = new TxConfig(64 * 1_024);
+
+  private static Instruction dataIx(final int dataLength) {
+    return Instruction.createInstruction(PROGRAM, List.of(AccountMeta.createRead(key(10))), new byte[dataLength]);
+  }
+
+  /// The configuration reaches the transaction the RPC simulates and the fee provider prices, the futures, and
+  /// through them every transaction the processor builds to send.
+  @Test
+  void aRequestedHeapSizeIsSimulatedPricedAndBuiltIntoWhatIsSent() {
+    final var harness = harness(simulation(150_000));
+    final var instructions = List.of(ix(key(10), key(11)));
+
+    final var futures = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, instructions, HEAP_64_KIB);
+
+    assertSame(HEAP_64_KIB, futures.txConfig());
+    assertFalse(futures.exceedsSizeLimit());
+    final var skeleton = decode(futures.transaction());
+    assertEquals(64 * 1_024, skeleton.heapSize());
+    assertEquals(1_400_000, skeleton.computeUnitLimit());
+    assertEquals(0, skeleton.priorityFeeLamports());
+    futures.simulationFuture().join();
+    assertEquals(futures.transaction().base64EncodeToString(), harness.rpc().simulateBase64);
+    futures.feeEstimateFuture().join();
+    assertSame(futures.transaction(), harness.feeProvider().requestedTransaction);
+    assertEquals(harness.rpc().simulateBase64, harness.feeProvider().requestedBase64);
+
+    final var processor = harness.processor();
+    final var fee = BigDecimal.valueOf(10_000);
+    for (final var built : List.of(
+        processor.createTransaction(futures, fee, 150_000),
+        processor.createTransaction(futures, fee, 150_000, 45_678),
+        processor.createTransaction(futures, fee, simulation(150_000, null, 56_789)))) {
+      assertEquals(64 * 1_024, decode(built).heapSize());
+      assertEquals(futures.transaction().size(), built.size());
+    }
+  }
+
+  @Test
+  void theOverloadsWithoutAConfigurationRequestNoHeap() {
+    final var harness = harness(simulation(150_000));
+
+    final var confirmed = harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(key(10))));
+    final var settled = harness.processor().simulateAndEstimate(List.of(ix(key(10))));
+
+    for (final var futures : List.of(confirmed, settled)) {
+      assertSame(TxConfig.DEFAULT, futures.txConfig());
+      assertEquals(0, decode(futures.transaction()).heapSize());
+    }
+  }
+
+  /// The configuration is carried where nothing is simulated too, and the heap request's 4 bytes count towards the
+  /// v1 size limit: a batch exactly at the limit without a request is over it with one.
+  @Test
+  void aHeapRequestCountsTowardsTheSizeLimitAndIsCarriedWhenNothingIsSimulated() {
+    final int base = SimulationFutures.createSimulationTransaction(FEE_PAYER, List.of(dataIx(0)), TxConfig.DEFAULT).size();
+    final var atLimit = List.of(dataIx(4_096 - base));
+
+    final var plainHarness = harness(simulation(150_000));
+    final var plain = plainHarness.processor().simulateAndEstimate(Commitment.CONFIRMED, atLimit);
+    assertEquals(4_096, plain.transaction().size());
+    assertFalse(plain.exceedsSizeLimit());
+
+    final var heapHarness = harness(simulation(150_000));
+    final var withHeap = heapHarness.processor().simulateAndEstimate(Commitment.CONFIRMED, atLimit, HEAP_64_KIB);
+    assertSame(HEAP_64_KIB, withHeap.txConfig());
+    assertEquals(4_100, withHeap.transaction().size());
+    assertEquals(64 * 1_024, decode(withHeap.transaction()).heapSize());
+    assertEquals(withHeap.transaction().base64EncodeToString().length(), withHeap.base64Length());
+    assertNothingDispatched(heapHarness, withHeap);
+
+    final var unencodable = heapHarness.processor().simulateAndEstimate(
+        Commitment.CONFIRMED, java.util.Collections.nCopies(256, ix(key(10))), HEAP_64_KIB);
+    assertSame(HEAP_64_KIB, unencodable.txConfig());
+    assertNull(unencodable.transaction());
+    assertNothingDispatched(heapHarness, unencodable);
+  }
+
+  @Test
+  void aMissingConfigurationIsRefusedBeforeAnythingIsSent() {
+    final var harness = harness(simulation(150_000));
+
+    assertThrows(
+        NullPointerException.class,
+        () -> harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(key(10))), null)
+    );
+    assertThrows(
+        NullPointerException.class,
+        () -> harness.processor().simulateAndEstimate(
+            Commitment.CONFIRMED, java.util.Collections.nCopies(256, ix(key(10))), null)
+    );
+    assertNull(harness.rpc().simulateBase64);
+    assertNull(harness.feeProvider().requestedBase64);
+  }
+
+  /// A missing configuration is refused before the instructions are checked, so a call missing it is refused for that
+  /// even when an instruction would be refused as well. This is the one case that tells the record's own null check
+  /// from the later steps, which throw a `NullPointerException` of their own on every other path: without the check,
+  /// the ComputeBudget instruction's `IllegalArgumentException` would win.
+  @Test
+  void aMissingConfigurationIsRefusedBeforeTheInstructionsAreChecked() {
+    final var harness = harness(simulation(150_000));
+    final var computeBudgetIx = Instruction.createInstruction(
+        SolanaAccounts.MAIN_NET.computeBudgetProgram(), List.of(), new byte[]{1, 0, 0, 1, 0});
+
+    assertThrows(
+        NullPointerException.class,
+        () -> harness.processor().simulateAndEstimate(Commitment.CONFIRMED, List.of(ix(key(10)), computeBudgetIx), null)
     );
     assertNull(harness.rpc().simulateBase64);
     assertNull(harness.feeProvider().requestedBase64);

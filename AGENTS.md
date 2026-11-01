@@ -48,7 +48,8 @@ parsing, and KMS-backed signing.
   transaction build/send/monitor/priority-fee (`transactions/`), RPC
   load-balancer glue, websocket manager. Ravina builds SIMD-0385 v1
   transactions only (sava `TxBuilder`): no address lookup tables, and the
-  compute unit limit and priority fee are ConfigValues, not ComputeBudget
+  compute unit limit, loaded accounts data size limit, priority fee and the
+  heap size a caller's `TxConfig` requests are ConfigValues, not ComputeBudget
   instructions. Transactions handed in by a caller are still signed and
   published in any format (legacy, v0 or v1).
   - `helius/client/http/` — the Helius priority-fee and `getProgramAccountsV2`
@@ -493,17 +494,35 @@ them, because the list is the argument for the effort.
   pages plus one spare page, because a v1 transaction over its limit fails and
   still pays its fees (see `SimulationFutures.accountDataSizeLimit`). A missing
   `loadedAccountsDataSize` reads as 0, which in v1 is a 0-byte limit, so it
-  keeps the maximum instead. v1 ignores ComputeBudget instructions for
-  configuration, so `simulateAndEstimate` refuses them rather than let a
-  `RequestHeapFrame` silently do nothing. The v1 limits bind independently (65
-  accounts fit in ~2.3KB), so batch shrinking keys on every one of them, not on
-  size alone. A shrink never discards an attempt that may still land: a rebuild
-  over a limit after an attempt whose status was only missing ends the batch call
-  with a `BatchProcessException` naming that attempt, since the smaller batches
-  would resend instructions it may still execute. Ravina's own processor decides
-  the limits from the instructions and the fee payer alone, so its rebuild never
-  exceeds one the sent attempt did not; the rule guards a `TransactionProcessor`
-  whose check can differ between two simulations of the same instructions.
+  keeps the maximum instead. What only the caller can decide is a `TxConfig`,
+  the heap size for now (`TxConfig.DEFAULT` requests none and writes no
+  ConfigValue): `simulateAndEstimate`, `processInstructions` and `batchProcess`
+  take one, and it goes into the simulated transaction and into every
+  transaction built from it, each rebuild and every batch and smaller batch of a
+  batch call included, so a program that needs more heap is simulated, measured
+  and sent with it, and the simulated size, the heap's 4 bytes included, still
+  bounds the sent one. `TxConfig` checks SIMD-0385's rule itself, 0 or a whole
+  number of KiB from 32KiB to 256KiB, because the non-strict builder writes any
+  value and anything else is a sanitization failure: the transaction never
+  lands, and a simulation of it is a JSON-RPC invalid-params error that the
+  courteous simulation call would keep retrying, marking each peer failed. A
+  `beforeSend` hook finds a heap slot only when the configuration requested
+  one, so it can retune a heap size but not add one, and one that raises it
+  must raise the compute unit limit too: each 32KiB page of heap, or part of
+  one, past the first costs 8 compute units at every program invocation, which
+  the simulation paid only at the requested size. v1 ignores ComputeBudget
+  instructions for configuration, so `simulateAndEstimate` still refuses them
+  rather than let a `RequestHeapFrame` silently do nothing; a heap size goes
+  through `TxConfig` instead. The v1 limits bind independently (65 accounts fit
+  in ~2.3KB), so batch shrinking keys on every one of them, not on size alone. A
+  shrink never discards an attempt that may still land: a rebuild over a limit
+  after an attempt whose status was only missing ends the batch call with a
+  `BatchProcessException` naming that attempt, since the smaller batches would
+  resend instructions it may still execute. Ravina's own processor decides the
+  limits from the instructions, the fee payer and the call's one `TxConfig`
+  alone, so its rebuild never exceeds one the sent attempt did not; the rule
+  guards a `TransactionProcessor` whose check can differ between two simulations
+  of the same instructions.
   `FeePayerSigningSpan` locates the fee payer's signing span for all three
   formats: a v1 message comes *before* its signatures, with no count prefix.
 - **A confirmed or finalized transaction is settled; settled state is read at finalized.**

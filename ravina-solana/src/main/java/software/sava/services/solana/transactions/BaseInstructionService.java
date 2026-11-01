@@ -15,6 +15,7 @@ import software.sava.services.solana.remote.call.RpcCaller;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
@@ -107,31 +108,7 @@ public class BaseInstructionService implements InstructionService {
   @Override
   public final TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                      final List<Instruction> instructions,
-                                                     final BigDecimal maxLamportPriorityFee,
-                                                     final Commitment awaitCommitment,
-                                                     final Commitment awaitCommitmentOnError,
-                                                     final boolean verifyExpired,
-                                                     final boolean retrySend,
-                                                     final int maxRetriesAfterExpired,
-                                                     final String logContext) throws InterruptedException {
-    return processInstructions(
-        cuBudgetMultiplier,
-        instructions,
-        NO_OP,
-        maxLamportPriorityFee,
-        awaitCommitment,
-        awaitCommitmentOnError,
-        verifyExpired,
-        retrySend,
-        maxRetriesAfterExpired,
-        logContext
-    );
-  }
-
-
-  @Override
-  public final TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                     final List<Instruction> instructions,
+                                                     final TxConfig txConfig,
                                                      final Function<Transaction, Transaction> beforeSend,
                                                      final BigDecimal maxLamportPriorityFee,
                                                      final Commitment awaitCommitment,
@@ -140,8 +117,10 @@ public class BaseInstructionService implements InstructionService {
                                                      final boolean retrySend,
                                                      final int maxRetriesAfterExpired,
                                                      final String logContext) throws InterruptedException {
-    // Refuse a misconfigured cap before any request is spent, not only once a simulation succeeds.
+    // Refuse a misconfigured cap or a missing configuration before any request is spent, not only
+    // once a simulation succeeds.
     SimulationFutures.requireNonNegativeFeeCap(maxLamportPriorityFee);
+    Objects.requireNonNull(txConfig, "txConfig");
     // Every transaction this call signed and sent, in order, for the verdict to name. An attempt
     // is recorded once its verdict is in, as the last statement before the rebuild, return or
     // throw that verdict decides, so that only a constructor runs between the record and the
@@ -161,7 +140,9 @@ public class BaseInstructionService implements InstructionService {
           verdict = TxMonitorStoppedException.refused(attempts);
           throw verdict;
         }
-        final var simulationFutures = transactionProcessor.simulateAndEstimate(Settlement.COMMITMENT, instructions);
+        // Every attempt is simulated under the call's one configuration, so that a rebuild is
+        // judged against the v1 limits exactly as the attempt before it was.
+        final var simulationFutures = transactionProcessor.simulateAndEstimate(Settlement.COMMITMENT, instructions, txConfig);
         final int base64Length = simulationFutures.base64Length();
         if (simulationFutures.exceedsSizeLimit()) {
           return TransactionResult.createSizeExceededResult(

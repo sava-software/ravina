@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.WARNING;
@@ -48,6 +49,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   private TransactionResult processBatch(final double cuBudgetMultiplier,
                                          final List<Instruction> batch,
                                          final int batchItems,
+                                         final TxConfig txConfig,
                                          final BigDecimal maxLamportPriorityFee,
                                          final Commitment awaitCommitment,
                                          final Commitment awaitCommitmentOnError,
@@ -58,6 +60,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var transactionResult = processInstructions(
         cuBudgetMultiplier,
         batch,
+        txConfig,
+        NO_OP,
         maxLamportPriorityFee,
         awaitCommitment,
         awaitCommitmentOnError,
@@ -98,6 +102,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final List<Instruction> instructions,
+                                                    final TxConfig txConfig,
                                                     final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
@@ -110,6 +115,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         transactionProcessor.solanaAccounts().computeBudgetProgram(),
         instructions
     );
+    Objects.requireNonNull(txConfig, "txConfig");
     final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
     for (int from = 0, to; from < numAccounts; ) {
@@ -126,6 +132,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
             cuBudgetMultiplier,
             batch,
             batch.size(),
+            txConfig,
             maxLamportPriorityFee,
             awaitCommitment,
             awaitCommitmentOnError,
@@ -161,6 +168,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
   @Override
   public final List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                     final Map<PublicKey, ?> accountsMap,
+                                                    final TxConfig txConfig,
                                                     final BigDecimal maxLamportPriorityFee,
                                                     final Commitment awaitCommitment,
                                                     final Commitment awaitCommitmentOnError,
@@ -169,6 +177,8 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
                                                     final int maxRetriesAfterExpired,
                                                     final String logContext,
                                                     final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    // Refuse up front, so that a missing configuration is not reported as the first batch's failure.
+    Objects.requireNonNull(txConfig, "txConfig");
     final var results = new ArrayList<TransactionResult>();
     final var publicKeys = List.copyOf(accountsMap.keySet());
     final int numAccounts = publicKeys.size();
@@ -190,6 +200,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
             cuBudgetMultiplier,
             batch,
             batchAccounts.size(),
+            txConfig,
             maxLamportPriorityFee,
             awaitCommitment,
             awaitCommitmentOnError,

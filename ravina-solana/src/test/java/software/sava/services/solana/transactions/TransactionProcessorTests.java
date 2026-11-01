@@ -53,7 +53,7 @@ final class TransactionProcessorTests {
     private final SendTxContext sendTxContext = new SendTxContext(
         null, null, null, null, 5L, 1_700_000_000_000L);
     private final SimulationFutures simulationFutures = new SimulationFutures(
-        null, List.of(), null, 0, null, null);
+        null, List.of(), TxConfig.DEFAULT, null, 0, null, null);
 
     private int requestedCuBudget = -1;
     private int requestedAccountDataSizeLimit = -1;
@@ -61,6 +61,7 @@ final class TransactionProcessorTests {
     private long requestedBlockHeight = -1;
     private Commitment requestedSimulationCommitment;
     private List<Instruction> requestedInstructions;
+    private TxConfig requestedTxConfig;
 
     @Override
     public Transaction createAndSignTransaction(final SimulationFutures simulationFutures,
@@ -83,9 +84,12 @@ final class TransactionProcessorTests {
     }
 
     @Override
-    public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+    public SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                                 final List<Instruction> instructions,
+                                                 final TxConfig txConfig) {
       this.requestedSimulationCommitment = commitment;
       this.requestedInstructions = instructions;
+      this.requestedTxConfig = txConfig;
       return simulationFutures;
     }
 
@@ -305,7 +309,7 @@ final class TransactionProcessorTests {
   }
 
   @Test
-  void theSimulateDefaultFillsInAFinalizedCommitment() {
+  void theSimulateDefaultsFillInTheDefaultConfigurationAndAFinalizedCommitment() {
     final var instructions = List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{1}));
 
     final var explicitCommitment = new RecordingProcessor();
@@ -313,11 +317,13 @@ final class TransactionProcessorTests {
     assertSame(explicitCommitment.simulationFutures, futures);
     assertEquals(Commitment.CONFIRMED, explicitCommitment.requestedSimulationCommitment);
     assertSame(instructions, explicitCommitment.requestedInstructions);
+    assertSame(TxConfig.DEFAULT, explicitCommitment.requestedTxConfig);
 
     final var defaulted = new RecordingProcessor();
     final var defaultedFutures = defaulted.simulateAndEstimate(instructions);
     assertSame(defaulted.simulationFutures, defaultedFutures);
     assertEquals(Commitment.FINALIZED, defaulted.requestedSimulationCommitment);
     assertSame(instructions, defaulted.requestedInstructions);
+    assertSame(TxConfig.DEFAULT, defaulted.requestedTxConfig);
   }
 }

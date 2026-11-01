@@ -51,29 +51,85 @@ public interface BatchInstructionService extends InstructionService {
     );
   }
 
+  /// [#batchProcess(double, List, TxConfig, BigDecimal, Commitment, Commitment, boolean, boolean, int, String)]
+  /// with [TxConfig#DEFAULT], which requests no heap size.
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final List<Instruction> instructions,
+                                               final BigDecimal maxLamportPriorityFee,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final boolean verifyExpired,
+                                               final boolean retrySend,
+                                               final int maxRetriesAfterExpired,
+                                               final String logContext) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        instructions,
+        TxConfig.DEFAULT,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  /// [#batchProcess(double, Map, TxConfig, BigDecimal, Commitment, Commitment, boolean, boolean, int, String, Function)]
+  /// with [TxConfig#DEFAULT], which requests no heap size.
+  default List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
+                                               final Map<PublicKey, ?> accountsMap,
+                                               final BigDecimal maxLamportPriorityFee,
+                                               final Commitment awaitCommitment,
+                                               final Commitment awaitCommitmentOnError,
+                                               final boolean verifyExpired,
+                                               final boolean retrySend,
+                                               final int maxRetriesAfterExpired,
+                                               final String logContext,
+                                               final Function<List<PublicKey>, List<Instruction>> batchFactory) throws InterruptedException {
+    return batchProcess(
+        cuBudgetMultiplier,
+        accountsMap,
+        TxConfig.DEFAULT,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        logContext,
+        batchFactory
+    );
+  }
+
   /// Processes `instructions` in consecutive batches of the service's batch size, each through
-  /// `processInstructions`, and returns one result per batch, in order. A batch whose
-  /// transaction exceeds a v1 limit is tried again at a size smaller by the reduce size, never
-  /// below one, and a batch of one over a v1 limit is a result with the size limit error. A
-  /// shrink never discards an attempt that may still land: a rebuild over a limit after an
-  /// attempt whose status was only missing ends the run with a [BatchProcessException] whose
-  /// verdict, an `OutcomeUnknownException`, names that attempt, since smaller batches would
-  /// resend instructions it may still execute. The run stops at the first result with an
-  /// error, which is returned last, its `landable()` naming any attempt that may still land.
-  /// The service refuses a batch size or a reduce size below one. A batch that fails
-  /// with an exception, checked or not, ends the run with a [BatchProcessException] that
-  /// carries the results of the batches settled before it, which are never run again, the
-  /// exception as its cause, and the failing batch, so a caller retries only what is left.
-  /// With its `mayStillLand()` false nothing of the failing batch can land, and it is retried
-  /// with the rest, paced by the verdict's `reason()` and its last failure's `retry-after` hint;
-  /// with it true the failing batch is held out of every retry until the settled block height
-  /// has passed the verdict's `landableUntil()` by the settle buffer and a status read of its
-  /// `landable()` says what landed (see `BatchProcessException`). An interrupt propagates as
-  /// `InterruptedException`, which carries no results, and the batch it interrupted may still
-  /// land; an `Error` is not wrapped. A ComputeBudget instruction anywhere in `instructions` is
-  /// refused before any batch is sent.
+  /// `processInstructions` under `txConfig`, and returns one result per batch, in order. Every
+  /// batch, every smaller batch a shrink tries and every rebuild is simulated and built under
+  /// that one configuration, so a heap size it requests is in each transaction and counts
+  /// towards each v1 size limit (see [TxConfig]). A batch whose transaction exceeds a v1 limit
+  /// is tried again at a size smaller by the reduce size, never below one, and a batch of one
+  /// over a v1 limit is a result with the size limit error. A shrink never discards an attempt
+  /// that may still land: a rebuild over a limit after an attempt whose status was only missing
+  /// ends the run with a [BatchProcessException] whose verdict, an `OutcomeUnknownException`,
+  /// names that attempt, since smaller batches would resend instructions it may still execute.
+  /// The run stops at the first result with an error, which is returned last, its `landable()`
+  /// naming any attempt that may still land. The service refuses a batch size or a reduce size
+  /// below one. A batch that fails with an exception, checked or not, ends the run with a
+  /// [BatchProcessException] that carries the results of the batches settled before it, which
+  /// are never run again, the exception as its cause, and the failing batch, so a caller
+  /// retries only what is left. With its `mayStillLand()` false nothing of the failing batch
+  /// can land, and it is retried with the rest, paced by the verdict's `reason()` and its last
+  /// failure's `retry-after` hint; with it true the failing batch is held out of every retry
+  /// until the settled block height has passed the verdict's `landableUntil()` by the settle
+  /// buffer and a status read of its `landable()` says what landed (see
+  /// `BatchProcessException`). An interrupt propagates as `InterruptedException`, which carries
+  /// no results, and the batch it interrupted may still land; an `Error` is not wrapped. A
+  /// ComputeBudget instruction anywhere in `instructions`, and a null `txConfig`, are refused
+  /// before any batch is sent.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final List<Instruction> instructions,
+                                       final TxConfig txConfig,
                                        final BigDecimal maxLamportPriorityFee,
                                        final Commitment awaitCommitment,
                                        final Commitment awaitCommitmentOnError,
@@ -84,14 +140,17 @@ public interface BatchInstructionService extends InstructionService {
 
   /// Processes the accounts of `accountsMap` in consecutive batches, each batch's instructions
   /// built by `batchFactory` from its keys, as the instruction overload processes
-  /// instructions, and removes a batch's accounts from `accountsMap` once the batch settles
-  /// without an error, so the map holds what is left: a caller that retries with the same map
-  /// resumes after the last settled batch. The map must be mutable; a batch whose accounts it
-  /// refuses to remove has still settled, and is among the results the [BatchProcessException]
-  /// carries, as is every batch settled before a `batchFactory` that throws an exception. The
-  /// exception's `failedAccounts()` are the failing batch's keys, still in the map.
+  /// instructions, under the same `txConfig`, and removes a batch's accounts from
+  /// `accountsMap` once the batch settles without an error, so the map holds what is left: a
+  /// caller that retries with the same map resumes after the last settled batch. The map must
+  /// be mutable; a batch whose accounts it refuses to remove has still settled, and is among
+  /// the results the [BatchProcessException] carries, as is every batch settled before a
+  /// `batchFactory` that throws an exception. The exception's `failedAccounts()` are the
+  /// failing batch's keys, still in the map. A null `txConfig` is refused before any batch is
+  /// built.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final Map<PublicKey, ?> accountsMap,
+                                       final TxConfig txConfig,
                                        final BigDecimal maxLamportPriorityFee,
                                        final Commitment awaitCommitment,
                                        final Commitment awaitCommitmentOnError,

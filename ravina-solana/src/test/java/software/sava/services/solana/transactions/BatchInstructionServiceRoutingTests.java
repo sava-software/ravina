@@ -51,6 +51,7 @@ final class BatchInstructionServiceRoutingTests {
     double cuBudgetMultiplier;
     List<Instruction> instructions;
     Map<PublicKey, ?> accountsMap;
+    TxConfig txConfig;
     BigDecimal maxLamportPriorityFee;
     Commitment awaitCommitment;
     Commitment awaitCommitmentOnError;
@@ -64,6 +65,7 @@ final class BatchInstructionServiceRoutingTests {
                                            final double cuBudgetMultiplier,
                                            final List<Instruction> instructions,
                                            final Map<PublicKey, ?> accountsMap,
+                                           final TxConfig txConfig,
                                            final BigDecimal maxLamportPriorityFee,
                                            final Commitment awaitCommitment,
                                            final Commitment awaitCommitmentOnError,
@@ -76,6 +78,7 @@ final class BatchInstructionServiceRoutingTests {
       this.cuBudgetMultiplier = cuBudgetMultiplier;
       this.instructions = instructions;
       this.accountsMap = accountsMap;
+      this.txConfig = txConfig;
       this.maxLamportPriorityFee = maxLamportPriorityFee;
       this.awaitCommitment = awaitCommitment;
       this.awaitCommitmentOnError = awaitCommitmentOnError;
@@ -92,6 +95,7 @@ final class BatchInstructionServiceRoutingTests {
     @Override
     public List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
+                                                final TxConfig txConfig,
                                                 final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
@@ -100,7 +104,7 @@ final class BatchInstructionServiceRoutingTests {
                                                 final int maxRetriesAfterExpired,
                                                 final String logContext) {
       return record(
-          LIST, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
+          LIST, cuBudgetMultiplier, instructions, null, txConfig, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
           maxRetriesAfterExpired, null, logContext
       );
@@ -109,6 +113,7 @@ final class BatchInstructionServiceRoutingTests {
     @Override
     public List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                                 final Map<PublicKey, ?> accountsMap,
+                                                final TxConfig txConfig,
                                                 final BigDecimal maxLamportPriorityFee,
                                                 final Commitment awaitCommitment,
                                                 final Commitment awaitCommitmentOnError,
@@ -118,7 +123,7 @@ final class BatchInstructionServiceRoutingTests {
                                                 final String logContext,
                                                 final Function<List<PublicKey>, List<Instruction>> batchFactory) {
       return record(
-          MAP, cuBudgetMultiplier, null, accountsMap, maxLamportPriorityFee,
+          MAP, cuBudgetMultiplier, null, accountsMap, txConfig, maxLamportPriorityFee,
           awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
           maxRetriesAfterExpired, batchFactory, logContext
       );
@@ -127,19 +132,7 @@ final class BatchInstructionServiceRoutingTests {
     @Override
     public TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                  final List<Instruction> instructions,
-                                                 final BigDecimal maxLamportPriorityFee,
-                                                 final Commitment awaitCommitment,
-                                                 final Commitment awaitCommitmentOnError,
-                                                 final boolean verifyExpired,
-                                                 final boolean retrySend,
-                                                 final int maxRetriesAfterExpired,
-                                                 final String logContext) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                 final List<Instruction> instructions,
+                                                 final TxConfig txConfig,
                                                  final Function<Transaction, Transaction> beforeSend,
                                                  final BigDecimal maxLamportPriorityFee,
                                                  final Commitment awaitCommitment,
@@ -158,19 +151,29 @@ final class BatchInstructionServiceRoutingTests {
                                    final double expectedCuMultiplier,
                                    final Commitment expectedAwaitCommitment,
                                    final Commitment expectedAwaitCommitmentOnError) {
+    assertRouted(results, service, expectedTarget, expectedCuMultiplier, expectedAwaitCommitment, expectedAwaitCommitmentOnError);
+    assertTrue(service.verifyExpired, "overloads without the flags must verify expiration");
+    assertTrue(service.retrySend,
+        "overloads without the flags must opt into resending: maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry");
+  }
+
+  private static void assertRouted(final List<TransactionResult> results,
+                                   final RecordingBatchService service,
+                                   final int expectedTarget,
+                                   final double expectedCuMultiplier,
+                                   final Commitment expectedAwaitCommitment,
+                                   final Commitment expectedAwaitCommitmentOnError) {
     assertNotNull(results, "the overload must return the delegate's results");
     assertEquals(1, results.size(), "the delegate's non-empty result list must be returned as-is");
     assertEquals(8_888, results.getFirst().cuBudget());
     assertEquals(List.of(expectedTarget), service.targets);
     assertEquals(expectedCuMultiplier, service.cuBudgetMultiplier);
+    assertSame(TxConfig.DEFAULT, service.txConfig, "an overload without a configuration requests nothing");
     assertSame(FEE, service.maxLamportPriorityFee);
     assertEquals(expectedAwaitCommitment, service.awaitCommitment);
     assertEquals(expectedAwaitCommitmentOnError, service.awaitCommitmentOnError);
     assertEquals(MAX_RETRIES, service.maxRetriesAfterExpired);
     assertEquals(LOG_CONTEXT, service.logContext);
-    assertTrue(service.verifyExpired, "overloads without the flags must verify expiration");
-    assertTrue(service.retrySend,
-        "overloads without the flags must opt into resending: maxRetries is 0 on the wire, so the monitor's rebroadcast loop is the only retry");
   }
 
   @Test
@@ -189,6 +192,35 @@ final class BatchInstructionServiceRoutingTests {
     final var base = assertInstanceOf(BaseBatchInstructionService.class, service);
     assertEquals(11, base.batchSize);
     assertEquals(1, base.reduceSize);
+  }
+
+  /// Abstract until the configuration joined: the flags pass through, with the default
+  /// configuration.
+  @Test
+  void listWithFlagsRoutesWithTheDefaultConfiguration() throws InterruptedException {
+    final var service = new RecordingBatchService();
+    final var results = service.batchProcess(
+        CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, false, true, MAX_RETRIES, LOG_CONTEXT
+    );
+    assertRouted(results, service, RecordingBatchService.LIST, CU_MULTIPLIER, CONFIRMED, PROCESSED);
+    assertSame(INSTRUCTIONS, service.instructions);
+    assertFalse(service.verifyExpired);
+    assertTrue(service.retrySend);
+  }
+
+  /// Abstract until the configuration joined: the flags pass through, with the default
+  /// configuration.
+  @Test
+  void mapWithFlagsRoutesWithTheDefaultConfiguration() throws InterruptedException {
+    final var service = new RecordingBatchService();
+    final var results = service.batchProcess(
+        CU_MULTIPLIER, ACCOUNTS, FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, BATCH_FACTORY
+    );
+    assertRouted(results, service, RecordingBatchService.MAP, CU_MULTIPLIER, CONFIRMED, PROCESSED);
+    assertSame(ACCOUNTS, service.accountsMap);
+    assertSame(BATCH_FACTORY, service.batchFactory);
+    assertTrue(service.verifyExpired);
+    assertFalse(service.retrySend);
   }
 
   @Test

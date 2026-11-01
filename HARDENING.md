@@ -527,9 +527,9 @@ implementation locks the bug in.
   batch service would shrink and resend a batch whose rebuild exceeded a v1
   limit while its first attempt could still land: ravina's own processor
   cannot produce that result, since it decides the limits from the
-  instructions and the fee payer alone, but a `TransactionProcessor` whose
-  check differs between two simulations of the same instructions could, so
-  the batch call ends instead, naming that attempt.
+  instructions, the fee payer and the call's one `TxConfig` alone, but a
+  `TransactionProcessor` whose check differs between two simulations of the
+  same instructions could, so the batch call ends instead, naming that attempt.
   `aForeignNeverLeftFromAHookOnARebuildNamesTheEarlierAttempt`,
   `aForeignStopFromTheQueueAfterAMissingStatusIsAnUnknownOutcome` and
   `aRebuildOverALimitAfterAMissingStatusEndsTheBatchInsteadOfShrinking`,

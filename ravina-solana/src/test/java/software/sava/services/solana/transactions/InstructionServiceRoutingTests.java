@@ -7,7 +7,6 @@ import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
 
@@ -17,8 +16,8 @@ import static software.sava.rpc.json.http.request.Commitment.FINALIZED;
 import static software.sava.rpc.json.http.request.Commitment.PROCESSED;
 
 /// Characterizes the argument routing of every `InstructionService` default
-/// overload: which abstract method it lands on, and what it supplies for the
-/// arguments the caller did not pass.
+/// overload: each lands on the one abstract method, and supplies a fixed value
+/// for every argument the caller did not pass.
 final class InstructionServiceRoutingTests {
 
   private static final BigDecimal FEE = new BigDecimal("777.25");
@@ -38,16 +37,14 @@ final class InstructionServiceRoutingTests {
       Instruction.createInstruction(key(9), List.of(), new byte[]{1, 2, 3})
   );
 
-  /// Records which abstract overload a default method funnelled into, and with
-  /// which arguments.
+  /// Records each call a default method funnelled into the abstract overload,
+  /// and its arguments.
   static final class RecordingService implements InstructionService {
 
-    static final int NO_BEFORE_SEND = 9;
-    static final int WITH_BEFORE_SEND = 10;
-
-    final List<Integer> targets = new ArrayList<>();
+    int calls;
     double cuBudgetMultiplier;
     List<Instruction> instructions;
+    TxConfig txConfig;
     Function<Transaction, Transaction> beforeSend;
     BigDecimal maxLamportPriorityFee;
     Commitment awaitCommitment;
@@ -57,20 +54,22 @@ final class InstructionServiceRoutingTests {
     int maxRetriesAfterExpired;
     String logContext;
 
-    private TransactionResult record(final int target,
-                                     final double cuBudgetMultiplier,
-                                     final List<Instruction> instructions,
-                                     final Function<Transaction, Transaction> beforeSend,
-                                     final BigDecimal maxLamportPriorityFee,
-                                     final Commitment awaitCommitment,
-                                     final Commitment awaitCommitmentOnError,
-                                     final boolean verifyExpired,
-                                     final boolean retrySend,
-                                     final int maxRetriesAfterExpired,
-                                     final String logContext) {
-      this.targets.add(target);
+    @Override
+    public TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                 final List<Instruction> instructions,
+                                                 final TxConfig txConfig,
+                                                 final Function<Transaction, Transaction> beforeSend,
+                                                 final BigDecimal maxLamportPriorityFee,
+                                                 final Commitment awaitCommitment,
+                                                 final Commitment awaitCommitmentOnError,
+                                                 final boolean verifyExpired,
+                                                 final boolean retrySend,
+                                                 final int maxRetriesAfterExpired,
+                                                 final String logContext) {
+      ++this.calls;
       this.cuBudgetMultiplier = cuBudgetMultiplier;
       this.instructions = instructions;
+      this.txConfig = txConfig;
       this.beforeSend = beforeSend;
       this.maxLamportPriorityFee = maxLamportPriorityFee;
       this.awaitCommitment = awaitCommitment;
@@ -83,54 +82,19 @@ final class InstructionServiceRoutingTests {
           instructions, false, 4_242, 11, null, 0, null, null, "sig", "formatted"
       );
     }
-
-    @Override
-    public TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                 final List<Instruction> instructions,
-                                                 final BigDecimal maxLamportPriorityFee,
-                                                 final Commitment awaitCommitment,
-                                                 final Commitment awaitCommitmentOnError,
-                                                 final boolean verifyExpired,
-                                                 final boolean retrySend,
-                                                 final int maxRetriesAfterExpired,
-                                                 final String logContext) {
-      return record(
-          NO_BEFORE_SEND, cuBudgetMultiplier, instructions, null, maxLamportPriorityFee,
-          awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, logContext
-      );
-    }
-
-    @Override
-    public TransactionResult processInstructions(final double cuBudgetMultiplier,
-                                                 final List<Instruction> instructions,
-                                                 final Function<Transaction, Transaction> beforeSend,
-                                                 final BigDecimal maxLamportPriorityFee,
-                                                 final Commitment awaitCommitment,
-                                                 final Commitment awaitCommitmentOnError,
-                                                 final boolean verifyExpired,
-                                                 final boolean retrySend,
-                                                 final int maxRetriesAfterExpired,
-                                                 final String logContext) {
-      return record(
-          WITH_BEFORE_SEND, cuBudgetMultiplier, instructions, beforeSend, maxLamportPriorityFee,
-          awaitCommitment, awaitCommitmentOnError, verifyExpired, retrySend,
-          maxRetriesAfterExpired, logContext
-      );
-    }
   }
 
   private RecordingService assertRouted(final TransactionResult result,
                                         final RecordingService service,
-                                        final int expectedTarget,
                                         final double expectedCuMultiplier,
                                         final Function<Transaction, Transaction> expectedBeforeSend,
                                         final Commitment expectedAwaitCommitment,
                                         final Commitment expectedAwaitCommitmentOnError) {
     assertNotNull(result, "the overload must return the delegate's result");
-    assertEquals(List.of(expectedTarget), service.targets);
+    assertEquals(1, service.calls);
     assertEquals(expectedCuMultiplier, service.cuBudgetMultiplier);
     assertSame(INSTRUCTIONS, service.instructions);
+    assertSame(TxConfig.DEFAULT, service.txConfig, "an overload without a configuration requests nothing");
     assertSame(expectedBeforeSend, service.beforeSend);
     assertSame(FEE, service.maxLamportPriorityFee);
     assertEquals(expectedAwaitCommitment, service.awaitCommitment);
@@ -154,6 +118,32 @@ final class InstructionServiceRoutingTests {
     assertInstanceOf(BaseInstructionService.class, service);
   }
 
+  /// Abstract until the configuration joined: the flags pass through, with the
+  /// identity hook and the default configuration.
+  @Test
+  void flagsWithoutAHookRouteWithTheIdentityAndTheDefaultConfiguration() throws InterruptedException {
+    final var service = new RecordingService();
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, false, true, MAX_RETRIES, LOG_CONTEXT
+    );
+    assertRouted(result, service, CU_MULTIPLIER, BaseInstructionService.NO_OP, CONFIRMED, PROCESSED);
+    assertFalse(service.verifyExpired);
+    assertTrue(service.retrySend);
+  }
+
+  /// The primary until the configuration joined: everything passes through,
+  /// with the default configuration.
+  @Test
+  void aHookAndFlagsRouteWithTheDefaultConfiguration() throws InterruptedException {
+    final var service = new RecordingService();
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+    assertRouted(result, service, CU_MULTIPLIER, BEFORE_SEND, CONFIRMED, PROCESSED);
+    assertTrue(service.verifyExpired);
+    assertFalse(service.retrySend);
+  }
+
   @Test
   void commitmentsWithoutFlagsRouteToTheBeforeSendOverload() throws InterruptedException {
     final var service = new RecordingService();
@@ -161,7 +151,7 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        result, service, CU_MULTIPLIER,
         BaseInstructionService.NO_OP, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
@@ -174,7 +164,7 @@ final class InstructionServiceRoutingTests {
         INSTRUCTIONS, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        result, service, 1.0,
         BaseInstructionService.NO_OP, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
@@ -187,7 +177,7 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, FEE, INSTRUCTIONS, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        result, service, CU_MULTIPLIER,
         BaseInstructionService.NO_OP, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
@@ -198,7 +188,7 @@ final class InstructionServiceRoutingTests {
     final var service = new RecordingService();
     final var result = service.processInstructions(INSTRUCTIONS, FEE, MAX_RETRIES, LOG_CONTEXT);
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        result, service, 1.0,
         BaseInstructionService.NO_OP, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
@@ -211,7 +201,7 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        result, service, CU_MULTIPLIER,
         BEFORE_SEND, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
@@ -224,7 +214,7 @@ final class InstructionServiceRoutingTests {
         INSTRUCTIONS, BEFORE_SEND, FEE, CONFIRMED, PROCESSED, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        result, service, 1.0,
         BEFORE_SEND, CONFIRMED, PROCESSED
     );
     assertVerifyExpiredDefaults(service);
@@ -237,7 +227,7 @@ final class InstructionServiceRoutingTests {
         CU_MULTIPLIER, FEE, INSTRUCTIONS, BEFORE_SEND, MAX_RETRIES, LOG_CONTEXT
     );
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, CU_MULTIPLIER,
+        result, service, CU_MULTIPLIER,
         BEFORE_SEND, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);
@@ -248,7 +238,7 @@ final class InstructionServiceRoutingTests {
     final var service = new RecordingService();
     final var result = service.processInstructions(INSTRUCTIONS, BEFORE_SEND, FEE, MAX_RETRIES, LOG_CONTEXT);
     assertRouted(
-        result, service, RecordingService.WITH_BEFORE_SEND, 1.0,
+        result, service, 1.0,
         BEFORE_SEND, FINALIZED, FINALIZED
     );
     assertVerifyExpiredDefaults(service);

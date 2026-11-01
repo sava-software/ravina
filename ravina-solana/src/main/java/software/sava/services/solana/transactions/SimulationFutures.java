@@ -10,15 +10,20 @@ import software.sava.rpc.json.http.response.TxSimulation;
 import java.math.BigDecimal;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
-/// The simulated SIMD-0385 v1 transaction for a batch of instructions, and the in-flight simulation and
-/// priority-fee estimate for it.
+/// The simulated SIMD-0385 v1 transaction for a batch of instructions under a [TxConfig], and the in-flight
+/// simulation and priority-fee estimate for it.
 ///
 /// `transaction` is null only when the instructions cannot be encoded as one v1 transaction at all
-/// ([#exceedsEncodableLimits]). Both futures are null exactly when [#exceedsSizeLimit()].
+/// ([#exceedsEncodableLimits]). Both futures are null exactly when [#exceedsSizeLimit()]. `txConfig` is the
+/// configuration the transaction was simulated with, and every transaction
+/// [#createTransaction(BigDecimal, int, int)] builds from these futures carries it too, so that the simulation
+/// measures what is sent and its size bounds the sent transaction's.
 public record SimulationFutures(Commitment commitment,
                                 List<Instruction> instructions,
+                                TxConfig txConfig,
                                 Transaction transaction,
                                 int base64Length,
                                 CompletableFuture<TxSimulation> simulationFuture,
@@ -42,6 +47,11 @@ public record SimulationFutures(Commitment commitment,
 
   /// The u16 per-instruction data length field of a v1 transaction.
   static final int MAX_ENCODABLE_V1_INSTRUCTION_DATA_LENGTH = 0xFFFF;
+
+  /// @throws NullPointerException if `txConfig` is null
+  public SimulationFutures {
+    Objects.requireNonNull(txConfig, "txConfig");
+  }
 
   public static int cuBudget(final TxSimulation simulationResult) {
     return simulationResult.unitsConsumed().orElseThrow();
@@ -98,10 +108,12 @@ public record SimulationFutures(Commitment commitment,
     }
   }
 
-  /// Every transaction ravina builds: SIMD-0385 v1, paid by `feePayer`, carrying `instructions` verbatim.
-  /// Non-strict, so that a batch over a v1 limit is built and reported by [#exceedsV1Limits] rather than thrown.
+  /// Every transaction ravina builds: SIMD-0385 v1, paid by `feePayer`, carrying `instructions` verbatim and the heap
+  /// size `txConfig` requests. Non-strict, so that a batch over a v1 limit is built and reported by
+  /// [#exceedsV1Limits] rather than thrown; a non-strict builder writes any heap size, so [TxConfig] checks it.
   static Transaction createV1Transaction(final PublicKey feePayer,
                                          final List<Instruction> instructions,
+                                         final TxConfig txConfig,
                                          final int computeUnitLimit,
                                          final int accountDataSizeLimit,
                                          final long priorityFeeLamports) {
@@ -112,20 +124,29 @@ public record SimulationFutures(Commitment commitment,
         .addInstructions(instructions)
         .computeUnitLimit(computeUnitLimit)
         .accountDataSizeLimit(accountDataSizeLimit)
+        .heapSize(txConfig.heapSize())
         .priorityFeeLamports(priorityFeeLamports)
         .createTransaction();
   }
 
-  /// The transaction to simulate: the maximum compute unit and loaded accounts data size limits, and a reserved
-  /// priority-fee ConfigValue set to 0.
-  static Transaction createSimulationTransaction(final PublicKey feePayer, final List<Instruction> instructions) {
+  /// The transaction to simulate under `txConfig`: the maximum compute unit and loaded accounts data size limits,
+  /// and a reserved priority-fee ConfigValue set to 0.
+  static Transaction createSimulationTransaction(final PublicKey feePayer,
+                                                 final List<Instruction> instructions,
+                                                 final TxConfig txConfig) {
     return createV1Transaction(
-        feePayer, instructions, MAX_COMPUTE_UNIT_LIMIT, MAX_ACCOUNT_DATA_SIZE_LIMIT, PRIORITY_FEE_SLOT_RESERVATION
+        feePayer,
+        instructions,
+        txConfig,
+        MAX_COMPUTE_UNIT_LIMIT,
+        MAX_ACCOUNT_DATA_SIZE_LIMIT,
+        PRIORITY_FEE_SLOT_RESERVATION
     ).setPriorityFeeLamports(0);
   }
 
   /// SIMD-0385 ignores ComputeBudget instructions in a v1 transaction for configuration, so a caller's
-  /// RequestHeapFrame or compute unit request would silently do nothing but consume compute units.
+  /// RequestHeapFrame or compute unit request would silently do nothing but consume compute units. A heap size is
+  /// requested through [TxConfig] instead.
   ///
   /// @throws IllegalArgumentException if any instruction invokes `computeBudgetProgram`
   static void requireNoComputeBudgetInstructions(final PublicKey computeBudgetProgram,
@@ -134,7 +155,8 @@ public record SimulationFutures(Commitment commitment,
       if (computeBudgetProgram.equals(instruction.programId().publicKey())) {
         throw new IllegalArgumentException(
             "SIMD-0385 v1 transactions ignore ComputeBudget instructions for configuration; the compute unit limit "
-                + "and priority fee are set as ConfigValues. Remove the ComputeBudget instruction."
+                + "and priority fee are set as ConfigValues, and a heap size is requested through TxConfig. Remove "
+                + "the ComputeBudget instruction."
         );
       }
     }
@@ -190,15 +212,17 @@ public record SimulationFutures(Commitment commitment,
     return createTransaction(maxLamportPriorityFee, cuBudget, MAX_ACCOUNT_DATA_SIZE_LIMIT);
   }
 
-  /// A new v1 transaction for these instructions, limited to `cuBudget` compute units and `accountDataSizeLimit`
-  /// bytes of loaded account data, and bidding the [#priorityFeeLamports] for that budget at the estimated price.
-  /// A limit of 0 is SIMD-0385's 0 bytes, which cannot load even the fee payer. Requires `!exceedsSizeLimit()`.
+  /// A new v1 transaction for these instructions under [#txConfig()], limited to `cuBudget` compute units and
+  /// `accountDataSizeLimit` bytes of loaded account data, and bidding the [#priorityFeeLamports] for that budget at
+  /// the estimated price. A limit of 0 is SIMD-0385's 0 bytes, which cannot load even the fee payer. Requires
+  /// `!exceedsSizeLimit()`.
   public Transaction createTransaction(final BigDecimal maxLamportPriorityFee,
                                        final int cuBudget,
                                        final int accountDataSizeLimit) {
     return createV1Transaction(
         transaction.feePayer().publicKey(),
         instructions,
+        txConfig,
         cuBudget,
         accountDataSizeLimit,
         priorityFeeLamports(maxLamportPriorityFee, cuBudget, cuPrice())

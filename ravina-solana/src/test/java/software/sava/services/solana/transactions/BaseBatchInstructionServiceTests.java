@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import software.sava.core.accounts.PublicKey;
 import software.sava.core.tx.Instruction;
 import software.sava.core.accounts.meta.AccountMeta;
+import software.sava.core.tx.Transaction;
+import software.sava.core.tx.TransactionSkeleton;
 import software.sava.idl.clients.spl.SPLClient;
 import software.sava.rpc.json.http.response.LatestBlockHash;
 import software.sava.rpc.json.http.response.TxResult;
@@ -244,7 +246,7 @@ final class BaseBatchInstructionServiceTests {
   void anOversizedBatchShrinksTheBatchSizeAndRetries() throws InterruptedException {
     final var processor = new FakeTxProcessor();
     // Only the first batch is over the size limit.
-    processor.simulator = (call, ixs) -> call == 0
+    processor.simulator = (call, ixs, _) -> call == 0
         ? oversizedSimulation(ixs)
         : successfulSimulation(ixs);
     final var service = service(processor, confirmingMonitor(), 4, 1);
@@ -262,13 +264,14 @@ final class BaseBatchInstructionServiceTests {
   /// A rebuild over a v1 limit after an attempt whose status was only missing: shrinking would
   /// resend these instructions in smaller batches while that attempt may still land, and both
   /// would execute. The batch call ends instead, naming the attempt that may land. Ravina's own
-  /// processor decides the limits from the instructions and the fee payer alone, so its rebuild
-  /// never exceeds one the sent attempt did not; the scripted simulator stands for a processor
-  /// whose check can differ between two simulations of the same instructions.
+  /// processor decides the limits from the instructions, the fee payer and the call's one
+  /// `TxConfig` alone, so its rebuild never exceeds one the sent attempt did not; the scripted
+  /// simulator stands for a processor whose check can differ between two simulations of the
+  /// same instructions.
   @Test
   void aRebuildOverALimitAfterAMissingStatusEndsTheBatchInsteadOfShrinking() {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    processor.simulator = (call, ixs, _) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
     final var monitor = new FakeMonitor();
     monitor.expiredResponses = 1;
     monitor.queuedStatus = SETTLED;
@@ -297,7 +300,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aRebuildOverALimitAfterAVerifiedExpiryStillShrinks() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
+    processor.simulator = (call, ixs, _) -> call == 1 ? oversizedSimulation(ixs) : successfulSimulation(ixs);
     final var monitor = new FakeMonitor();
     monitor.expiredResponses = 1;
     monitor.queuedStatus = SETTLED;
@@ -316,7 +319,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aReduceSizeGreaterThanOneShrinksFaster() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> call == 0
+    processor.simulator = (call, ixs, _) -> call == 0
         ? oversizedSimulation(ixs)
         : successfulSimulation(ixs);
     final var service = service(processor, confirmingMonitor(), 4, 2);
@@ -336,7 +339,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aSingleInstructionOverTheV1LimitEndsTheRunWithItsError() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> {
+    processor.simulator = (call, ixs, _) -> {
       if (call > 3) {
         throw new AssertionError("the run did not end after " + call + " simulations");
       }
@@ -360,7 +363,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void aReduceSizePastOneStopsAtOneInstruction() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> {
+    processor.simulator = (call, ixs, _) -> {
       if (call > 5) {
         throw new AssertionError("the run did not end after " + call + " simulations");
       }
@@ -394,7 +397,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void anAccountBatchOfOneOverTheV1LimitEndsTheRunWithItsError() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> {
+    processor.simulator = (call, ixs, _) -> {
       if (call > 3) {
         throw new AssertionError("the run did not end after " + call + " simulations");
       }
@@ -776,7 +779,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void anOversizedAccountBatchShrinksTheBatchSizeAndRetries() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> call == 0
+    processor.simulator = (call, ixs, _) -> call == 0
         ? oversizedSimulation(ixs)
         : successfulSimulation(ixs);
     final var service = service(processor, confirmingMonitor(), 4, 1);
@@ -885,11 +888,11 @@ final class BaseBatchInstructionServiceTests {
 
   /// Decides what fits exactly as the real processor does, from sava's v1 builder and limits rather than a scripted
   /// verdict: an unencodable batch has no transaction, and one over a v1 limit is reported by its transaction.
-  private static SimulationFutures v1Simulation(final List<Instruction> ixs) {
+  private static SimulationFutures v1Simulation(final List<Instruction> ixs, final TxConfig txConfig) {
     if (SimulationFutures.exceedsEncodableLimits(FEE_PAYER, ixs)) {
-      return new SimulationFutures(CONFIRMED, ixs, null, 0, null, null);
+      return new SimulationFutures(CONFIRMED, ixs, txConfig, null, 0, null, null);
     }
-    return simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
+    return simulationFutures(ixs, txConfig, simulatedTx(ixs, txConfig), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
   }
 
   /// One instruction per chunk, referencing every key in it: the shape where a smaller chunk is what makes the
@@ -920,7 +923,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void anAccountBatchOverTheV1AccountLimitShrinksUntilItFits() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    processor.simulator = (call, ixs, txConfig) -> v1Simulation(ixs, txConfig);
     final var service = service(processor, confirmingMonitor(), 70, 10);
     final var accountsMap = distinctAccounts(70);
     final var batchFactory = new AggregatingBatchFactory();
@@ -940,7 +943,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void anAccountBatchNoV1TransactionCanEncodeShrinksInsteadOfThrowing() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    processor.simulator = (call, ixs, txConfig) -> v1Simulation(ixs, txConfig);
     final var service = service(processor, confirmingMonitor(), 300, 250);
     final var accountsMap = distinctAccounts(300);
     final var batchFactory = new AggregatingBatchFactory();
@@ -959,7 +962,7 @@ final class BaseBatchInstructionServiceTests {
   @Test
   void anInstructionBatchOverTheV1AccountLimitShrinksUntilItFits() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> v1Simulation(ixs);
+    processor.simulator = (call, ixs, txConfig) -> v1Simulation(ixs, txConfig);
     final var service = service(processor, confirmingMonitor(), 8, 3);
     // Eight instructions of ten distinct accounts each, all invoking one program.
     final var ixs = new ArrayList<Instruction>();
@@ -996,5 +999,113 @@ final class BaseBatchInstructionServiceTests {
     );
     assertTrue(processor.simulatedBatches.isEmpty(), "no batch may be simulated, let alone sent");
     assertTrue(processor.sentTransactions.isEmpty());
+  }
+
+  // ------------------------------------------------------ v1 configuration ---
+
+  private static TransactionSkeleton decode(final Transaction transaction) {
+    return TransactionSkeleton.deserializeSkeleton(transaction.serialized());
+  }
+
+  /// Every batch was simulated under `txConfig`, and every transaction sent carries its heap size.
+  private static void assertConfigured(final FakeTxProcessor processor, final TxConfig txConfig) {
+    assertFalse(processor.simulatedConfigs.isEmpty());
+    for (final var simulatedConfig : processor.simulatedConfigs) {
+      assertSame(txConfig, simulatedConfig);
+    }
+    assertFalse(processor.sentTransactions.isEmpty());
+    for (final var sent : processor.sentTransactions) {
+      assertTrue(requestsAHeapSize(sent));
+      assertEquals(txConfig.heapSize(), decode(sent).heapSize());
+    }
+  }
+
+  @Test
+  void everyInstructionBatchIsSimulatedAndSentUnderTheConfiguration() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 2, 1);
+
+    final var results = service.batchProcess(
+        1.0, instructions(5), HEAP_64_KIB, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    assertEquals(3, results.size());
+    assertEquals(List.of(2, 2, 1), batchSizes(processor));
+    assertEquals(3, processor.sentTransactions.size());
+    assertConfigured(processor, HEAP_64_KIB);
+  }
+
+  @Test
+  void everyAccountBatchIsSimulatedAndSentUnderTheConfiguration() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 2, 1);
+    final var accountsMap = accounts(3);
+    final var batchFactory = new RecordingBatchFactory();
+
+    final var results = service.batchProcess(
+        1.0, accountsMap, HEAP_64_KIB, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, batchFactory
+    );
+
+    assertEquals(2, results.size());
+    assertEquals(List.of(2, 1), batchFactory.chunks.stream().map(List::size).toList());
+    assertEquals(2, processor.sentTransactions.size());
+    assertConfigured(processor, HEAP_64_KIB);
+    assertTrue(accountsMap.isEmpty());
+  }
+
+  /// Two instructions whose transaction is exactly 4,096 bytes without a heap request are 4
+  /// bytes over with one, so the batch shrinks, and the smaller batches keep the request. Only
+  /// a simulation under the call's configuration sees the difference.
+  @Test
+  void aHeapRequestShrinksABatchItPushesOverTheSizeLimit() throws InterruptedException {
+    final var first = Instruction.createInstruction(key(0x3001), List.of(), new byte[1]);
+    final int base = simulatedTx(List.of(first, Instruction.createInstruction(key(0x3002), List.of(), new byte[0]))).size();
+    final var second = Instruction.createInstruction(key(0x3002), List.of(), new byte[4_096 - base]);
+    final var pair = List.of(first, second);
+    assertEquals(4_096, simulatedTx(pair).size(), "fixture");
+
+    final var plain = new FakeTxProcessor();
+    plain.simulator = (call, ixs, txConfig) -> v1Simulation(ixs, txConfig);
+    service(plain, confirmingMonitor(), 2, 1).batchProcess(
+        1.0, pair, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+    assertEquals(List.of(2), batchSizes(plain), "without the request the pair fits one transaction");
+    assertEquals(4_096, plain.sentTransactions.getFirst().size());
+
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs, txConfig) -> v1Simulation(ixs, txConfig);
+    final var service = service(processor, confirmingMonitor(), 2, 1);
+
+    final var results = service.batchProcess(
+        1.0, pair, HEAP_64_KIB, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    );
+
+    assertEquals(List.of(2, 1, 1), batchSizes(processor));
+    assertEquals(4_100, processor.simulations.getFirst().transaction().size());
+    assertEquals(1, service.batchSize);
+    assertEquals(2, results.size());
+    assertTrue(results.stream().allMatch(r -> r.error() == null));
+    assertEquals(2, processor.sentTransactions.size());
+    assertConfigured(processor, HEAP_64_KIB);
+  }
+
+  @Test
+  void aMissingConfigurationIsRefusedBeforeAnyBatchIsBuiltOrSent() {
+    final var processor = new FakeTxProcessor();
+    final var service = service(processor, confirmingMonitor(), 2, 1);
+    final var accountsMap = accounts(3);
+    final var batchFactory = new RecordingBatchFactory();
+
+    assertThrows(NullPointerException.class, () -> service.batchProcess(
+        1.0, instructions(3), null, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+    assertThrows(NullPointerException.class, () -> service.batchProcess(
+        1.0, accountsMap, null, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, batchFactory
+    ));
+
+    assertTrue(batchFactory.chunks.isEmpty(), "no batch may be built");
+    assertTrue(processor.simulatedBatches.isEmpty(), "no batch may be simulated, let alone sent");
+    assertTrue(processor.sentTransactions.isEmpty());
+    assertEquals(3, accountsMap.size());
   }
 }

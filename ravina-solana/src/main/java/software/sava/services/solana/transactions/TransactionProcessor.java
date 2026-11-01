@@ -132,7 +132,8 @@ public interface TransactionProcessor extends TxPublisher {
   void setSignature(final Transaction transaction, final byte[] sig);
 
   /// Builds the v1 transaction to send for simulated instructions, limited to `cuBudget` compute units and
-  /// `accountDataSizeLimit` bytes of loaded account data.
+  /// `accountDataSizeLimit` bytes of loaded account data, under the [SimulationFutures#txConfig()] they were
+  /// simulated with.
   Transaction createTransaction(final SimulationFutures simulationFutures,
                                 final BigDecimal maxLamportPriorityFee,
                                 final int cuBudget,
@@ -206,16 +207,27 @@ public interface TransactionProcessor extends TxPublisher {
   /// the send weight and registers a completion callback.
   SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);
 
-  /// Builds the SIMD-0385 v1 transaction for `instructions` at the maximum compute unit limit, and, unless it
-  /// [exceeds a v1 limit][SimulationFutures#exceedsSizeLimit()], simulates it and requests a priority fee estimate.
-  /// Instructions no v1 transaction can encode at all build nothing: the returned `transaction()` is null.
+  /// Builds the SIMD-0385 v1 transaction for `instructions` under `txConfig` at the maximum compute unit limit, and,
+  /// unless it [exceeds a v1 limit][SimulationFutures#exceedsSizeLimit()], simulates it and requests a priority fee
+  /// estimate. The returned futures carry `txConfig`, so every transaction built from them carries it too, and
+  /// whether the transaction exceeds a v1 limit is judged with its ConfigValues on the wire. Instructions no v1
+  /// transaction can encode at all build nothing: the returned `transaction()` is null.
   ///
-  /// @throws IllegalArgumentException if an instruction invokes the ComputeBudget program: v1 transactions carry the
-  ///                                  compute unit limit and priority fee as ConfigValues and ignore such
-  ///                                  instructions
-  SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions);
+  /// @throws IllegalArgumentException if an instruction invokes the ComputeBudget program: v1 transactions ignore
+  ///                                  such instructions, and carry the compute unit limit, the priority fee and
+  ///                                  the heap size `txConfig` requests as ConfigValues
+  /// @throws NullPointerException     if `txConfig` is null
+  SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                        final List<Instruction> instructions,
+                                        final TxConfig txConfig);
 
+  /// [#simulateAndEstimate(Commitment, List, TxConfig)] with [TxConfig#DEFAULT], which requests no heap size.
+  default SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+    return simulateAndEstimate(commitment, instructions, TxConfig.DEFAULT);
+  }
+
+  /// [#simulateAndEstimate(Commitment, List, TxConfig)] at the settled commitment with [TxConfig#DEFAULT].
   default SimulationFutures simulateAndEstimate(final List<Instruction> instructions) {
-    return simulateAndEstimate(Settlement.COMMITMENT, instructions);
+    return simulateAndEstimate(Settlement.COMMITMENT, instructions, TxConfig.DEFAULT);
   }
 }

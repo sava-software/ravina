@@ -79,7 +79,8 @@ final class TxPublisherTests {
   /// rather than the 1,232 byte legacy packet.
   private static Transaction v1Tx(final int dataLength) {
     return SimulationFutures.createV1Transaction(
-        key(1), List.of(Instruction.createInstruction(key(2), List.of(), new byte[dataLength])), 200_000, 98_304, 777);
+        key(1), List.of(Instruction.createInstruction(key(2), List.of(), new byte[dataLength])), TxConfig.DEFAULT,
+        200_000, 98_304, 777);
   }
 
   @Test

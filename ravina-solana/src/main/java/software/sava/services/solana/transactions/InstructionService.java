@@ -49,18 +49,32 @@ public interface InstructionService {
     );
   }
 
-  /// [#processInstructions(double, List, Function, BigDecimal, Commitment, Commitment, boolean, boolean, int, String)]
-  /// with no `beforeSend` hook; see it for `retrySend` and `verifyExpired`,
-  /// and for why `verifyExpired` false can execute the instructions twice.
-  TransactionResult processInstructions(double cuBudgetMultiplier,
-                                        final List<Instruction> instructions,
-                                        final BigDecimal maxLamportPriorityFee,
-                                        final Commitment awaitCommitment,
-                                        final Commitment awaitCommitmentOnError,
-                                        final boolean verifyExpired,
-                                        final boolean retrySend,
-                                        final int maxRetriesAfterExpired,
-                                        final String logContext) throws InterruptedException;
+  /// [#processInstructions(double, List, TxConfig, Function, BigDecimal, Commitment, Commitment, boolean, boolean, int, String)]
+  /// with [TxConfig#DEFAULT] and no `beforeSend` hook; see it for `retrySend`
+  /// and `verifyExpired`, and for why `verifyExpired` false can execute the
+  /// instructions twice.
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final boolean verifyExpired,
+                                                final boolean retrySend,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        BaseInstructionService.NO_OP,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
 
   default TransactionResult processInstructions(final double cuBudgetMultiplier,
                                                 final List<Instruction> instructions,
@@ -208,19 +222,61 @@ public interface InstructionService {
     );
   }
 
-  /// Processes and publishes a SIMD-0385 v1 transaction. `beforeSend` receives the
-  /// transaction after a fresh finalized blockhash is installed and may mutate
-  /// or replace it. The returned transaction is then signed and published, so
-  /// it must preserve that blockhash; the accompanying last-valid block height
-  /// describes that hash. The transaction carries its compute unit limit,
-  /// loaded accounts data size limit and priority fee as ConfigValues. The data
-  /// size limit is what the simulation loaded plus at most two 32KiB pages (see
-  /// `SimulationFutures.accountDataSizeLimit`), so a hook that adds accounts
-  /// loading more than that must raise it with `setAccountDataSizeLimit`. One
-  /// built with a priority fee of 0 has no priority fee slot, so
-  /// `setPriorityFeeLamports` on it throws. Hook and signing failures
-  /// propagate to the caller, as does an `IllegalArgumentException` for an
-  /// instruction that invokes the ComputeBudget program or a negative
+  /// [#processInstructions(double, List, TxConfig, Function, BigDecimal, Commitment, Commitment, boolean, boolean, int, String)]
+  /// with [TxConfig#DEFAULT], which requests no heap size.
+  default TransactionResult processInstructions(final double cuBudgetMultiplier,
+                                                final List<Instruction> instructions,
+                                                final Function<Transaction, Transaction> beforeSend,
+                                                final BigDecimal maxLamportPriorityFee,
+                                                final Commitment awaitCommitment,
+                                                final Commitment awaitCommitmentOnError,
+                                                final boolean verifyExpired,
+                                                final boolean retrySend,
+                                                final int maxRetriesAfterExpired,
+                                                final String logContext) throws InterruptedException {
+    return processInstructions(
+        cuBudgetMultiplier,
+        instructions,
+        TxConfig.DEFAULT,
+        beforeSend,
+        maxLamportPriorityFee,
+        awaitCommitment,
+        awaitCommitmentOnError,
+        verifyExpired,
+        retrySend,
+        maxRetriesAfterExpired,
+        logContext
+    );
+  }
+
+  /// Processes and publishes a SIMD-0385 v1 transaction. Every attempt of the
+  /// call, each rebuild included, is simulated and built under `txConfig`, the
+  /// v1 configuration the caller chooses (the heap size; see [TxConfig]), so
+  /// the simulation measures what is sent and its size bounds the sent
+  /// transaction's; [TxConfig#DEFAULT] requests nothing, and a null `txConfig`
+  /// is refused with a `NullPointerException` before anything is simulated.
+  /// `beforeSend` receives the transaction after a fresh finalized blockhash is
+  /// installed and may mutate or replace it. The returned transaction is then
+  /// signed and published, so it must preserve that blockhash; the
+  /// accompanying last-valid block height describes that hash. The transaction
+  /// carries its compute unit limit, loaded accounts data size limit and
+  /// priority fee as ConfigValues, and its heap size when `txConfig` requests
+  /// one. The data size limit is what the simulation loaded plus at most two
+  /// 32KiB pages (see `SimulationFutures.accountDataSizeLimit`), so a hook that
+  /// adds accounts loading more than that must raise it with
+  /// `setAccountDataSizeLimit`. One built with a priority fee of 0 has no
+  /// priority fee slot, so `setPriorityFeeLamports` on it throws, and one built
+  /// without a heap size has no heap slot, so `setHeapSize` on it throws: a
+  /// hook can retune a requested heap size but cannot add one, and a hook
+  /// that rebuilds the transaction must carry the heap size itself. The
+  /// compute unit limit is the units the simulation consumed at the requested
+  /// heap size, scaled by `cuBudgetMultiplier`, and the runtime charges 8
+  /// compute units at every program invocation for each 32KiB page of heap,
+  /// or part of one, past the first, so a hook that raises the heap size must
+  /// raise the limit with `setComputeUnitLimit` as well. Hook and signing
+  /// failures propagate to the caller, as does an `IllegalArgumentException`
+  /// for an instruction that invokes the ComputeBudget program (request a
+  /// heap size through `txConfig` instead) or a negative
   /// `maxLamportPriorityFee`, as long as nothing this call sent can still
   /// land. Once that is not so, after a send and until its status settles, and
   /// on a rebuild with `verifyExpired` false after an attempt whose status was
@@ -322,6 +378,7 @@ public interface InstructionService {
   /// true.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
+                                        final TxConfig txConfig,
                                         final Function<Transaction, Transaction> beforeSend,
                                         final BigDecimal maxLamportPriorityFee,
                                         final Commitment awaitCommitment,

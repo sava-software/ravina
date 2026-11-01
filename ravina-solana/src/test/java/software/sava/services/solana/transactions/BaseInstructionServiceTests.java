@@ -5,6 +5,7 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.Signer;
 import software.sava.core.accounts.SolanaAccounts;
 import software.sava.core.accounts.meta.AccountMeta;
+import software.sava.core.encoding.ByteUtil;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.core.tx.TransactionSkeleton;
@@ -122,7 +123,12 @@ final class BaseInstructionServiceTests {
 
   /// The v1 transaction ravina would simulate for `ixs`: maximum limit, no bid.
   static Transaction simulatedTx(final List<Instruction> ixs) {
-    return SimulationFutures.createSimulationTransaction(FEE_PAYER, ixs);
+    return simulatedTx(ixs, TxConfig.DEFAULT);
+  }
+
+  /// The v1 transaction ravina would simulate for `ixs` under `txConfig`.
+  static Transaction simulatedTx(final List<Instruction> ixs, final TxConfig txConfig) {
+    return SimulationFutures.createSimulationTransaction(FEE_PAYER, ixs, txConfig);
   }
 
   static Transaction oversizedTx() {
@@ -158,9 +164,17 @@ final class BaseInstructionServiceTests {
   static SimulationFutures simulationFutures(final List<Instruction> ixs,
                                              final Transaction transaction,
                                              final TxSimulation simulation) {
+    return simulationFutures(ixs, TxConfig.DEFAULT, transaction, simulation);
+  }
+
+  static SimulationFutures simulationFutures(final List<Instruction> ixs,
+                                             final TxConfig txConfig,
+                                             final Transaction transaction,
+                                             final TxSimulation simulation) {
     return new SimulationFutures(
         CONFIRMED,
         ixs,
+        txConfig,
         transaction,
         BASE64_LENGTH,
         CompletableFuture.completedFuture(simulation),
@@ -169,7 +183,18 @@ final class BaseInstructionServiceTests {
   }
 
   static SimulationFutures successfulSimulation(final List<Instruction> ixs) {
-    return simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED), LOADED_ACCOUNTS_DATA_SIZE));
+    return successfulSimulation(ixs, TxConfig.DEFAULT);
+  }
+
+  /// What ravina's processor answers for `ixs` under `txConfig`: the transaction it simulates, carrying the
+  /// configuration, and a successful simulation of it.
+  static SimulationFutures successfulSimulation(final List<Instruction> ixs, final TxConfig txConfig) {
+    return simulationFutures(
+        ixs,
+        txConfig,
+        simulatedTx(ixs, txConfig),
+        simulation(null, OptionalInt.of(UNITS_CONSUMED), LOADED_ACCOUNTS_DATA_SIZE)
+    );
   }
 
   static SimulationFutures oversizedSimulation(final List<Instruction> ixs) {
@@ -180,11 +205,12 @@ final class BaseInstructionServiceTests {
     return simulationFutures(ixs, simulatedTx(ixs), simulation(SIM_ERROR, OptionalInt.empty()));
   }
 
-  /// Chooses the simulation outcome for each successive call.
+  /// Chooses the simulation outcome for each successive call, given the configuration the call
+  /// was simulated under.
   @FunctionalInterface
   interface Simulator {
 
-    SimulationFutures simulate(final int call, final List<Instruction> instructions);
+    SimulationFutures simulate(final int call, final List<Instruction> instructions, final TxConfig txConfig);
   }
 
   static final class FakeTxProcessor implements TransactionProcessor {
@@ -194,6 +220,9 @@ final class BaseInstructionServiceTests {
 
     final List<List<Instruction>> simulatedBatches = new ArrayList<>();
     final List<Commitment> simulatedCommitments = new ArrayList<>();
+    final List<TxConfig> simulatedConfigs = new ArrayList<>();
+    /// What each simulation answered, in order.
+    final List<SimulationFutures> simulations = new ArrayList<>();
     final List<Integer> createdCuBudgets = new ArrayList<>();
     final List<BigDecimal> createdMaxFees = new ArrayList<>();
     final List<Integer> createdAccountDataSizeLimits = new ArrayList<>();
@@ -207,10 +236,14 @@ final class BaseInstructionServiceTests {
     /// Guards against mutants that turn a bounded loop into an unbounded one:
     /// the runaway throws rather than hanging the suite.
     int callBudget = 32;
-    Simulator simulator = (call, ixs) -> successfulSimulation(ixs);
+    /// By default, what ravina's processor answers: the configuration the call asked for is
+    /// what the simulated transaction, and every transaction built from it, carries.
+    Simulator simulator = (call, ixs, txConfig) -> successfulSimulation(ixs, txConfig);
 
     @Override
-    public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+    public SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                                 final List<Instruction> instructions,
+                                                 final TxConfig txConfig) {
       if (instructions.isEmpty()) {
         throw new IllegalStateException("Simulated an empty batch of instructions.");
       }
@@ -219,7 +252,10 @@ final class BaseInstructionServiceTests {
       }
       simulatedCommitments.add(commitment);
       simulatedBatches.add(instructions);
-      return simulator.simulate(simulatedBatches.size() - 1, instructions);
+      simulatedConfigs.add(txConfig);
+      final var simulation = simulator.simulate(simulatedBatches.size() - 1, instructions, txConfig);
+      simulations.add(simulation);
+      return simulation;
     }
 
     @Override
@@ -912,7 +948,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aSizeExceededSimulationShortCircuits() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> oversizedSimulation(ixs);
+    processor.simulator = (call, ixs, _) -> oversizedSimulation(ixs);
     final var monitor = new FakeMonitor();
     final var service = service(processor, monitor);
 
@@ -936,7 +972,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aFailedSimulationShortCircuits() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> failedSimulation(ixs);
+    processor.simulator = (call, ixs, _) -> failedSimulation(ixs);
     final var monitor = new FakeMonitor();
     final var service = service(processor, monitor);
 
@@ -1543,7 +1579,7 @@ final class BaseInstructionServiceTests {
   void aRebuildsSimulationOrSizeResultNamesTheEarlierAttempt() throws InterruptedException {
     for (final boolean oversized : new boolean[]{false, true}) {
       final var processor = new FakeTxProcessor();
-      processor.simulator = (call, ixs) -> call == 0
+      processor.simulator = (call, ixs, _) -> call == 0
           ? successfulSimulation(ixs)
           : oversized ? oversizedSimulation(ixs) : failedSimulation(ixs);
       final var monitor = new FakeMonitor();
@@ -1565,7 +1601,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aFirstAttemptsUnsentResultNamesNoAttempt() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> failedSimulation(ixs);
+    processor.simulator = (call, ixs, _) -> failedSimulation(ixs);
     final var result = service(processor, new FakeMonitor()).processInstructions(
         CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
     );
@@ -2448,7 +2484,7 @@ final class BaseInstructionServiceTests {
     final var result = service.processInstructions(
         CU_MULTIPLIER, instructions(2),
         tx -> {
-          final var rebuilt = SimulationFutures.createV1Transaction(FEE_PAYER, tx.instructions(), 200_000, 98_304, 55);
+          final var rebuilt = SimulationFutures.createV1Transaction(FEE_PAYER, tx.instructions(), TxConfig.DEFAULT, 200_000, 98_304, 55);
           rebuilt.setRecentBlockHash(tx.recentBlockHash());
           rebuilt.sign(SIGNER);
           return rebuilt;
@@ -2463,7 +2499,7 @@ final class BaseInstructionServiceTests {
   @Test
   void unsentResultsBidNoPriorityFee() throws InterruptedException {
     final var failedProcessor = new FakeTxProcessor();
-    failedProcessor.simulator = (call, ixs) -> failedSimulation(ixs);
+    failedProcessor.simulator = (call, ixs, _) -> failedSimulation(ixs);
     final var failed = service(failedProcessor, new FakeMonitor()).processInstructions(
         CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
     );
@@ -2471,7 +2507,7 @@ final class BaseInstructionServiceTests {
     assertEquals(0, failed.priorityFeeLamports());
 
     final var oversizedProcessor = new FakeTxProcessor();
-    oversizedProcessor.simulator = (call, ixs) -> oversizedSimulation(ixs);
+    oversizedProcessor.simulator = (call, ixs, _) -> oversizedSimulation(ixs);
     final var oversized = service(oversizedProcessor, new FakeMonitor()).processInstructions(
         CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
     );
@@ -2491,7 +2527,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aBatchOverTheV1AccountLimitIsReportedAsSizeExceededAndNeverSent() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> simulationFutures(ixs, tooManyAccountsTx(), null);
+    processor.simulator = (call, ixs, _) -> simulationFutures(ixs, tooManyAccountsTx(), null);
     final var monitor = new FakeMonitor();
     final var service = service(processor, monitor);
 
@@ -2510,7 +2546,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aBatchNoV1TransactionCanEncodeIsReportedWithoutATransaction() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> new SimulationFutures(CONFIRMED, ixs, null, 0, null, null);
+    processor.simulator = (call, ixs, txConfig) -> new SimulationFutures(CONFIRMED, ixs, txConfig, null, 0, null, null);
     final var service = service(processor, new FakeMonitor());
 
     final var result = service.processInstructions(
@@ -2541,7 +2577,7 @@ final class BaseInstructionServiceTests {
   @Test
   void aSimulationWithoutADataSizeMeasurementSendsTheMaximumLimit() throws InterruptedException {
     final var processor = new FakeTxProcessor();
-    processor.simulator = (call, ixs) -> simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
+    processor.simulator = (call, ixs, _) -> simulationFutures(ixs, simulatedTx(ixs), simulation(null, OptionalInt.of(UNITS_CONSUMED)));
     final var monitor = new FakeMonitor();
     monitor.webSocketResult = new TxResult(null, "confirmed", null);
     final var service = service(processor, monitor);
@@ -2555,5 +2591,127 @@ final class BaseInstructionServiceTests {
         SimulationFutures.MAX_ACCOUNT_DATA_SIZE_LIMIT,
         decode(processor.sentTransactions.getFirst()).accountDataSizeLimit()
     );
+  }
+
+  // ------------------------------------------------------ v1 configuration ---
+
+  static final TxConfig HEAP_64_KIB = new TxConfig(64 * 1_024);
+
+  /// SIMD-0385 assigns bit 4 of the TransactionConfigMask, a u32 at offset 4, to the heap size.
+  static boolean requestsAHeapSize(final Transaction transaction) {
+    return (ByteUtil.getInt32LE(transaction.serialized(), 4) & 0b1_0000) != 0;
+  }
+
+  @Test
+  void aConfiguredHeapSizeIsSimulatedAndSent() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), HEAP_64_KIB, BaseInstructionService.NO_OP,
+        MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+
+    assertNull(result.error());
+    assertEquals(1, processor.simulatedConfigs.size());
+    assertSame(HEAP_64_KIB, processor.simulatedConfigs.getFirst());
+    final var simulated = processor.simulations.getFirst().transaction();
+    assertEquals(64 * 1_024, decode(simulated).heapSize());
+    final var sent = processor.sentTransactions.getFirst();
+    assertSame(sent, result.transaction());
+    assertTrue(requestsAHeapSize(sent));
+    assertEquals(64 * 1_024, decode(sent).heapSize());
+    assertEquals(simulated.size(), sent.size(), "the simulation bounds the size of what is sent");
+    // The rest of what is sent is what it is without the request.
+    assertEquals(200_000, decode(sent).computeUnitLimit());
+    assertEquals(5, decode(sent).priorityFeeLamports());
+    assertEquals(4 * 32 * 1_024, decode(sent).accountDataSizeLimit());
+  }
+
+  @Test
+  void anOverloadWithoutAConfigurationRequestsNoHeapSize() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    service.processInstructions(CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT);
+
+    assertEquals(List.of(TxConfig.DEFAULT), processor.simulatedConfigs);
+    assertSame(TxConfig.DEFAULT, processor.simulatedConfigs.getFirst());
+    final var sent = processor.sentTransactions.getFirst();
+    assertFalse(requestsAHeapSize(sent));
+    assertEquals(0, decode(sent).heapSize());
+  }
+
+  /// With `verifyExpired` false a missing status rebuilds at once, while the attempt before it
+  /// may still land: both are the same instructions under the same configuration.
+  @Test
+  void aRebuildAfterAnUnverifiedAttemptKeepsTheConfiguration() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 2;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), HEAP_64_KIB, BaseInstructionService.NO_OP,
+        MAX_FEE, CONFIRMED, PROCESSED, false, false, 5, LOG_CONTEXT
+    );
+
+    assertNull(result.error());
+    assertEquals(
+        List.of(TxAttempt.Status.MISSING, TxAttempt.Status.MISSING, TxAttempt.Status.SETTLED),
+        statuses(result.attempts())
+    );
+    assertEquals(3, processor.simulatedConfigs.size());
+    assertEquals(3, processor.sentTransactions.size());
+    for (int attempt = 0; attempt < 3; ++attempt) {
+      assertSame(HEAP_64_KIB, processor.simulatedConfigs.get(attempt), "attempt " + attempt);
+      assertEquals(64 * 1_024, decode(processor.sentTransactions.get(attempt)).heapSize(), "attempt " + attempt);
+    }
+  }
+
+  @Test
+  void aMissingConfigurationIsRefusedBeforeAnythingIsSimulated() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    assertThrows(NullPointerException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), null, BaseInstructionService.NO_OP,
+        MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    ));
+
+    assertTrue(processor.simulatedBatches.isEmpty(), "no request may be spent on a missing configuration");
+    assertTrue(processor.sentTransactions.isEmpty());
+  }
+
+  /// A hook is handed a heap slot only when the configuration requested one: it can retune it,
+  /// and on a transaction built without one `setHeapSize` throws, which the call lets through
+  /// as it is, since nothing was sent.
+  @Test
+  void aHookCanRetuneARequestedHeapSizeButCannotAddOne() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketResult = new TxResult(null, "confirmed", null);
+    final var service = service(processor, monitor);
+
+    service.processInstructions(
+        CU_MULTIPLIER, instructions(2), HEAP_64_KIB, tx -> tx.setHeapSize(128 * 1_024),
+        MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    );
+    assertEquals(128 * 1_024, decode(processor.sentTransactions.getFirst()).heapSize());
+
+    final var unconfigured = new FakeTxProcessor();
+    final var refusing = service(unconfigured, new FakeMonitor());
+    assertThrows(IllegalStateException.class, () -> refusing.processInstructions(
+        CU_MULTIPLIER, instructions(2), TxConfig.DEFAULT, tx -> tx.setHeapSize(128 * 1_024),
+        MAX_FEE, CONFIRMED, PROCESSED, true, false, 3, LOG_CONTEXT
+    ));
+    assertTrue(unconfigured.sentTransactions.isEmpty());
   }
 }

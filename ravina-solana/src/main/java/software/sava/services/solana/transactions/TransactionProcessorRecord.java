@@ -19,6 +19,7 @@ import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -300,16 +301,19 @@ record TransactionProcessorRecord(ExecutorService executor,
   }
 
   @Override
-  public SimulationFutures simulateAndEstimate(final Commitment commitment, final List<Instruction> instructions) {
+  public SimulationFutures simulateAndEstimate(final Commitment commitment,
+                                               final List<Instruction> instructions,
+                                               final TxConfig txConfig) {
+    Objects.requireNonNull(txConfig, "txConfig");
     SimulationFutures.requireNoComputeBudgetInstructions(solanaAccounts.computeBudgetProgram(), instructions);
     if (SimulationFutures.exceedsEncodableLimits(feePayer, instructions)) {
-      return new SimulationFutures(commitment, instructions, null, 0, null, null);
+      return new SimulationFutures(commitment, instructions, txConfig, null, 0, null, null);
     }
-    final var simulateTx = SimulationFutures.createSimulationTransaction(feePayer, instructions);
+    final var simulateTx = SimulationFutures.createSimulationTransaction(feePayer, instructions, txConfig);
     final var base64EncodedTx = simulateTx.base64EncodeToString();
     final int base64Length = base64EncodedTx.length();
     if (SimulationFutures.exceedsV1Limits(simulateTx)) {
-      return new SimulationFutures(commitment, instructions, simulateTx, base64Length, null, null);
+      return new SimulationFutures(commitment, instructions, txConfig, simulateTx, base64Length, null, null);
     }
 
     final var simulationFuture = Call.createCourteousCall(
@@ -327,6 +331,7 @@ record TransactionProcessorRecord(ExecutorService executor,
     return new SimulationFutures(
         commitment,
         instructions,
+        txConfig,
         simulateTx,
         base64Length,
         simulationFuture,
