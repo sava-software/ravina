@@ -131,6 +131,7 @@ final class SendFailureTests {
       new Row(httpStatusFailure(200), SendFailure.Refused.class, REFUSED),
       new Row(httpStatusFailure(400), SendFailure.Refused.class, REFUSED),
       new Row(httpStatusFailure(401), SendFailure.Refused.class, UNAUTHORIZED),
+      new Row(httpStatusFailure(402, "Payment Required", Map.of()), SendFailure.Refused.class, UNAUTHORIZED),
       new Row(httpStatusFailure(403), SendFailure.Refused.class, UNAUTHORIZED),
       new Row(httpStatusFailure(408), SendFailure.Refused.class, UNANSWERED),
       new Row(httpStatusFailure(429), SendFailure.Refused.class, RATE_LIMITED),
@@ -218,9 +219,9 @@ final class SendFailureTests {
   }
 
   /// sava-rpc's own throws, through the client ravina sends on. Every failure of an answered
-  /// request carries the status it arrived under, and the status decides: text-bodied 401 and 403
-  /// read as UNAUTHORIZED, 429 as RATE_LIMITED, 503 as SERVER_ERROR, a JSON-RPC 429 under a
-  /// `retry-after` hint as RATE_LIMITED, a JSON-RPC error under a 401 as UNAUTHORIZED, and one
+  /// request carries the status it arrived under, and the status decides: text-bodied 401, 402
+  /// and 403 read as UNAUTHORIZED, 429 as RATE_LIMITED, 503 as SERVER_ERROR, a JSON-RPC 429 under
+  /// a `retry-after` hint as RATE_LIMITED, a JSON-RPC error under a 401 as UNAUTHORIZED, and one
   /// under a 500 as SERVER_ERROR, whatever its code. An empty 429 is typed before the parser
   /// opens, with its hint and nothing attached. A body the parser could not read, an object
   /// truncated inside its error under a 503 or a string `error` member under a 200, carries the
@@ -233,6 +234,7 @@ final class SendFailureTests {
     final var none = OptionalLong.empty();
     final var expected = List.of(
         new Expected(new Answer(401, "Unauthorized", Map.of()), HttpResponseException.class, UNAUTHORIZED, none, none, false),
+        new Expected(new Answer(402, "Payment Required", Map.of()), HttpResponseException.class, UNAUTHORIZED, none, none, false),
         new Expected(new Answer(403, "Forbidden", Map.of()), HttpResponseException.class, UNAUTHORIZED, none, none, false),
         new Expected(new Answer(429, "Too Many Requests", Map.of()), HttpResponseException.class, RATE_LIMITED, none, none, false),
         new Expected(new Answer(503, "Service Unavailable", Map.of()), HttpResponseException.class, SERVER_ERROR, none, none, false),

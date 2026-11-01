@@ -241,8 +241,8 @@ public interface InstructionService {
   /// the rebuilds after attempts with an accepted send, so a provider that
   /// refuses every send costs one block hash window with `verifyExpired` true,
   /// or one websocket await and a polling pass with `false`, not a rebuild
-  /// loop. Its `reason()` tells a key to fix (`UNAUTHORIZED`, a 401 or a 403)
-  /// and a rate to pace (`RATE_LIMITED`) from a refusal (see
+  /// loop. Its `reason()` tells a key or plan to fix (`UNAUTHORIZED`, a 401,
+  /// 402 or 403) and a rate to pace (`RATE_LIMITED`) from a refusal (see
   /// `SendFailure.Refused`), and its last failure's `retryAfterSeconds()`,
   /// when the provider sent one, says how long to wait whatever the reason: a
   /// 503 that carries one reads `SERVER_ERROR`. [SendNeverLeftException]: no

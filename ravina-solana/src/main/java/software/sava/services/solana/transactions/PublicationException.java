@@ -43,9 +43,10 @@ public abstract sealed class PublicationException extends RuntimeException
   public enum Reason {
     /// The transaction monitor's loop stopped, and the service refuses every later call.
     MONITOR_STOPPED,
-    /// The provider refused the key, the plan or the allow-list: an HTTP 401 or 403, whatever
-    /// the body, which pacing within a block hash window does not fix. Read only from the
-    /// status; see `SendFailure.Refused` for how a status ranks over a JSON-RPC code.
+    /// The provider refused the key, the plan or the allow-list: an HTTP 401, 402 or 403,
+    /// whatever the body, which pacing within a block hash window does not fix. A 402 is how a
+    /// provider says the plan or its credits are exhausted. Read only from the status; see
+    /// `SendFailure.Refused` for how a status ranks over a JSON-RPC code.
     UNAUTHORIZED,
     /// The provider asked for less: an HTTP 429; or, where the status decides nothing, a
     /// JSON-RPC error with code 429, or a `retry-after` hint on any answer.

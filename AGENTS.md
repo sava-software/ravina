@@ -690,7 +690,7 @@ them, because the list is the argument for the effort.
   the one classifier of a failed send, and `SendFailure.Refused.ofSavaRpc` the one place
   sava-rpc's typed failures are read: an `HttpResponseException` by its status and `retry-after`
   hint, a `JsonRpcException` by its code, its hint and the status it arrived under. The status
-  decides first: 401 and 403 read `UNAUTHORIZED`, 429 `RATE_LIMITED`, 500 and above
+  decides first: 401, 402 and 403 read `UNAUTHORIZED`, 429 `RATE_LIMITED`, 500 and above
   `SERVER_ERROR`, and 408, the server's or a gateway's own timeout, `UNANSWERED`, though it stays
   a `Refused` that may still land. The code and the hint decide only where the status does not:
   with no status, as over the websocket, or one no rule names, a 2xx among them, where an HTTP

@@ -78,7 +78,7 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
       Objects.requireNonNull(retryAfterSeconds, "retryAfterSeconds");
     }
 
-    /// The status decides first, whatever the code and the hint: 401 and 403 are
+    /// The status decides first, whatever the code and the hint: 401, 402 and 403 are
     /// [Reason#UNAUTHORIZED], a key, plan or allow-list refusal that pacing does not fix, though
     /// `HttpErrorTracker` docks capacity for a 403 as a rate limit; 429 is [Reason#RATE_LIMITED];
     /// 500 and above, as `HttpErrorTracker` reads a server error, are [Reason#SERVER_ERROR]; and
@@ -111,7 +111,7 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
     /// the hint; 0 stands for no status.
     private static Reason reasonOfStatus(final int status) {
       return switch (status) {
-        case 401, 403 -> Reason.UNAUTHORIZED;
+        case 401, 402, 403 -> Reason.UNAUTHORIZED;
         case 408 -> Reason.UNANSWERED;
         case 429 -> Reason.RATE_LIMITED;
         default -> status >= 500 ? Reason.SERVER_ERROR : null;
