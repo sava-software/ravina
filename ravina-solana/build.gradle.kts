@@ -44,8 +44,9 @@ hardening {
     // was killed; BIG_INTEGER fired zero times, so it is not enabled. Re-measured
     // 2026-09-24 after the move to v1 priorityFeeLamports: BIG_DECIMAL fires once
     // (the cap's min) and is killed; the class holds no BigInteger. NAKED_RECEIVER
-    // trialled 2026-07-22 and re-measured 2026-09-24: fires 7 times, all killed
-    // (numbers in config/pitest/README.md).
+    // trialled 2026-07-22 and re-measured 2026-09-24: fires 7 times, all killed;
+    // 2026-11-01, with the recipe's heapSize call: 8, all killed (numbers in
+    // config/pitest/README.md).
     mutators = "STRONGER,EXPERIMENTAL_BIG_DECIMAL,EXPERIMENTAL_NAKED_RECEIVER"
   }
   mutation.register("config") {

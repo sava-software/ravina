@@ -256,7 +256,7 @@ A fluent call returning its receiver type is an expression, invisible to
 |---|---|---|---|
 | `catchAll` | 61 | 56 killed (3 by new tests/seams: the `LoadBalanceUtil` `httpClient` wiring, the `WebSocketManager` factory prototype via a package-private seam), 4 accepted (below), 1 `TIMED_OUT`. On 2026-09-24 the two websocket-fallback acceptances became kills and were pruned, and the `TIMED_OUT` member was retired with the finalization stage | yes |
 | `epoch` | 9 | all killed — two `logFormat` truncation kills needed non-minute-aligned inputs; the exact-minute test data had made truncation a no-op | yes |
-| `fees` | 5 (2026-07-22); 7 (2026-09-24) | all killed. In 2026-07 the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions. After the move to v1 ConfigValues the 7 are the recipe's five `TxBuilder` calls, the simulation's `setPriorityFeeLamports(0)` and the fee cap's `BigDecimal.min` | yes |
+| `fees` | 5 (2026-07-22); 7 (2026-09-24); 8 (2026-11-01) | all killed. In 2026-07 the surviving `createTransaction` prepend was a real gap — the existing test never looked at the returned transaction's instructions. After the move to v1 ConfigValues the 7 were the recipe's five `TxBuilder` calls, the simulation's `setPriorityFeeLamports(0)` and the fee cap's `BigDecimal.min`; the v1 configuration added the recipe's `heapSize` call, the eighth | yes |
 | `config` | 4 | all killed | yes |
 | `epochService`, `formatting` (and `alt`, retired 2026-09-24) | 0 | — | no |
 
