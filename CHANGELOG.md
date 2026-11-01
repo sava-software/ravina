@@ -1,5 +1,33 @@
 # Changelog
 
+## [25.8.0](https://github.com/sava-software/ravina/compare/25.7.0...25.8.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **solana:** the BatchProcessException message states the failing batch's verdict when its cause is a PublicationException, so text matched against "A ... batch failed after N settled." no longer matches then. The constructor is package-private, so no consumer builds one.
+* **solana:** TransactionResult gains a last component, attempts, so its canonical constructor takes eleven arguments and a record pattern over it names eleven components; the public ten-argument constructor builds a result with no attempts.
+* **solana:** after a send, processInstructions and the batch service built on it end without a result only with a PublicationException. SendNotAcceptedException and TxMonitorStoppedException now extend it; OutcomeUnknownException carries a wrong-signature answer, a weaker-settings queue, a forwarded monitor failure, a failure between a send and its verdict, and, with verifyExpired false after an attempt whose status was only missing, a hook, signing or simulation failure on the rebuild, which used to propagate bare. TxMonitorStoppedException is thrown as a per-call instance whose cause is the loop's failure, not the monitor's instance. The removed accessors are SendNotAcceptedException's expiryVerified, sig and attempted, and TxMonitorStoppedException's sent, sig and lastValidBlockHeight, with its argumentless constructor and refusedAfter; mayStillLand, landable, landableUntil, attempts and reason replace them. The messages of both types change. Neither type is Java-serializable any longer: both hold a list of TxAttempt, and neither TxAttempt nor SendLedger.Reading nor the SendFailure records are Serializable, Refused holding an OptionalInt and OptionalLongs; nor are the new verdict types, as BatchProcessException has not been since 25.7.0.
+* **solana:** a send that never left is thrown by TxMonitorService.validateResponse as SendNeverLeftException, a PublicationException, where it was a plain RuntimeException, with the same cause and suppressed failure, except that two sends failing with one instance carry it as the cause alone. The firstFailure and lastFailure components of SendLedger.Reading are SendFailure, whose failure() is the Throwable they returned, and the record gains a failures component, so its canonical constructor takes five arguments.
+
+### Features
+
+* **solana:** end every call that sent with one sealed PublicationException, built by the call ([85b26e1](https://github.com/sava-software/ravina/commit/85b26e16132d6737ee649bbdccc0612ba2192380))
+* **solana:** name the attempt a verdict is about with lastAttempt() ([b2fe243](https://github.com/sava-software/ravina/commit/b2fe243f0c9412cb24fcb2c6d6e722b7273b9514))
+* **solana:** name the call's attempts on every TransactionResult ([45debdb](https://github.com/sava-software/ravina/commit/45debdb2bd1dd20b880fba8dabf9588767f55c39))
+* **solana:** name the failing batch and its verdict on BatchProcessException ([7cef042](https://github.com/sava-software/ravina/commit/7cef042a3d49ee88283150a7a35554be9f28432c))
+* **solana:** read sava-rpc's typed HTTP statuses into SendFailure ([253c2c0](https://github.com/sava-software/ravina/commit/253c2c0c80908863f1c3796bfedcf16d5930fece))
+* **solana:** throw a send that never left as SendNeverLeftException, and classify failed sends ([40d4e5f](https://github.com/sava-software/ravina/commit/40d4e5f27162d3ff691a810d3ccd9f87dd24a434))
+
+
+### Bug Fixes
+
+* **core:** escape every character JSON requires in webhook messages ([0334781](https://github.com/sava-software/ravina/commit/033478148995c37955420d8144ef8716e59fa992))
+* **core:** restore the interrupt status when a Call wrapper rethrows an interrupt ([715f419](https://github.com/sava-software/ravina/commit/715f419daa408a109845db2bdf1d4f902f215c26))
+* **deps:** bump solanaBOMVersion to 25.30.48 for sava-rpc's typed HTTP failures ([833938f](https://github.com/sava-software/ravina/commit/833938f5db763e54d0f395104c3177438754a23b))
+* **solana:** end a batch call instead of shrinking it while an earlier attempt may still land ([29fab7c](https://github.com/sava-software/ravina/commit/29fab7c79109869956ae6bc2c25f04d4701da7b1))
+* **solana:** let only the call's own verdict pass its guard, and pin the sava-rpc refinement ([a50f79b](https://github.com/sava-software/ravina/commit/a50f79b3d9e47e49921f8dd620a390384e3fc92b))
+
 ## [25.7.0](https://github.com/sava-software/ravina/compare/25.6.7...25.7.0) (2026-10-31)
 
 
