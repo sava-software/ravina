@@ -6,6 +6,7 @@ import software.sava.services.solana.transactions.PublicationException.Reason;
 import java.net.ConnectException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -149,6 +150,40 @@ final class PublicationExceptionTests {
 
     assertEquals(UNREACHABLE, notAccepted.reason());
     assertFalse(notAccepted.mayStillLand());
+  }
+
+  /// A verdict is about the last attempt its call made, on every subtype, and only the stop that
+  /// refused a call before its first attempt is about none: a consumer reads the sends of
+  /// `lastAttempt()` without ruling that stop out first.
+  @Test
+  void theLastAttemptIsTheOneTheVerdictIsAbout() {
+    final var missing = attempt("a", 5, MISSING);
+    final var expired = attempt("b", 6, EXPIRED);
+    final var pending = attempt("c", 7, PENDING);
+    final var cause = new IllegalStateException("every pass failed");
+
+    assertEquals(Optional.empty(), TxMonitorStoppedException.refused(List.of()).lastAttempt());
+    assertEquals(Optional.of(expired), TxMonitorStoppedException.refused(List.of(missing, expired)).lastAttempt());
+    assertEquals(Optional.of(pending), TxMonitorStoppedException.pending(List.of(missing, pending), cause).lastAttempt());
+    final var monitorsStop = new TxMonitorStoppedException("m", 8, cause);
+    assertSame(monitorsStop.attempts().getFirst(), monitorsStop.lastAttempt().orElseThrow());
+    assertEquals(PENDING, monitorsStop.lastAttempt().orElseThrow().status());
+
+    final var monitorsNeverLeft = neverLeft(List.of());
+    assertEquals(NEVER_LEFT, monitorsNeverLeft.lastAttempt().orElseThrow().status());
+    final var callsNeverLeft = neverLeft(List.of(missing, expired));
+    assertEquals(List.of(MISSING, EXPIRED, NEVER_LEFT), callsNeverLeft.attempts().stream().map(TxAttempt::status).toList());
+    assertSame(callsNeverLeft.attempts().getLast(), callsNeverLeft.lastAttempt().orElseThrow());
+
+    final var sends = new SendLedger.Reading(3, false, null, null, Set.of(Reason.RATE_LIMITED));
+    final var notAcceptedAttempt = new TxAttempt("d", 9, EXPIRED, sends);
+    final var notAccepted = SendNotAcceptedException.of(List.of(expired, notAcceptedAttempt));
+    assertSame(notAcceptedAttempt, notAccepted.lastAttempt().orElseThrow());
+    assertEquals(3, notAccepted.lastAttempt().orElseThrow().sends().attempted());
+    assertEquals(Set.of(Reason.RATE_LIMITED), notAccepted.lastAttempt().orElseThrow().sends().failures());
+
+    assertSame(pending, OutcomeUnknownException.of(List.of(missing, pending), cause).lastAttempt().orElseThrow());
+    assertSame(missing, OutcomeUnknownException.of(List.of(missing), cause).lastAttempt().orElseThrow());
   }
 
   /// An unknown outcome is one while something sent may still land, so the factory refuses

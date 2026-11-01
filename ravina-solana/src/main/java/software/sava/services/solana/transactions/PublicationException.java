@@ -1,6 +1,7 @@
 package software.sava.services.solana.transactions;
 
 import java.util.List;
+import java.util.Optional;
 
 /// The one verdict `InstructionService.processInstructions` ends with when it ends without a
 /// result after a send, or while an earlier attempt of the call may still land, or because a
@@ -8,10 +9,11 @@ import java.util.List;
 /// names. The call builds it, as the only code that holds every attempt of the call, so a
 /// caller decides whether to rebuild from the catch type and these accessors alone, never from a
 /// JDK cause: [#attempts()] is every transaction the call signed and handed to a send, in order,
-/// with the sends its ledger recorded; [#mayStillLand()] says whether any of them may still
-/// land, [#landable()] names each that may, and [#landableUntil()] the last block height at
-/// which any of them can; [#reason()] says why the call ended. The message ends with the same
-/// landability, so a page that prints only the message still says it.
+/// with the sends its ledger recorded, and [#lastAttempt()] the one the verdict is about;
+/// [#mayStillLand()] says whether any of them may still land, [#landable()] names each that may,
+/// and [#landableUntil()] the last block height at which any of them can; [#reason()] says why
+/// the call ended. The message ends with the same landability, so a page that prints only the
+/// message still says it.
 ///
 /// The subtype says how the call ended. [SendNotAcceptedException]: no send of the last attempt
 /// was accepted, and its status settled as not landed. [SendNeverLeftException]: no send of the
@@ -27,7 +29,7 @@ import java.util.List;
 /// ahead of the ones it names.
 ///
 /// Rebuild on one whose `mayStillLand()` is false, pacing by its `reason()` and, whatever the
-/// reason, by the `retryAfterSeconds()` of its last attempt's last failure, when that is a
+/// reason, by the `retryAfterSeconds()` of its [#lastAttempt()]'s last failure, when that is a
 /// refusal that carries one (a 503 that does reads `SERVER_ERROR`); on one whose
 /// `mayStillLand()` is true, do not, until the settled block height has passed
 /// `landableUntil()` by the expiration monitor's settle buffer and a history-searching
@@ -79,6 +81,17 @@ public abstract sealed class PublicationException extends RuntimeException
   /// empty only when a stopped monitor refused the call's first attempt.
   public final List<TxAttempt> attempts() {
     return attempts;
+  }
+
+  /// The attempt the verdict is about: the last one the call made, whose `sends()` say how many
+  /// sends it made, `attempted()`, and the class of each that failed, `failures()`. Present on
+  /// every [SendNotAcceptedException], [SendNeverLeftException] and [OutcomeUnknownException],
+  /// whose factories cannot build one without an attempt, and on every
+  /// [TxMonitorStoppedException] but one: empty exactly when [#attempts()] is, for the stop that
+  /// refused the call before its first attempt. A consumer that read `attempts().getLast()`
+  /// instead had to rule that refusal out first; this accessor has no such ordering to keep.
+  public final Optional<TxAttempt> lastAttempt() {
+    return attempts.isEmpty() ? Optional.empty() : Optional.of(attempts.getLast());
   }
 
   /// Whether anything that was sent may still land: an attempt whose status is `MISSING` or

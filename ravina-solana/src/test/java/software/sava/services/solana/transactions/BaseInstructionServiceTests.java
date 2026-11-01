@@ -39,6 +39,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.IllegalFormatConversionException;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -1197,6 +1198,7 @@ final class BaseInstructionServiceTests {
     assertEquals(monitor.sigs.getFirst(), pending.sig());
     assertEquals(TxAttempt.Status.PENDING, pending.status());
     assertEquals(monitor.ledgers.getFirst().reading(), pending.sends(), "the call's own ledger, not the monitor's");
+    assertEquals(Optional.of(pending), thrown.lastAttempt(), "the stop from the queued future is about the pending one");
     assertEquals(processor.sentBlockHeights.getFirst(), thrown.landableUntil());
     assertSame(monitor.stopCause, thrown.getCause(), "the loop's failure, not the monitor's instance");
     assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
@@ -1223,6 +1225,7 @@ final class BaseInstructionServiceTests {
 
       assertFalse(thrown.mayStillLand());
       assertEquals(List.of(), thrown.attempts());
+      assertEquals(Optional.empty(), thrown.lastAttempt(), "the one verdict about no attempt");
       assertEquals(0, thrown.landableUntil());
       assertNull(thrown.getCause());
       assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
@@ -1616,6 +1619,7 @@ final class BaseInstructionServiceTests {
     assertFalse(thrown instanceof SendNotAcceptedException);
     assertTrue(thrown.mayStillLand());
     assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.NEVER_LEFT), statuses(thrown.attempts()));
+    assertSame(thrown.attempts().getLast(), thrown.lastAttempt().orElseThrow(), "the attempt that never left");
     assertEquals(List.of(thrown.attempts().getFirst()), thrown.landable());
     assertEquals(monitor.sigs.getFirst(), thrown.landable().getFirst().sig());
     assertEquals(processor.sentBlockHeights.getFirst(), thrown.landableUntil());

@@ -231,7 +231,9 @@ public interface InstructionService {
   /// `landable()` names each such transaction and `landableUntil()` the last
   /// block height at which any of them can, `reason()` says why the call
   /// ended, and `attempts()` what it sent, each attempt's `sends()` counting
-  /// its first send, failover and resends. Its type says how.
+  /// its first send, failover and resends, with `lastAttempt()` the attempt the
+  /// verdict is about, empty only for a stop that refused the call before its
+  /// first attempt. Its type says how.
   /// [SendNotAcceptedException]: no send of the last attempt, this call's or
   /// the monitor's, was accepted (answered with the signature), and its status
   /// then settled as not landed, so the call ends instead of rebuilding,

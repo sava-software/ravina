@@ -703,7 +703,11 @@ them, because the list is the argument for the effort.
   the failure is not read as an answer, since nothing on the send path throws it any more. None
   of this moves `mayStillLand`: only a connection that never formed reads as never left.
   `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pins the reading against
-  sava-rpc's own throws through its real client.
+  sava-rpc's own throws through its real client. A verdict's accessors carry the whole of it:
+  `mayStillLand()`, `landable()` and `landableUntil()` say what may still land, `reason()` why
+  the call ended, `attempts()` what it sent, and `lastAttempt()` the attempt the verdict is
+  about, empty only for a stop that refused the call before its first attempt, so a consumer
+  reading that attempt's `sends()` has no stop to rule out first.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and
