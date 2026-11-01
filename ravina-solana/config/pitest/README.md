@@ -471,9 +471,12 @@ pre-size expression: allocation shape only, identical output.
 
 **Both branches build the same record** `# same-record-branches` (`catchAll`) —
 `BaseInstructionService.processInstructions`, `if (error != null)`: forcing the
-error branch with a null error calls
-`createResult(..., null, sig, formattedSig)`, which is the record the else
-branch already produces. Only the log line differs.
+error branch with a null error records the same `SETTLED` attempt and calls
+`createResult(..., null, sig, formattedSig, attempts)`, which is the record the
+else branch already produces, attempts included. Only the log line differs. It
+holds while both branches record the one attempt built above them and pass the
+same list: a branch that computed anything the other does not would make the
+mutant killable.
 
 **Running-minimum boundaries** `# running-minimum` (`catchAll`) — `<` → `<=` on
 a running minimum (`TxExpirationMonitorService.processTransactions`, the

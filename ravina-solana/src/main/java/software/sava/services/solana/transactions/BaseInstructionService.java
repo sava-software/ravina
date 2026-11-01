@@ -164,7 +164,8 @@ public class BaseInstructionService implements InstructionService {
           return TransactionResult.createSizeExceededResult(
               instructions,
               simulationFutures.transaction(),
-              base64Length
+              base64Length,
+              attempts
           );
         }
         final var simulationResult = simulationFutures.simulationFuture().join();
@@ -181,7 +182,8 @@ public class BaseInstructionService implements InstructionService {
               true,
               SimulationFutures.MAX_COMPUTE_UNIT_LIMIT, 0,
               simulationFutures.transaction(), base64Length,
-              simulationResult, simulationError
+              simulationResult, simulationError,
+              attempts
           );
         }
 
@@ -202,7 +204,8 @@ public class BaseInstructionService implements InstructionService {
               simulationFutures.transaction(),
               base64Length,
               simulationResult,
-              TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH
+              TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH,
+              attempts
           );
         }
         final var sig = sendContext.sig();
@@ -280,6 +283,7 @@ public class BaseInstructionService implements InstructionService {
               throw SendNotAcceptedException.of(attempts);
             }
             if (++retries >= maxRetriesAfterExpired) {
+              attempts.add(attempt);
               return TransactionResult.createResult(
                   instructions,
                   cuBudget, cuPrice,
@@ -288,7 +292,8 @@ public class BaseInstructionService implements InstructionService {
                   simulationResult,
                   EXPIRED,
                   sig,
-                  formattedSig
+                  formattedSig,
+                  attempts
               );
             }
             logger.log(INFO, String.format("""
@@ -306,6 +311,7 @@ public class BaseInstructionService implements InstructionService {
         }
 
         final var transaction = sendContext.transaction();
+        final var settled = new TxAttempt(sig, blockHeight, TxAttempt.Status.SETTLED, ledger.reading());
         if (error != null) {
           logger.log(INFO, String.format("""
                       Failed to execute %d %s instructions because %s:
@@ -314,6 +320,7 @@ public class BaseInstructionService implements InstructionService {
                   instructions.size(), logContext, error, formattedSig
               )
           );
+          attempts.add(settled);
           return TransactionResult.createResult(
               instructions,
               cuBudget, cuPrice,
@@ -322,7 +329,8 @@ public class BaseInstructionService implements InstructionService {
               simulationResult,
               error,
               sig,
-              formattedSig
+              formattedSig,
+              attempts
           );
         } else {
           logger.log(INFO, String.format("""
@@ -332,6 +340,7 @@ public class BaseInstructionService implements InstructionService {
                   reached, instructions.size(), logContext, formattedSig
               )
           );
+          attempts.add(settled);
           return TransactionResult.createResult(
               instructions,
               cuBudget, cuPrice,
@@ -339,7 +348,8 @@ public class BaseInstructionService implements InstructionService {
               base64Length,
               simulationResult,
               sig,
-              formattedSig
+              formattedSig,
+              attempts
           );
         }
       } catch (final Throwable failure) {

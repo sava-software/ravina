@@ -1389,6 +1389,13 @@ final class BaseInstructionServiceTests {
     assertSame(TransactionResult.EXPIRED, result.error());
     assertEquals(3, monitor.queueResultCalls);
     assertEquals(3, processor.simulatedBatches.size());
+    assertEquals(
+        List.of(TxAttempt.Status.EXPIRED, TxAttempt.Status.EXPIRED, TxAttempt.Status.EXPIRED),
+        statuses(result.attempts())
+    );
+    assertEquals(2, result.attempts().getLast().sends().attempted(), "the refused first send and the accepted resend");
+    assertTrue(result.attempts().getLast().sends().accepted());
+    assertEquals(List.of(), result.landable());
   }
 
   /// The ledger is read when the verdict is in, not when a send is recorded: a resend still in
@@ -1415,6 +1422,144 @@ final class BaseInstructionServiceTests {
 
     assertSame(TransactionResult.EXPIRED, result.error());
     assertEquals(2, processor.simulatedBatches.size());
+  }
+
+  // ------------------------------------------------- what a result names --
+
+  /// A landed result names the call's attempts, the one that landed last and settled, with the
+  /// sends its ledger recorded.
+  @Test
+  void aLandedResultNamesItsAttempts() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    );
+
+    assertNull(result.error());
+    assertEquals(List.of(TxAttempt.Status.EXPIRED, TxAttempt.Status.SETTLED), statuses(result.attempts()));
+    assertEquals(monitor.sigs, sigs(result.attempts()));
+    assertEquals(List.of(1_000_300L, 1_000_150L), result.attempts().stream().map(TxAttempt::lastValidBlockHeight).toList());
+    assertEquals(monitor.ledgers.get(1).reading(), result.attempts().getLast().sends());
+    assertEquals(result.sig(), result.attempts().getLast().sig());
+    assertEquals(List.of(), result.landable());
+  }
+
+  /// An errored result names its attempt too, whether the error came over the websocket or
+  /// from a poll: both branches record the same settled attempt.
+  @Test
+  void anErroredResultNamesItsSettledAttempt() throws InterruptedException {
+    for (final boolean overTheWebSocket : new boolean[]{true, false}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      if (overTheWebSocket) {
+        monitor.webSocketResult = new TxResult(null, "failed", TX_ERROR);
+      } else {
+        monitor.queuedStatus = new TxStatus(null, 12, OptionalInt.empty(), TX_ERROR, FINALIZED);
+      }
+      final var service = service(processor, monitor);
+
+      final var result = service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+      );
+
+      assertSame(TX_ERROR, result.error());
+      assertEquals(
+          List.of(new TxAttempt(monitor.sigs.getFirst(), 8_642, TxAttempt.Status.SETTLED, monitor.ledgers.getFirst().reading())),
+          result.attempts(),
+          "over the websocket: " + overTheWebSocket
+      );
+    }
+  }
+
+  /// With `verifyExpired` false, `EXPIRED` at the budget names every attempt as one that may
+  /// still land, each missing, bounded by the largest height.
+  @Test
+  void anExpiredResultWithoutVerifiedExpiryNamesEveryAttemptAsLandable() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 5;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var result = service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 2, LOG_CONTEXT
+    );
+
+    assertSame(TransactionResult.EXPIRED, result.error());
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.MISSING), statuses(result.attempts()));
+    assertEquals(result.attempts(), result.landable());
+    assertEquals(1_000_300L, result.landableUntil());
+  }
+
+  /// A rebuild whose block hash cannot be had returns `FAILED_TO_RETRIEVE_BLOCK_HASH`, and with
+  /// `verifyExpired` false the result still names the attempt the rebuild superseded, which
+  /// may still land: the result before this carried no trace of it.
+  @Test
+  void aRebuildsBlockHashFailureStillNamesTheEarlierAttempt() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var rpcCaller = blockHashRpcCaller(new AtomicInteger(), i -> i == 0
+        ? CompletableFuture.completedFuture(FRESH_BLOCK_HASH)
+        : CompletableFuture.failedFuture(new IllegalStateException("no block hash")));
+    final var service = service(rpcCaller, processor, monitor);
+
+    final TransactionResult result;
+    try (var ignored = LogSilencer.silenced(BaseInstructionService.class)) {
+      result = service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+      );
+    }
+
+    assertSame(TransactionResult.FAILED_TO_RETRIEVE_BLOCK_HASH, result.error());
+    assertEquals(List.of(TxAttempt.Status.MISSING), statuses(result.attempts()));
+    assertEquals(result.attempts(), result.landable());
+    assertEquals(monitor.sigs.getFirst(), result.landable().getFirst().sig());
+    assertEquals(FRESH_BLOCK_HASH.lastValidBlockHeight(), result.landableUntil());
+    assertEquals(2, processor.simulatedBatches.size());
+  }
+
+  /// A rebuild whose simulation fails, or whose transaction no longer fits, returns that
+  /// result naming the earlier attempts.
+  @Test
+  void aRebuildsSimulationOrSizeResultNamesTheEarlierAttempt() throws InterruptedException {
+    for (final boolean oversized : new boolean[]{false, true}) {
+      final var processor = new FakeTxProcessor();
+      processor.simulator = (call, ixs) -> call == 0
+          ? successfulSimulation(ixs)
+          : oversized ? oversizedSimulation(ixs) : failedSimulation(ixs);
+      final var monitor = new FakeMonitor();
+      monitor.expiredResponses = 1;
+      monitor.queuedStatus = SETTLED;
+      final var service = service(processor, monitor);
+
+      final var result = service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+      );
+
+      assertSame(oversized ? TransactionResult.SIZE_LIMIT_EXCEEDED : SIM_ERROR, result.error());
+      assertEquals(List.of(TxAttempt.Status.MISSING), statuses(result.attempts()), "oversized: " + oversized);
+      assertEquals(result.attempts(), result.landable());
+    }
+  }
+
+  /// A result before any send names nothing.
+  @Test
+  void aFirstAttemptsUnsentResultNamesNoAttempt() throws InterruptedException {
+    final var processor = new FakeTxProcessor();
+    processor.simulator = (call, ixs) -> failedSimulation(ixs);
+    final var result = service(processor, new FakeMonitor()).processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    );
+
+    assertSame(SIM_ERROR, result.error());
+    assertEquals(List.of(), result.attempts());
   }
 
   // ------------------------------------------------- call-scope verdicts --

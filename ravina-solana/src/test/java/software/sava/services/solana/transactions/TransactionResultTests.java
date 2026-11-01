@@ -10,6 +10,7 @@ import software.sava.core.tx.TxBuilder;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxSimulation;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -64,7 +65,7 @@ final class TransactionResultTests {
   void sizeExceededResultIsAFailedMaxBudgetResult() {
     final var instructions = List.of(Instruction.createInstruction(key(2), List.of(), new byte[]{7}));
     final var transaction = twoSignerTx();
-    final var result = TransactionResult.createSizeExceededResult(instructions, transaction, 1_234);
+    final var result = TransactionResult.createSizeExceededResult(instructions, transaction, 1_234, List.of());
 
     assertNotNull(result);
     assertEquals(instructions, result.instructions());
@@ -87,7 +88,7 @@ final class TransactionResultTests {
     final var error = new TransactionError.Unknown("BOOM");
 
     final var failed = TransactionResult.createResult(
-        instructions, true, 200_000, 10_000, transaction, 99, txSimulation, error);
+        instructions, true, 200_000, 10_000, transaction, 99, txSimulation, error, List.of());
     assertNotNull(failed);
     assertEquals(instructions, failed.instructions());
     assertTrue(failed.simulationFailed());
@@ -101,7 +102,7 @@ final class TransactionResultTests {
     assertNull(failed.formattedSig());
 
     final var succeeded = TransactionResult.createResult(
-        instructions, false, 200_000, 10_000, transaction, 99, txSimulation, error);
+        instructions, false, 200_000, 10_000, transaction, 99, txSimulation, error, List.of());
     assertNotNull(succeeded);
     assertFalse(succeeded.simulationFailed());
   }
@@ -114,7 +115,7 @@ final class TransactionResultTests {
     final var error = new TransactionError.Unknown("BOOM");
 
     final var result = TransactionResult.createResult(
-        instructions, 200_000, 10_000, transaction, 99, txSimulation, error, "sig", "formatted");
+        instructions, 200_000, 10_000, transaction, 99, txSimulation, error, "sig", "formatted", List.of());
     assertNotNull(result);
     assertEquals(instructions, result.instructions());
     assertFalse(result.simulationFailed());
@@ -135,7 +136,7 @@ final class TransactionResultTests {
     final var txSimulation = simulation();
 
     final var result = TransactionResult.createResult(
-        instructions, 200_000, 10_000, transaction, 99, txSimulation, "sig", "formatted");
+        instructions, 200_000, 10_000, transaction, 99, txSimulation, "sig", "formatted", List.of());
     assertNotNull(result);
     assertEquals(instructions, result.instructions());
     assertFalse(result.simulationFailed());
@@ -160,10 +161,10 @@ final class TransactionResultTests {
 
     final var working = new java.util.ArrayList<>(List.of(first, second, third));
     final var results = List.of(
-        TransactionResult.createSizeExceededResult(working, null, 0),
-        TransactionResult.createResult(working, true, 0, 0, twoSignerTx(), 0, null, null),
-        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null, null),
-        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null),
+        TransactionResult.createSizeExceededResult(working, null, 0, List.of()),
+        TransactionResult.createResult(working, true, 0, 0, twoSignerTx(), 0, null, null, List.of()),
+        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null, null, List.of()),
+        TransactionResult.createResult(working, 0, 0, twoSignerTx(), 0, null, null, null, List.of()),
         new TransactionResult(working, false, 0, 0, twoSignerTx(), 0, null, null, null, null)
     );
     working.clear();
@@ -178,7 +179,7 @@ final class TransactionResultTests {
     // invalidate, the view, and must not reach the result
     final var parent = new java.util.ArrayList<>(List.of(first, second, third));
     final var view = parent.subList(0, 2);
-    final var ofView = TransactionResult.createResult(view, 0, 0, twoSignerTx(), 0, null, null, null);
+    final var ofView = TransactionResult.createResult(view, 0, 0, twoSignerTx(), 0, null, null, null, List.of());
     view.clear();
     parent.add(third);
     assertEquals(List.of(first, second), ofView.instructions());
@@ -187,18 +188,18 @@ final class TransactionResultTests {
 
   @Test
   void onlyASizeLimitResultExceedsTheSizeLimit() {
-    final var sizeExceeded = TransactionResult.createSizeExceededResult(NO_IX, oversizedTx(), 0);
+    final var sizeExceeded = TransactionResult.createSizeExceededResult(NO_IX, oversizedTx(), 0, List.of());
     assertTrue(sizeExceeded.exceedsSizeLimit());
     // A batch that could not be encoded at all has no transaction to ask.
-    assertTrue(TransactionResult.createSizeExceededResult(NO_IX, null, 0).exceedsSizeLimit());
+    assertTrue(TransactionResult.createSizeExceededResult(NO_IX, null, 0, List.of()).exceedsSizeLimit());
 
     assertFalse(TransactionResult.createResult(
-        NO_IX, 0, 0, twoSignerTx(), 0, null, null, null).exceedsSizeLimit());
+        NO_IX, 0, 0, twoSignerTx(), 0, null, null, null, List.of()).exceedsSizeLimit());
     assertFalse(TransactionResult.createResult(
-        NO_IX, 0, 0, twoSignerTx(), 0, null, TransactionResult.EXPIRED, null, null).exceedsSizeLimit());
+        NO_IX, 0, 0, twoSignerTx(), 0, null, TransactionResult.EXPIRED, null, null, List.of()).exceedsSizeLimit());
     // Identity, not an equal-looking error.
     assertFalse(TransactionResult.createResult(
-        NO_IX, 0, 0, twoSignerTx(), 0, null, new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED"), null, null
+        NO_IX, 0, 0, twoSignerTx(), 0, null, new TransactionError.Unknown("SIZE_LIMIT_EXCEEDED"), null, null, List.of()
     ).exceedsSizeLimit());
   }
 
@@ -223,7 +224,7 @@ final class TransactionResultTests {
   void theFeesAreWhatAV1TransactionBidsNotTheBudgetTimesTheEstimate() {
     // 200,000 CU at a 10,000 µL estimate would be 2,000 lamports; the transaction bids 777.
     final var result = TransactionResult.createResult(
-        NO_IX, 200_000, 10_000, twoSignerV1Tx(777), 0, null, null, null);
+        NO_IX, 200_000, 10_000, twoSignerV1Tx(777), 0, null, null, null, List.of());
     assertEquals(777, result.priorityFeeLamports());
     // Two signers at 5,000 lamports each.
     assertEquals(10_000, result.baseFeeLamports());
@@ -233,7 +234,7 @@ final class TransactionResultTests {
   @Test
   void aV1TransactionWithoutAPriorityFeeBidsOnlyTheBaseFee() {
     final var result = TransactionResult.createResult(
-        NO_IX, 200_000, 10_000, twoSignerV1Tx(0), 0, null, null, null);
+        NO_IX, 200_000, 10_000, twoSignerV1Tx(0), 0, null, null, null, List.of());
     assertEquals(0, result.priorityFeeLamports());
     assertEquals(10_000, result.totalFeeLamports());
   }
@@ -247,16 +248,58 @@ final class TransactionResultTests {
         computeBudgetProgram, List.of(), new byte[]{3, (byte) 0xDB, 5, 0, 0, 0, 0, 0, 0});
     final var legacy = Transaction.createTx(key(1), List.of(setLimit, setPrice, Instruction.createInstruction(key(2), List.of(), new byte[]{1})));
 
-    final var result = TransactionResult.createResult(NO_IX, 1_000, 1_499, legacy, 0, null, null, null);
+    final var result = TransactionResult.createResult(NO_IX, 1_000, 1_499, legacy, 0, null, null, null, List.of());
 
     assertEquals(2, result.priorityFeeLamports());
     assertEquals(5_000, result.baseFeeLamports());
     assertEquals(5_002, result.totalFeeLamports());
   }
 
+  /// A result names the attempts the call made, its own copy of them, and derives what may still
+  /// land: the missing attempts, bounded by the largest of their heights. The ten-argument
+  /// constructor, and a null list, name none.
+  @Test
+  void theAttemptsAreCarriedAndLandableIsDerived() {
+    final var missing = new TxAttempt("s0", 1_000_300L, TxAttempt.Status.MISSING, SendLedger.Reading.NONE);
+    final var settled = new TxAttempt("s1", 1_000_150L, TxAttempt.Status.SETTLED, SendLedger.Reading.NONE);
+    final var working = new ArrayList<>(List.of(missing, settled));
+
+    final var result = TransactionResult.createResult(NO_IX, 0, 0, twoSignerTx(), 0, null, "s1", "formatted", working);
+    working.clear();
+
+    assertEquals(List.of(missing, settled), result.attempts());
+    assertThrows(UnsupportedOperationException.class, () -> result.attempts().add(missing));
+    assertEquals(List.of(missing), result.landable());
+    assertEquals(1_000_300L, result.landableUntil());
+
+    final var none = new TransactionResult(NO_IX, false, 0, 0, twoSignerTx(), 0, null, null, null, null);
+    assertEquals(List.of(), none.attempts());
+    assertEquals(List.of(), none.landable());
+    assertEquals(0, none.landableUntil());
+    final var nullAttempts = new TransactionResult(NO_IX, false, 0, 0, twoSignerTx(), 0, null, null, null, null, null);
+    assertEquals(List.of(), nullAttempts.attempts());
+    assertEquals(none, nullAttempts);
+  }
+
+  /// Every factory carries the attempts it is given.
+  @Test
+  void everyFactoryCarriesTheAttempts() {
+    final var attempts = List.of(new TxAttempt("s0", 5, TxAttempt.Status.MISSING, SendLedger.Reading.NONE));
+
+    for (final var result : List.of(
+        TransactionResult.createSizeExceededResult(NO_IX, null, 0, attempts),
+        TransactionResult.createResult(NO_IX, true, 0, 0, twoSignerTx(), 0, null, null, attempts),
+        TransactionResult.createResult(NO_IX, 0, 0, twoSignerTx(), 0, null, TransactionResult.EXPIRED, "s0", "f", attempts),
+        TransactionResult.createResult(NO_IX, 0, 0, twoSignerTx(), 0, null, "s0", "f", attempts)
+    )) {
+      assertEquals(attempts, result.attempts());
+      assertEquals(5, result.landableUntil());
+    }
+  }
+
   @Test
   void aResultWithoutATransactionBidsNothing() {
-    final var result = TransactionResult.createSizeExceededResult(NO_IX, null, 0);
+    final var result = TransactionResult.createSizeExceededResult(NO_IX, null, 0, List.of());
     assertEquals(0, result.priorityFeeLamports());
     assertEquals(0, result.baseFeeLamports());
     assertEquals(0, result.totalFeeLamports());

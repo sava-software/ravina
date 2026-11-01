@@ -287,8 +287,11 @@ public interface InstructionService {
   /// whose sends was accepted throws `SendNotAcceptedException` at that first
   /// missing status, and every attempt of the call whose status was only
   /// missing is in `landable()`, each until its own last valid block height,
-  /// on that exception and on any other `PublicationException` after it. The
-  /// overloads without these flags pass `true` for both.
+  /// on that exception, on any other `PublicationException` after it, and on
+  /// any `TransactionResult` returned after it, `EXPIRED`, a simulation
+  /// failure, `SIZE_LIMIT_EXCEEDED` and `FAILED_TO_RETRIEVE_BLOCK_HASH`
+  /// included, so a caller reads a result's `landable()` before it rebuilds.
+  /// The overloads without these flags pass `true` for both.
   ///
   /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
   /// arrives with `verifyExpired` true only while the settled block height
