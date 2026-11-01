@@ -56,7 +56,8 @@ public final class SendLedger {
                         Set<Reason> failures) {
 
     /// The reading of a ledger nothing was recorded in, for a transaction whose sends the
-    /// reader does not hold.
+    /// reader does not hold: the transaction monitor's own `TxMonitorStoppedException` reports
+    /// it, since a monitor never reads a caller's ledger.
     public static final Reading NONE = new Reading(0, false, null, null, Set.of());
 
     public Reading {

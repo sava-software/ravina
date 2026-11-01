@@ -545,7 +545,7 @@ final class BaseTxMonitorServiceTests {
     assertEquals(MAX_CONSECUTIVE_FAILED_PASSES, service.batches.size(), "the interrupt ends the loop at the wait after it");
     final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
     assertNull(thrown.getCause(), "an interrupt is not a failure, so the stop has no cause");
-    assertEquals(10, thrown.lastValidBlockHeight());
+    assertEquals(10, thrown.landableUntil());
   }
 
   /// Throws `failure` as it is, declared or not: what a collaborator written in a language
@@ -578,7 +578,11 @@ final class BaseTxMonitorServiceTests {
     assertEquals(MAX_CONSECUTIVE_FAILED_PASSES, service.batches.size(), "the pass after the bound must not run");
     final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
     assertSame(failure, thrown.getCause());
-    assertEquals("sig", thrown.sig());
+    assertEquals(
+        List.of(new TxAttempt("sig", 10, TxAttempt.Status.PENDING, SendLedger.Reading.NONE)),
+        thrown.attempts(),
+        "the entry's signature and height, as one pending attempt whose sends the monitor never read"
+    );
     assertTrue(service.pendingTransactions.isEmpty(), "a stopped monitor keeps nothing pending");
     assertFalse(service.workLock.isLocked());
   }
@@ -636,6 +640,7 @@ final class BaseTxMonitorServiceTests {
     assertEquals(1, service.batches.size());
     final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
     assertNull(thrown.getCause());
+    assertEquals(List.of(new TxAttempt("sig", 10, TxAttempt.Status.PENDING, SendLedger.Reading.NONE)), thrown.attempts());
     assertTrue(service.pendingTransactions.isEmpty());
   }
 
@@ -755,6 +760,7 @@ final class BaseTxMonitorServiceTests {
     assertEquals(1, service.batches.size());
     final var thrown = assertInstanceOf(TxMonitorStoppedException.class, pending.sigStatusFuture().exceptionNow());
     assertSame(error, thrown.getCause());
+    assertEquals(List.of(new TxAttempt("sig", 10, TxAttempt.Status.PENDING, SendLedger.Reading.NONE)), thrown.attempts());
     assertFalse(service.workLock.isLocked());
   }
 

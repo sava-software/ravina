@@ -179,7 +179,8 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(1, monitor.queueResultCalls);
   }
 
-  /// A first batch that throws ends the run with nothing settled, and says so.
+  /// A first batch that throws ends the run with nothing settled, and says so. The fake throws
+  /// after the send, so the batch's verdict is an unknown outcome, the failure its cause.
   @Test
   void aFirstBatchThatThrowsEndsTheRunWithNothingSettled() {
     final var processor = new FakeTxProcessor();
@@ -194,7 +195,7 @@ final class BaseBatchInstructionServiceTests {
         1.0, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     ));
 
-    assertSame(failure, thrown.getCause());
+    assertSame(failure, assertInstanceOf(OutcomeUnknownException.class, thrown.getCause()).getCause());
     assertTrue(thrown.settled().isEmpty());
     assertEquals("A " + LOG_CONTEXT + " batch failed after 0 settled.", thrown.getMessage());
   }
@@ -442,7 +443,7 @@ final class BaseBatchInstructionServiceTests {
         LOG_CONTEXT, new RecordingBatchFactory()
     ));
 
-    assertSame(failure, thrown.getCause());
+    assertSame(failure, assertInstanceOf(OutcomeUnknownException.class, thrown.getCause()).getCause());
     assertEquals(1, thrown.settled().size());
     assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
   }
@@ -496,7 +497,7 @@ final class BaseBatchInstructionServiceTests {
         1.0, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
     ));
 
-    assertSame(failure, thrown.getCause());
+    assertSame(failure, assertInstanceOf(OutcomeUnknownException.class, thrown.getCause()).getCause());
     assertEquals(1, thrown.settled().size());
   }
 

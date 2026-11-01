@@ -153,7 +153,11 @@ public interface TxMonitorService extends Worker {
   /// `VirtualMachineError`. A stopped monitor does not restart, and
   /// [#stopped()] reports it, so that a caller can refuse new work before it
   /// sends. The transaction may still land, so a caller must not rebuild on
-  /// it; `InstructionService.processInstructions` throws it as itself.
+  /// it. The exception is the monitor's instance, one `PENDING` attempt whose
+  /// `sends` is `SendLedger.Reading.NONE`, since the monitor never reads the
+  /// caller's ledger, and two callers of one signature share it with the
+  /// future; `InstructionService.processInstructions` throws one of its own,
+  /// naming the call's attempts, with the loop's failure as its cause.
   CompletableFuture<TxStatus> queueResult(final Commitment awaitCommitment,
                                           final Commitment awaitCommitmentOnError,
                                           final String sig,
@@ -228,7 +232,10 @@ public interface TxMonitorService extends Worker {
   /// because each connection never formed, so nothing is in flight: it is thrown as
   /// [SendNeverLeftException], one attempt, whose `landable()` speaks for that transaction
   /// alone. A response carrying another signature is thrown as a wrong response, an
-  /// `IllegalStateException`.
+  /// `IllegalStateException`. `InstructionService.processInstructions` ends with a verdict of
+  /// its own on either: a `SendNeverLeftException` naming the call's earlier attempts too, and
+  /// for anything else an implementation throws after the send, an `OutcomeUnknownException`,
+  /// since the transaction may still land.
   ///
   /// An implementation must add each attempt to `ledger`: the first send, and the failover,
   /// or the failure that kept a failover from being dispatched, since a ledger left empty

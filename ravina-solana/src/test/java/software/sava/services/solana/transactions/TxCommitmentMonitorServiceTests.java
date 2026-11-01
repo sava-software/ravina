@@ -1883,7 +1883,10 @@ final class TxCommitmentMonitorServiceTests {
 
     final var thrown = assertInstanceOf(TxMonitorStoppedException.class, future.exceptionNow());
     assertSame(cause, thrown.getCause());
-    assertEquals("sig", thrown.sig());
+    assertEquals(
+        List.of(new TxAttempt("sig", HORIZON + 10, TxAttempt.Status.PENDING, SendLedger.Reading.NONE)),
+        thrown.attempts()
+    );
     assertTrue(service.pendingTransactions.isEmpty());
     assertFalse(service.wakeRequested(), "a refused context, however old its publish, asks for no pass");
   }
@@ -1906,8 +1909,11 @@ final class TxCommitmentMonitorServiceTests {
 
     service.stop(null);
 
-    assertEquals("sig", assertInstanceOf(TxMonitorStoppedException.class, first.exceptionNow()).sig());
-    assertEquals("other-sig", assertInstanceOf(TxMonitorStoppedException.class, other.exceptionNow()).sig());
+    assertEquals("sig", assertInstanceOf(TxMonitorStoppedException.class, first.exceptionNow()).attempts().getFirst().sig());
+    assertEquals(
+        "other-sig",
+        assertInstanceOf(TxMonitorStoppedException.class, other.exceptionNow()).attempts().getFirst().sig()
+    );
     assertTrue(service.pendingTransactions.isEmpty());
   }
 

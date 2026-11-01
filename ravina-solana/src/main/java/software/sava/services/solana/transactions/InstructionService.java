@@ -221,20 +221,50 @@ public interface InstructionService {
   /// `setPriorityFeeLamports` on it throws. Hook and signing failures
   /// propagate to the caller, as does an `IllegalArgumentException` for an
   /// instruction that invokes the ComputeBudget program or a negative
-  /// `maxLamportPriorityFee`. A publication failure propagates only when no
-  /// attempt reached a server, as `SendNeverLeftException`, or one was answered
-  /// with another signature; any other failed send may still land, a refusal by
-  /// a server included, so it is awaited and monitored like an accepted one,
-  /// under the `verifyExpired` rule below (see
-  /// `TxMonitorService.validateResponse`). When no send of an
-  /// attempt that this call made, or that the monitor made for it, was
-  /// accepted (answered with the signature), and its status then settles as not
-  /// landed, the call throws `SendNotAcceptedException` instead of rebuilding,
+  /// `maxLamportPriorityFee`, as long as nothing this call sent can still
+  /// land. Once that is not so, after a send and until its status settles, and
+  /// on a rebuild with `verifyExpired` false after an attempt whose status was
+  /// only missing, the call ends without a result only by throwing a
+  /// [PublicationException], whose accessors are the whole verdict:
+  /// `mayStillLand()` says whether anything the call sent may still land,
+  /// `landable()` names each such transaction and `landableUntil()` the last
+  /// block height at which any of them can, `reason()` says why the call
+  /// ended, and `attempts()` what it sent, each attempt's `sends()` counting
+  /// its first send, failover and resends. Its type says how.
+  /// [SendNotAcceptedException]: no send of the last attempt, this call's or
+  /// the monitor's, was accepted (answered with the signature), and its status
+  /// then settled as not landed, so the call ends instead of rebuilding,
   /// whatever `maxRetriesAfterExpired` allows; `maxRetriesAfterExpired` bounds
-  /// the rebuilds after attempts with an accepted send. A provider that refuses
-  /// every send therefore costs one block hash window with `verifyExpired`
-  /// true, or one websocket await and a polling pass with `false`, not a
-  /// rebuild loop.
+  /// the rebuilds after attempts with an accepted send, so a provider that
+  /// refuses every send costs one block hash window with `verifyExpired` true,
+  /// or one websocket await and a polling pass with `false`, not a rebuild
+  /// loop. Its `reason()` tells a rate to pace (`RATE_LIMITED`, with the last
+  /// failure's `retryAfterSeconds()` when the provider sent one) from a
+  /// refusal; a key refusal (`UNAUTHORIZED`) is told apart only once sava-rpc
+  /// carries the HTTP status, and reads as `REFUSED` until then (see
+  /// `SendFailure.Refused`). [SendNeverLeftException]: no send of the last
+  /// attempt reached a server, because each connection never formed (refused,
+  /// unresolved or timed out while connecting, which holds for the JDK
+  /// client's defaults; see `TxMonitorService.validateResponse`), so it arrives
+  /// within a round of connection attempts rather than a block hash window,
+  /// and a caller that rebuilds on it paces itself.
+  /// [TxMonitorStoppedException]: the monitor's loop stopped, before an attempt
+  /// or with one pending (below). [OutcomeUnknownException]: any other failure
+  /// ended the call while a transaction it sent may still land, that failure
+  /// its cause: an answer carrying another signature, a signature already
+  /// awaited with weaker settings, a monitor failure other than its stop, a
+  /// hook or signing failure on such a rebuild. Every other failed send may
+  /// still land, a refusal by a server included, so it is awaited and
+  /// monitored like an accepted one, under the `verifyExpired` rule below. A
+  /// `RuntimeException` that is not a `PublicationException` therefore means
+  /// nothing this call sent can land, given a `TransactionProcessor` whose
+  /// `signAndSendTx` throws only before its send is dispatched, as ravina's
+  /// does. Rebuild on such an exception, or on a `PublicationException` whose
+  /// `mayStillLand()` is false, pacing by its `reason()`; on one whose
+  /// `mayStillLand()` is true, do not, until the settled block height has
+  /// passed `landableUntil()` by the expiration monitor's settle buffer and a
+  /// history-searching `getSignatureStatuses` read of `landable()` says what
+  /// landed. An interrupt carries no verdict, and what was in flight may land.
   /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every
@@ -255,8 +285,10 @@ public interface InstructionService {
   /// window, so both may execute: pass it only for instructions that are
   /// idempotent or deduplicated on chain. With `false`, an attempt none of
   /// whose sends was accepted throws `SendNotAcceptedException` at that first
-  /// missing status, with `expiryVerified()` false, and any attempt of the call
-  /// may still land. The overloads without these flags pass `true` for both.
+  /// missing status, and every attempt of the call whose status was only
+  /// missing is in `landable()`, each until its own last valid block height,
+  /// on that exception and on any other `PublicationException` after it. The
+  /// overloads without these flags pass `true` for both.
   ///
   /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
   /// arrives with `verifyExpired` true only while the settled block height
@@ -266,17 +298,15 @@ public interface InstructionService {
   /// read that succeeds. Until then the call waits, on the monitor loops. A
   /// monitor loop that stops, on an interrupt, after
   /// `BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES` passes that failed in
-  /// a row, or on a `VirtualMachineError`, ends the call with
-  /// `TxMonitorStoppedException` instead, thrown as itself; it does not
-  /// restart. A call that finds the monitor stopped before an attempt is
-  /// refused with nothing more sent; the exception's `sent()` then says
-  /// whether an earlier attempt of the call may still land, which is so only
-  /// with `verifyExpired` false, after a missing status, and `sig()` and
-  /// `lastValidBlockHeight()` name that attempt. Like a transaction the loop
-  /// stopped under, it may still land until the settled height passes
-  /// `lastValidBlockHeight()`, so a caller must not rebuild or retry when
-  /// `sent()` is true, and a catch of `RuntimeException` that retries must
-  /// exclude the exception.
+  /// a row, or on a `VirtualMachineError`, ends the call with a
+  /// `TxMonitorStoppedException` of its own, the failure that stopped the loop
+  /// its cause, none for an interrupt; the monitor does not restart. A call
+  /// that finds the monitor stopped before an attempt is refused with nothing
+  /// more sent, and `mayStillLand()` then says whether an earlier attempt of
+  /// the call may still land, which is so only with `verifyExpired` false,
+  /// after a missing status. Either way a catch of `RuntimeException` that
+  /// retries must exclude a `PublicationException` whose `mayStillLand()` is
+  /// true.
   TransactionResult processInstructions(final double cuBudgetMultiplier,
                                         final List<Instruction> instructions,
                                         final Function<Transaction, Transaction> beforeSend,

@@ -31,14 +31,17 @@ import software.sava.services.solana.remote.call.CallWeights;
 import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 
+import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.IllegalFormatConversionException;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -185,7 +188,8 @@ final class BaseInstructionServiceTests {
 
   static final class FakeTxProcessor implements TransactionProcessor {
 
-    final ChainItemFormatter formatter = ChainItemFormatter.createDefault();
+    /// Assignable, so that a test can give the processor a formatter that throws.
+    ChainItemFormatter formatter = ChainItemFormatter.createDefault();
 
     final List<List<Instruction>> simulatedBatches = new ArrayList<>();
     final List<Commitment> simulatedCommitments = new ArrayList<>();
@@ -387,6 +391,20 @@ final class BaseInstructionServiceTests {
     /// When positive, the monitor reports itself stopped once this many queues have been
     /// answered, each of them normally: a stop that lands between a verdict and the rebuild.
     int stopsAfterQueues;
+    /// When positive, the queue of this number, counted from one, and every later one is
+    /// answered with the stop, the earlier ones normally: a stop under a rebuild's send. The
+    /// monitor reports itself running until that queue.
+    int stopsAtQueueNumber;
+    /// The cause the monitor's stop carries, the failure that ended its loop; null, the
+    /// default, is a stop on interrupt.
+    Throwable stopCause;
+    /// When set, every queue is answered with this one future, as the real monitor hands two
+    /// callers of one signature the pending future; the monitor does not report itself
+    /// stopped.
+    CompletableFuture<TxStatus> sharedQueuedFuture;
+    /// When set, queueResult throws it, as the real monitor refuses a signature already
+    /// awaited with weaker settings.
+    RuntimeException queueRefusal;
     /// When set, every queued future fails with it: a failure the monitor forwarded from
     /// another waiter's future, rather than its own stop.
     Throwable queueFailure;
@@ -437,9 +455,15 @@ final class BaseInstructionServiceTests {
       if (resendScript != null) {
         resendScript.resend(webSocketCalls - 1, ledger);
       }
-      if (stopped || stopsAtQueue) {
+      if (queueRefusal != null) {
+        throw queueRefusal;
+      }
+      if (sharedQueuedFuture != null) {
+        return sharedQueuedFuture;
+      }
+      if (stopped || stopsAtQueue || stopsAtQueueNumber > 0 && queueResultCalls >= stopsAtQueueNumber) {
         stopped = true;
-        return CompletableFuture.failedFuture(new TxMonitorStoppedException(sig, sendTxContext.blockHeight(), null));
+        return CompletableFuture.failedFuture(new TxMonitorStoppedException(sig, sendTxContext.blockHeight(), stopCause));
       }
       if (queueFailure != null) {
         return CompletableFuture.failedFuture(queueFailure);
@@ -1085,6 +1109,21 @@ final class BaseInstructionServiceTests {
     return TxCommitmentMonitorServiceTests.httpStatusFailure(401);
   }
 
+  static List<TxAttempt.Status> statuses(final List<TxAttempt> attempts) {
+    return attempts.stream().map(TxAttempt::status).toList();
+  }
+
+  static List<String> sigs(final List<TxAttempt> attempts) {
+    return attempts.stream().map(TxAttempt::sig).toList();
+  }
+
+  /// Throws `failure` as it is, declared or not: what a collaborator written in a language
+  /// without checked exceptions does. The cast is erased, so nothing is wrapped.
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> void throwUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
+  }
+
   /// The regression for a provider that refuses every send: the call rebuilt after every
   /// verified expiry, about one block hash window apart, for as long as
   /// `maxRetriesAfterExpired` allowed, which for `Integer.MAX_VALUE` is for good. Run against
@@ -1108,20 +1147,32 @@ final class BaseInstructionServiceTests {
     assertEquals(1, monitor.queueResultCalls);
     assertSame(refusal, thrown.getCause());
     assertEquals(0, thrown.getSuppressed().length);
-    assertTrue(thrown.expiryVerified());
-    assertEquals(1, thrown.attempted());
-    assertEquals(monitor.sigs.getFirst(), thrown.sig());
-    assertTrue(thrown.getMessage().contains(processor.formatter.formatSig(thrown.sig())), thrown.getMessage());
+    assertFalse(thrown.mayStillLand(), "a verified expiry leaves nothing that can land");
+    assertEquals(1, thrown.attempts().size());
+    final var expired = thrown.attempts().getFirst();
+    assertEquals(monitor.sigs.getFirst(), expired.sig());
+    assertEquals(processor.sentBlockHeights.getFirst(), expired.lastValidBlockHeight());
+    assertEquals(TxAttempt.Status.EXPIRED, expired.status());
+    assertEquals(monitor.ledgers.getFirst().reading(), expired.sends());
+    assertEquals(1, expired.sends().attempted());
+    assertEquals(PublicationException.Reason.REFUSED, thrown.reason(), "a text-bodied status reads as a refusal");
+    assertEquals(
+        "No send of " + expired.sig() + " was accepted (1 attempted) and its block hash expired with nothing of it"
+            + " landed; nothing this call sent can still land.",
+        thrown.getMessage()
+    );
   }
 
   /// A monitor that stops with the sent transaction pending fails the queued future; the call
-  /// throws that failure as itself, not wrapped in the join's `CompletionException`, saying the
-  /// transaction was sent, and does not rebuild, since it may still land.
+  /// ends with an instance of its own, neither the monitor's nor the join's
+  /// `CompletionException`, naming the transaction as pending with its own ledger's sends, and
+  /// does not rebuild, since it may still land.
   @Test
-  void aMonitorThatStopsUnderTheSendEndsTheCallAsItselfWithoutARebuild() {
+  void aMonitorThatStopsUnderTheSendEndsTheCallWithoutARebuild() {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     monitor.stopsAtQueue = true;
+    monitor.stopCause = new IllegalStateException("every pass failed");
     final var service = service(processor, monitor);
 
     final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
@@ -1130,62 +1181,21 @@ final class BaseInstructionServiceTests {
 
     assertEquals(1, processor.simulatedBatches.size(), "a transaction that may still land is not rebuilt");
     assertEquals(1, monitor.queueResultCalls);
-    assertTrue(thrown.sent());
-    assertEquals(monitor.sigs.getFirst(), thrown.sig());
-    assertEquals(processor.sentBlockHeights.getFirst(), thrown.lastValidBlockHeight());
-  }
-
-  /// A stop that lands between an attempt's verdict and its rebuild is refused before the
-  /// rebuild, and what the refusal reports depends on the verdict: with `verifyExpired` false
-  /// the attempt's status was only missing, so it may still land and the refusal names it;
-  /// with `verifyExpired` true it was verified expired, so nothing of the call can land.
-  @Test
-  void aStopBeforeTheRebuildReportsTheAttemptThatMayStillLand() {
-    for (final boolean verifyExpired : new boolean[]{false, true}) {
-      final var processor = new FakeTxProcessor();
-      final var monitor = new FakeMonitor();
-      monitor.expiredResponses = 1;
-      monitor.stopsAfterQueues = 1;
-      final var service = service(processor, monitor);
-
-      final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
-          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, 3, LOG_CONTEXT
-      ));
-
-      assertEquals(1, processor.simulatedBatches.size(), "the rebuild is refused before it simulates");
-      assertEquals(1, monitor.queueResultCalls);
-      assertNull(thrown.getCause());
-      if (verifyExpired) {
-        assertFalse(thrown.sent(), "a verified expiry leaves nothing that can land");
-        assertNull(thrown.sig());
-      } else {
-        assertTrue(thrown.sent(), "an attempt whose status was only missing may still land");
-        assertEquals(monitor.sigs.getFirst(), thrown.sig());
-        assertEquals(processor.sentBlockHeights.getFirst(), thrown.lastValidBlockHeight());
-        assertEquals(
-            TxMonitorStoppedException.refusedAfter(thrown.sig(), thrown.lastValidBlockHeight()).getMessage(),
-            thrown.getMessage()
-        );
-      }
-    }
-  }
-
-  /// Only the monitor's own stop is unwrapped: a queued future that fails for another reason,
-  /// such as a failure forwarded from another waiter's, is thrown as the join's `CompletionException`.
-  @Test
-  void aQueuedFutureThatFailsForAnotherReasonIsThrownWrapped() {
-    final var processor = new FakeTxProcessor();
-    final var monitor = new FakeMonitor();
-    final var failure = new IllegalStateException("forwarded from another waiter");
-    monitor.queueFailure = failure;
-    final var service = service(processor, monitor);
-
-    final var thrown = assertThrows(CompletionException.class, () -> service.processInstructions(
-        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
-    ));
-
-    assertSame(failure, thrown.getCause());
-    assertEquals(1, processor.simulatedBatches.size(), "a failure the monitor forwarded is not rebuilt");
+    assertTrue(thrown.mayStillLand());
+    assertEquals(1, thrown.attempts().size());
+    final var pending = thrown.attempts().getFirst();
+    assertEquals(List.of(pending), thrown.landable());
+    assertEquals(monitor.sigs.getFirst(), pending.sig());
+    assertEquals(TxAttempt.Status.PENDING, pending.status());
+    assertEquals(monitor.ledgers.getFirst().reading(), pending.sends(), "the call's own ledger, not the monitor's");
+    assertEquals(processor.sentBlockHeights.getFirst(), thrown.landableUntil());
+    assertSame(monitor.stopCause, thrown.getCause(), "the loop's failure, not the monitor's instance");
+    assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
+    assertEquals(
+        "The transaction monitor stopped with " + pending.sig() + " pending, its outcome unknown; it may still land"
+            + " until block height 8642 passes.",
+        thrown.getMessage()
+    );
   }
 
   /// A monitor found stopped before the first attempt refuses the call with nothing sent,
@@ -1202,9 +1212,12 @@ final class BaseInstructionServiceTests {
           CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, Integer.MAX_VALUE, LOG_CONTEXT
       ));
 
-      assertFalse(thrown.sent());
-      assertNull(thrown.sig());
-      assertEquals(new TxMonitorStoppedException().getMessage(), thrown.getMessage());
+      assertFalse(thrown.mayStillLand());
+      assertEquals(List.of(), thrown.attempts());
+      assertEquals(0, thrown.landableUntil());
+      assertNull(thrown.getCause());
+      assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
+      assertEquals("The transaction monitor has stopped; nothing this call sent can still land.", thrown.getMessage());
       assertTrue(processor.simulatedBatches.isEmpty(), "nothing is simulated for a monitor that will not watch it");
       assertEquals(0, monitor.webSocketCalls, "nothing is sent");
       assertEquals(0, monitor.queueResultCalls);
@@ -1234,7 +1247,7 @@ final class BaseInstructionServiceTests {
   }
 
   /// With `verifyExpired` false the first missing status is the verdict: the call ends there,
-  /// and says that what it sent may still land.
+  /// and names the attempt as one that may still land, until its own height.
   @Test
   void aRefusedSendWithoutVerifiedExpiryStillEnds() {
     final var processor = new FakeTxProcessor();
@@ -1249,14 +1262,52 @@ final class BaseInstructionServiceTests {
         CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, Integer.MAX_VALUE, LOG_CONTEXT
     ));
 
-    assertFalse(thrown.expiryVerified());
-    assertTrue(thrown.getMessage().contains("may still land"), thrown.getMessage());
+    assertTrue(thrown.mayStillLand(), "an attempt whose status was only missing may still land");
+    final var missing = thrown.attempts().getFirst();
+    assertEquals(List.of(missing), thrown.landable());
+    assertEquals(TxAttempt.Status.MISSING, missing.status());
+    assertEquals(processor.sentBlockHeights.getFirst(), thrown.landableUntil());
+    assertEquals(
+        "No send of " + missing.sig() + " was accepted (1 attempted) and no status was found, with no expiry"
+            + " verified; it may still land until block height 8642 passes.",
+        thrown.getMessage()
+    );
     assertEquals(List.of(Boolean.FALSE), monitor.verifyExpiredFlags);
     assertEquals(1, processor.simulatedBatches.size());
   }
 
+  /// After two attempts whose status was only missing, a third none of whose sends was
+  /// accepted ends the call, and all three may still land, the verdict says until which height.
+  @Test
+  void aRefusalAfterMissingStatusesNamesEveryAttemptThatMayLand() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var refusal = refusal();
+    monitor.sendScript = attempt -> attempt < 2
+        ? CompletableFuture.completedFuture(monitor.sigs.get(attempt))
+        : CompletableFuture.failedFuture(refusal);
+    monitor.expiredResponses = 5;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, 5, LOG_CONTEXT
+    ));
+
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.MISSING, TxAttempt.Status.MISSING), statuses(thrown.attempts()));
+    assertEquals(thrown.attempts(), thrown.landable());
+    assertTrue(thrown.attempts().get(0).sends().accepted());
+    assertTrue(thrown.attempts().get(1).sends().accepted());
+    assertFalse(thrown.attempts().get(2).sends().accepted());
+    assertTrue(
+        thrown.getMessage().endsWith("; 3 transactions this call sent may still land, none after block height 8642 passes."),
+        thrown.getMessage()
+    );
+    assertEquals(3, processor.simulatedBatches.size());
+  }
+
   /// An accepted attempt that expired rebuilds as before; the refused one after it ends the
-  /// call, and the exception names that attempt.
+  /// call, and the verdict names both, the refused one last.
   @Test
   void anAcceptedAttemptThenARefusedOneEndsOnTheSecond() {
     final var processor = new FakeTxProcessor();
@@ -1275,8 +1326,47 @@ final class BaseInstructionServiceTests {
 
     assertEquals(2, processor.simulatedBatches.size());
     assertEquals(2, monitor.queueResultCalls);
-    assertEquals(monitor.sigs.get(1), thrown.sig());
+    assertEquals(List.of(TxAttempt.Status.EXPIRED, TxAttempt.Status.EXPIRED), statuses(thrown.attempts()));
+    assertEquals(monitor.sigs, sigs(thrown.attempts()));
+    assertTrue(thrown.attempts().getFirst().sends().accepted());
+    assertFalse(thrown.attempts().getLast().sends().accepted());
     assertSame(refusal, thrown.getCause());
+  }
+
+  /// The reason is the first class in the reasons' declaration order among the last attempt's
+  /// failed sends, neither the first failure's nor the last's: a server error, then a rate
+  /// limit and a refusal on the resends, read as rate limited, while the cause is the last
+  /// failure with the first suppressed.
+  @Test
+  void theReasonIsTheFirstClassInDeclarationOrder() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var serverError = TxCommitmentMonitorServiceTests.internalRpcError();
+    final var rateLimit = TxCommitmentMonitorServiceTests.rpcError(429);
+    final var refused = TxCommitmentMonitorServiceTests.invalidParamsRpcError();
+    monitor.sendScript = _ -> CompletableFuture.failedFuture(serverError);
+    monitor.resendScript = (_, ledger) -> {
+      ledger.add(CompletableFuture.failedFuture(rateLimit));
+      ledger.add(CompletableFuture.failedFuture(refused));
+    };
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNotAcceptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertEquals(PublicationException.Reason.RATE_LIMITED, thrown.reason());
+    assertSame(refused, thrown.getCause());
+    assertArrayEquals(new Throwable[]{serverError}, thrown.getSuppressed());
+    final var sends = thrown.attempts().getLast().sends();
+    assertEquals(
+        Set.of(PublicationException.Reason.RATE_LIMITED, PublicationException.Reason.SERVER_ERROR, PublicationException.Reason.REFUSED),
+        sends.failures()
+    );
+    assertEquals(3, sends.attempted(), "the first send and the two resends");
+    assertFalse(thrown.mayStillLand());
   }
 
   /// A resend the monitor made counts: an attempt whose first send was refused but whose resend
@@ -1327,11 +1417,125 @@ final class BaseInstructionServiceTests {
     assertEquals(2, processor.simulatedBatches.size());
   }
 
-  /// A send that never left is thrown as it was, a plain `RuntimeException`, even after an
-  /// earlier attempt of an unverified call that may still land: the new type speaks only for a
-  /// settled verdict, and its flag could not speak for that earlier attempt.
+  // ------------------------------------------------- call-scope verdicts --
+
+  /// Two block hashes, the rebuild's served by a lagging node with a lower last valid height:
+  /// a verdict bounds what may land by the largest height, not the last attempt's.
+  static RpcCaller laggingRebuildRpcCaller() {
+    return blockHashRpcCaller(new AtomicInteger(), i -> CompletableFuture.completedFuture(
+        new LatestBlockHash(null, key(0xCAFE + i).toBase58(), i == 0 ? 1_000_300L : 1_000_150L)
+    ));
+  }
+
+  /// A send that never left after an earlier attempt whose status was only missing ends the
+  /// call with a `SendNeverLeftException` of its own, naming that earlier attempt as one that
+  /// may still land: the monitor's instance spoke for its own attempt alone. It is no
+  /// `SendNotAcceptedException`, which speaks only for a settled verdict.
   @Test
-  void anUnverifiedEarlierAttemptThenANeverLeftSendThrowsTheNeverLeftFailure() {
+  void aNeverLeftSendAfterAnUnverifiedAttemptNamesThatAttemptAsLandable() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var connect = new ConnectException("Connection refused");
+    final var monitors = new ArrayList<SendNeverLeftException>();
+    monitor.sendScript = attempt -> attempt == 0
+        ? CompletableFuture.completedFuture(monitor.sigs.get(attempt))
+        : CompletableFuture.failedFuture(connect);
+    monitor.webSocketScript = attempt -> {
+      if (attempt == 1) {
+        final var neverLeft = SendNeverLeftException.of(
+            monitor.sigs.get(1), processor.sentBlockHeights.get(1), monitor.ledgers.get(1).reading(), connect, null
+        );
+        monitors.add(neverLeft);
+        throw neverLeft;
+      }
+      return null;
+    };
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final PublicationException thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertNotSame(monitors.getFirst(), thrown, "the call's instance, not the monitor's");
+    assertFalse(thrown instanceof SendNotAcceptedException);
+    assertTrue(thrown.mayStillLand());
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.NEVER_LEFT), statuses(thrown.attempts()));
+    assertEquals(List.of(thrown.attempts().getFirst()), thrown.landable());
+    assertEquals(monitor.sigs.getFirst(), thrown.landable().getFirst().sig());
+    assertEquals(processor.sentBlockHeights.getFirst(), thrown.landableUntil());
+    assertEquals(1_000_300L, thrown.landableUntil());
+    assertEquals(PublicationException.Reason.UNREACHABLE, thrown.reason());
+    assertSame(connect, thrown.getCause());
+    assertEquals(2, processor.simulatedBatches.size(), "the accepted first attempt rebuilt");
+    assertEquals(1, monitor.queueResultCalls);
+  }
+
+  /// With `verifyExpired` true the earlier attempt was verified expired, so a send that never
+  /// left after it leaves nothing that can land.
+  @Test
+  void aNeverLeftSendAfterAVerifiedExpiryLeavesNothingLandable() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var connect = new ConnectException("Connection refused");
+    monitor.sendScript = attempt -> attempt == 0
+        ? CompletableFuture.completedFuture(monitor.sigs.get(attempt))
+        : CompletableFuture.failedFuture(connect);
+    monitor.webSocketScript = attempt -> {
+      if (attempt == 1) {
+        throw SendNeverLeftException.of(
+            monitor.sigs.get(1), processor.sentBlockHeights.get(1), monitor.ledgers.get(1).reading(), connect, null
+        );
+      }
+      return null;
+    };
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown.mayStillLand());
+    assertEquals(List.of(), thrown.landable());
+    assertEquals(List.of(TxAttempt.Status.EXPIRED, TxAttempt.Status.NEVER_LEFT), statuses(thrown.attempts()));
+    assertEquals(2, processor.simulatedBatches.size());
+  }
+
+  /// A first attempt that never left leaves nothing that can land, whatever `verifyExpired`
+  /// says, and is never queued.
+  @Test
+  void aNeverLeftFirstAttemptLeavesNothingLandableWhateverVerifyExpired() {
+    for (final boolean verifyExpired : new boolean[]{false, true}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      final var connect = new ConnectException("Connection refused");
+      monitor.sendScript = _ -> CompletableFuture.failedFuture(connect);
+      monitor.webSocketScript = _ -> {
+        throw SendNeverLeftException.of(
+            monitor.sigs.getFirst(), processor.sentBlockHeights.getFirst(), monitor.ledgers.getFirst().reading(), connect, null
+        );
+      };
+      final var service = service(processor, monitor);
+
+      final var thrown = assertThrows(SendNeverLeftException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, Integer.MAX_VALUE, LOG_CONTEXT
+      ));
+
+      assertFalse(thrown.mayStillLand(), "verifyExpired " + verifyExpired);
+      assertEquals(List.of(TxAttempt.Status.NEVER_LEFT), statuses(thrown.attempts()));
+      assertEquals(1, processor.simulatedBatches.size());
+      assertEquals(0, monitor.queueResultCalls);
+    }
+  }
+
+  /// A monitor that throws a send that never left untyped, as one written before the type did,
+  /// after an attempt whose status was only missing: an untyped monitor failure after a send
+  /// gets the safe verdict, naming both attempts, the bare failure its cause.
+  @Test
+  void aNeverLeftFailureIsNotRethrownAsTheMonitorsInstance() {
     final var processor = new FakeTxProcessor();
     final var monitor = new FakeMonitor();
     final var neverLeft = new RuntimeException(new ConnectException("Connection refused"));
@@ -1349,10 +1553,425 @@ final class BaseInstructionServiceTests {
         CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, false, Integer.MAX_VALUE, LOG_CONTEXT
     ));
 
-    assertSame(neverLeft, thrown);
-    assertFalse(thrown instanceof SendNotAcceptedException);
-    assertEquals(2, processor.simulatedBatches.size(), "the accepted first attempt rebuilt");
+    assertNotSame(neverLeft, thrown, "an untyped monitor failure after a send is the call's to report");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertSame(neverLeft, unknown.getCause());
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.PENDING), statuses(unknown.landable()));
+    assertEquals(unknown.attempts(), unknown.landable());
+    assertEquals(monitor.ledgers.get(1).reading(), unknown.attempts().getLast().sends());
+    assertEquals(2, processor.simulatedBatches.size());
     assertEquals(1, monitor.queueResultCalls);
+  }
+
+  /// A stop under the rebuild's send, after an attempt whose status was only missing: both may
+  /// still land, and the rebuild's block hash, served by a lagging node, is valid to a lower
+  /// height than the first's, so the verdict bounds them by the larger. The monitor's instance
+  /// named only the pending one, until the lower height.
+  @Test
+  void aStopUnderAnAttemptAfterAMissingStatusBoundsEveryLandableAttempt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.stopsAtQueueNumber = 2;
+    monitor.stopCause = new IllegalStateException("every pass failed");
+    final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+    final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertEquals(1_000_300L, thrown.landableUntil(), "the earlier, missing attempt may land until the larger height");
+    assertEquals(monitor.sigs, sigs(thrown.landable()));
+    assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.PENDING), statuses(thrown.attempts()));
+    assertEquals(List.of(1_000_300L, 1_000_150L), thrown.attempts().stream().map(TxAttempt::lastValidBlockHeight).toList());
+    assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
+    assertSame(monitor.stopCause, thrown.getCause(), "the loop's failure, not the monitor's instance");
+    assertEquals(2, processor.simulatedBatches.size());
+    assertEquals(
+        "The transaction monitor stopped with " + monitor.sigs.get(1) + " pending, its outcome unknown; 2 transactions"
+            + " this call sent may still land, none after block height 1000300 passes.",
+        thrown.getMessage()
+    );
+  }
+
+  /// A stop that lands between an attempt's verdict and its rebuild is refused before the
+  /// rebuild, and what the refusal reports depends on the verdicts: with `verifyExpired` false
+  /// each attempt's status was only missing, so each may still land and the refusal names them
+  /// all, bounded by the larger height, here the first attempt's; with `verifyExpired` true
+  /// each was verified expired, and nothing of the call can land.
+  @Test
+  void aRefusalBeforeTheRebuildNamesEveryMissingAttemptByTheLargestHeight() {
+    for (final boolean verifyExpired : new boolean[]{false, true}) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      monitor.expiredResponses = 2;
+      monitor.stopsAfterQueues = 2;
+      final var service = service(laggingRebuildRpcCaller(), processor, monitor);
+
+      final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, verifyExpired, true, 3, LOG_CONTEXT
+      ));
+
+      assertEquals(2, processor.simulatedBatches.size(), "the third attempt is refused before it simulates");
+      assertEquals(2, monitor.queueResultCalls);
+      assertNull(thrown.getCause());
+      assertEquals(PublicationException.Reason.MONITOR_STOPPED, thrown.reason());
+      assertEquals(monitor.sigs, sigs(thrown.attempts()));
+      if (verifyExpired) {
+        assertEquals(List.of(TxAttempt.Status.EXPIRED, TxAttempt.Status.EXPIRED), statuses(thrown.attempts()));
+        assertFalse(thrown.mayStillLand(), "a verified expiry leaves nothing that can land");
+        assertEquals("The transaction monitor has stopped; nothing this call sent can still land.", thrown.getMessage());
+      } else {
+        assertEquals(List.of(TxAttempt.Status.MISSING, TxAttempt.Status.MISSING), statuses(thrown.attempts()));
+        assertEquals(thrown.attempts(), thrown.landable());
+        assertEquals(1_000_300L, thrown.landableUntil(), "both missing attempts may land, the first until the larger height");
+        assertEquals(
+            "The transaction monitor has stopped; 2 transactions this call sent may still land, none after block"
+                + " height 1000300 passes.",
+            thrown.getMessage()
+        );
+      }
+    }
+  }
+
+  /// One missing attempt before the refusal is named by its signature, as one sent earlier.
+  @Test
+  void aRefusalAfterOneMissingStatusNamesThatAttempt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.stopsAfterQueues = 1;
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, false, true, 3, LOG_CONTEXT
+    ));
+
+    assertEquals(
+        "The transaction monitor has stopped; " + monitor.sigs.getFirst() + ", sent earlier by this call and not"
+            + " verified expired, may still land until block height 8642 passes.",
+        thrown.getMessage()
+    );
+    assertEquals(1, processor.simulatedBatches.size());
+  }
+
+  /// The real monitor hands two callers of one signature one future, so the stop's instance is
+  /// shared too; each call ends with an instance of its own, naming its own transaction with
+  /// its own ledger's sends, and the stop's cause.
+  @Test
+  void oneFutureHandedToTwoCallsEndsEachWithItsOwnInstance() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var stopCause = new IllegalStateException("every pass failed");
+    final var shared = new TxMonitorStoppedException("pending", 77, stopCause);
+    monitor.sharedQueuedFuture = CompletableFuture.failedFuture(shared);
+    // The two calls' sends read differently: the first accepted, the second refused.
+    monitor.sendScript = attempt -> attempt == 0
+        ? CompletableFuture.completedFuture(monitor.sigs.get(attempt))
+        : CompletableFuture.failedFuture(refusal());
+    final var service = service(processor, monitor);
+
+    final var first = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+    final var second = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(3), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertNotSame(first, second, "each call names its own attempts");
+    final var thrown = List.of(first, second);
+    for (int i = 0; i < 2; ++i) {
+      final var call = thrown.get(i);
+      assertNotSame(shared, call);
+      assertEquals(1, call.attempts().size());
+      final var pending = call.attempts().getFirst();
+      assertEquals(monitor.sigs.get(i), pending.sig());
+      assertEquals(TxAttempt.Status.PENDING, pending.status());
+      assertEquals(monitor.ledgers.get(i).reading(), pending.sends(), "call " + i);
+      assertSame(stopCause, call.getCause());
+    }
+    assertNotEquals(first.attempts().getFirst().sends(), second.attempts().getFirst().sends());
+  }
+
+  /// A monitor that reports its stop by throwing from the await, rather than through the
+  /// queued future, ends the call the same way: an instance of its own, the pending
+  /// transaction last, the loop's failure its cause.
+  @Test
+  void aStopThrownFromTheAwaitEndsTheCallWithItsOwnInstance() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var stopCause = new IllegalStateException("every pass failed");
+    final var monitors = new TxMonitorStoppedException("monitorsSig", 5, stopCause);
+    monitor.webSocketScript = _ -> {
+      throw monitors;
+    };
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(TxMonitorStoppedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertNotSame(monitors, thrown);
+    assertSame(stopCause, thrown.getCause());
+    assertEquals(1, thrown.attempts().size());
+    final var pending = thrown.attempts().getFirst();
+    assertEquals(TxAttempt.Status.PENDING, pending.status());
+    assertEquals(monitor.sigs.getFirst(), pending.sig());
+    assertEquals(processor.sentBlockHeights.getFirst(), pending.lastValidBlockHeight());
+    assertEquals(monitor.ledgers.getFirst().reading(), pending.sends());
+    assertEquals(0, monitor.queueResultCalls);
+  }
+
+  /// A send answered with another signature is thrown by the monitor as a wrong response, but
+  /// the send went out and may still land: the call ends with an unknown outcome, that answer
+  /// its cause, its message and the redacted endpoint in it intact.
+  @Test
+  void aWrongSignatureAnswerEndsWithTheSentTransactionLandable() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var wrongResponse = new IllegalStateException("""
+        Expected transaction signature does not match response from RPC https://fake.rpc.invalid/(redacted)
+          - sig
+          - other
+        """);
+    monitor.webSocketScript = _ -> {
+      throw wrongResponse;
+    };
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown instanceof IllegalStateException, "a wrong answer to a send that went out is not a bare failure");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertSame(wrongResponse, unknown.getCause());
+    assertTrue(unknown.getCause().getMessage().contains("https://fake.rpc.invalid/(redacted)"));
+    assertEquals(1, unknown.attempts().size());
+    final var pending = unknown.attempts().getFirst();
+    assertEquals(List.of(pending), unknown.landable());
+    assertEquals(TxAttempt.Status.PENDING, pending.status());
+    assertEquals(monitor.sigs.getFirst(), pending.sig());
+    assertEquals(monitor.ledgers.getFirst().reading(), pending.sends(), "the ledger the monitor recorded the send in");
+    assertEquals(PublicationException.Reason.OTHER, unknown.reason());
+    assertEquals(1, processor.simulatedBatches.size());
+    assertEquals(0, monitor.queueResultCalls);
+    assertEquals(
+        "The call failed after sending " + pending.sig() + ", before its outcome was known; it may still land until"
+            + " block height 8642 passes.",
+        unknown.getMessage()
+    );
+  }
+
+  /// With `verifyExpired` false the first attempt's status was only missing, so it may still
+  /// land when the rebuild's hook fails: the failure is the cause of an unknown outcome naming
+  /// that attempt, and the rebuild, which sent nothing, is no attempt.
+  @Test
+  void aHookFailureOnARebuildAfterAMissingStatusNamesThatAttempt() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.expiredResponses = 1;
+    monitor.queuedStatus = SETTLED;
+    final var hookFailure = new IllegalArgumentException("bad hook");
+    final var hookCalls = new AtomicInteger();
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2),
+        tx -> {
+          if (hookCalls.getAndIncrement() == 1) {
+            throw hookFailure;
+          }
+          return tx;
+        },
+        MAX_FEE, CONFIRMED, PROCESSED, false, false, 3, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown instanceof IllegalArgumentException, "the missing attempt may still land, so the failure is a verdict");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertSame(hookFailure, unknown.getCause());
+    assertEquals(1, unknown.attempts().size(), "the failing rebuild sent nothing");
+    final var missing = unknown.attempts().getFirst();
+    assertEquals(TxAttempt.Status.MISSING, missing.status());
+    assertEquals(List.of(missing), unknown.landable());
+    assertEquals(monitor.sigs.getFirst(), missing.sig());
+    assertEquals(2, processor.simulatedBatches.size());
+    assertEquals(1, processor.sentTransactions.size());
+    assertEquals(
+        "The call failed before sending again; " + missing.sig() + ", sent earlier by this call and not verified"
+            + " expired, may still land until block height 8642 passes.",
+        unknown.getMessage()
+    );
+  }
+
+  /// The other half of the rule: with nothing the call sent able to land, a hook failure
+  /// propagates as it is, on the first attempt whatever `verifyExpired` says, and on a rebuild
+  /// after a verified expiry.
+  @Test
+  void aHookFailureWithNothingLandableStillPropagatesBare() {
+    record Case(boolean verifyExpired, int failingCall) {
+    }
+    for (final var failing : List.of(new Case(true, 1), new Case(false, 0), new Case(true, 0))) {
+      final var processor = new FakeTxProcessor();
+      final var monitor = new FakeMonitor();
+      monitor.expiredResponses = 1;
+      monitor.queuedStatus = SETTLED;
+      final var hookFailure = new IllegalArgumentException("bad hook");
+      final var hookCalls = new AtomicInteger();
+      final var service = service(processor, monitor);
+
+      final var thrown = assertThrows(IllegalArgumentException.class, () -> service.processInstructions(
+          CU_MULTIPLIER, instructions(2),
+          tx -> {
+            if (hookCalls.getAndIncrement() == failing.failingCall()) {
+              throw hookFailure;
+            }
+            return tx;
+          },
+          MAX_FEE, CONFIRMED, PROCESSED, failing.verifyExpired(), false, 3, LOG_CONTEXT
+      ), failing.toString());
+
+      assertSame(hookFailure, thrown, failing.toString());
+      assertEquals(failing.failingCall() + 1, processor.simulatedBatches.size(), failing.toString());
+    }
+  }
+
+  /// The formatter runs after the send is dispatched, so a formatter that throws leaves a
+  /// transaction in flight: the verdict names it, from a reading of the one send dispatched,
+  /// since the call had not made its ledger yet, and its message reads no configured format.
+  @Test
+  void aFormatterThatThrowsAfterTheSendEndsWithTheSentTransactionLandable() {
+    final var processor = new FakeTxProcessor();
+    processor.formatter = new ChainItemFormatter("%d", "%s");
+    final var monitor = new FakeMonitor();
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown instanceof IllegalFormatConversionException, "the transaction was sent before the formatter ran");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertInstanceOf(IllegalFormatConversionException.class, unknown.getCause());
+    assertEquals(1, unknown.attempts().size());
+    final var pending = unknown.attempts().getFirst();
+    assertEquals(List.of(pending), unknown.landable());
+    assertEquals(TxAttempt.Status.PENDING, pending.status());
+    assertEquals(processor.sentTransactions.getFirst().getBase58Id(), pending.sig());
+    assertEquals(processor.sentBlockHeights.getFirst(), pending.lastValidBlockHeight());
+    assertEquals(1, pending.sends().attempted(), "the one send dispatched before the formatter ran");
+    assertFalse(pending.sends().accepted());
+    assertEquals(Set.of(PublicationException.Reason.UNANSWERED), pending.sends().failures(), "the send is in flight");
+    assertEquals(0, monitor.webSocketCalls);
+    assertEquals(0, monitor.queueResultCalls);
+    assertEquals(
+        "The call failed after sending " + pending.sig() + ", before its outcome was known; it may still land until"
+            + " block height 8642 passes.",
+        unknown.getMessage()
+    );
+  }
+
+  /// The monitor refuses a signature already awaited with weaker settings, after the send: the
+  /// transaction was sent, and another caller awaits it, so the refusal is the cause of an
+  /// unknown outcome.
+  @Test
+  void aSettingsConflictAtTheQueueEndsWithTheSentTransactionLandable() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.queueRefusal = new IllegalArgumentException(
+        "Signature sig is already awaited with weaker settings [weaker] than the requested [stricter]"
+    );
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown instanceof IllegalArgumentException, "the transaction was sent, and another caller awaits it");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertSame(monitor.queueRefusal, unknown.getCause());
+    final var pending = unknown.attempts().getFirst();
+    assertEquals(List.of(pending), unknown.landable());
+    assertEquals(TxAttempt.Status.PENDING, pending.status());
+    assertEquals(monitor.queuedLedgers.getFirst().reading(), pending.sends());
+    assertEquals(1, processor.simulatedBatches.size());
+  }
+
+  /// Only the monitor's own stop is a stop: a queued future that fails for another reason,
+  /// such as a failure forwarded from another waiter's, ends the call with that failure, not
+  /// the join's `CompletionException`, as the cause of an unknown outcome, and nothing is
+  /// rebuilt.
+  @Test
+  void aQueuedFutureThatFailsForAnotherReasonEndsWithTheSentTransactionLandable() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.queueFailure = new IllegalStateException("forwarded from another waiter");
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(RuntimeException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, Integer.MAX_VALUE, LOG_CONTEXT
+    ));
+
+    assertFalse(thrown instanceof CompletionException, "the join's carrier is not the verdict");
+    final var unknown = assertInstanceOf(OutcomeUnknownException.class, thrown);
+    assertSame(monitor.queueFailure, unknown.getCause(), "the forwarded failure itself");
+    assertEquals(List.of(TxAttempt.Status.PENDING), statuses(unknown.attempts()));
+    assertEquals(unknown.attempts(), unknown.landable());
+    assertEquals(1, processor.simulatedBatches.size(), "a failure the monitor forwarded is not rebuilt");
+  }
+
+  /// An interrupt carries no verdict: it propagates as itself, even after a send.
+  @Test
+  void anInterruptAfterTheSendPropagatesAsItself() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var interrupt = new InterruptedException("interrupted mid-await");
+    monitor.webSocketScript = _ -> {
+      throwUnchecked(interrupt);
+      return null;
+    };
+    final var service = service(processor, monitor);
+
+    assertSame(interrupt, assertThrows(InterruptedException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    )));
+  }
+
+  /// An `Error` is no verdict either: it propagates as itself, even after a send.
+  @Test
+  void anErrorAfterTheSendIsNotWrapped() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var error = new OutOfMemoryError("test");
+    monitor.webSocketScript = _ -> {
+      throw error;
+    };
+    final var service = service(processor, monitor);
+
+    assertSame(error, assertThrows(OutOfMemoryError.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    )));
+  }
+
+  /// A checked exception a monitor written without them throws past its signature after the
+  /// send is wrapped like any other failure there, the transaction landable.
+  @Test
+  void aCheckedExceptionAfterTheSendIsTheCauseOfAnUnknownOutcome() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    final var failure = new IOException("monitor broke");
+    monitor.webSocketScript = _ -> {
+      throwUnchecked(failure);
+      return null;
+    };
+    final var service = service(processor, monitor);
+
+    final var thrown = assertThrows(OutcomeUnknownException.class, () -> service.processInstructions(
+        CU_MULTIPLIER, instructions(2), MAX_FEE, CONFIRMED, PROCESSED, true, true, 3, LOG_CONTEXT
+    ));
+
+    assertSame(failure, thrown.getCause());
+    assertEquals(List.of(TxAttempt.Status.PENDING), statuses(thrown.landable()));
   }
 
   /// A websocket notification settles the call; what the sends answered is never read.

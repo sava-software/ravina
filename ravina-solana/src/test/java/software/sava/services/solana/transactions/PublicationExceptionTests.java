@@ -1,6 +1,7 @@
 package software.sava.services.solana.transactions;
 
 import org.junit.jupiter.api.Test;
+import software.sava.services.solana.transactions.PublicationException.Reason;
 
 import java.net.ConnectException;
 import java.util.ArrayList;
@@ -102,9 +103,62 @@ final class PublicationExceptionTests {
     );
   }
 
+  /// Three subtypes fix their reason; a not-accepted verdict reads it from its sends, whose
+  /// classes never include the three fixed ones' stopped or other.
   @Test
-  void aSendThatNeverLeftIsAlwaysUnreachable() {
+  void theReasonIsFixedForThreeSubtypes() {
+    final var missing = attempt("a", 5, MISSING);
+    final var pending = attempt("b", 6, PENDING);
+    final var cause = new IllegalStateException("every pass failed");
+
     assertEquals(UNREACHABLE, neverLeft(List.of()).reason());
-    assertEquals(UNREACHABLE, neverLeft(List.of(attempt("a", 5, MISSING))).reason());
+    assertEquals(UNREACHABLE, neverLeft(List.of(missing)).reason());
+    for (final var stopped : List.of(
+        new TxMonitorStoppedException("b", 6, cause),
+        TxMonitorStoppedException.refused(List.of()),
+        TxMonitorStoppedException.refused(List.of(missing)),
+        TxMonitorStoppedException.pending(List.of(missing, pending), cause)
+    )) {
+      assertEquals(Reason.MONITOR_STOPPED, stopped.reason());
+    }
+    for (final var unknown : List.of(
+        OutcomeUnknownException.of(List.of(pending), cause),
+        OutcomeUnknownException.of(List.of(missing), cause)
+    )) {
+      assertEquals(Reason.OTHER, unknown.reason());
+      assertSame(cause, unknown.getCause());
+    }
+    for (final var reason : Reason.values()) {
+      final var sends = new SendLedger.Reading(1, false, null, null, reason == Reason.MONITOR_STOPPED || reason == Reason.OTHER
+          ? Set.of()
+          : Set.of(reason));
+      final var notAccepted = SendNotAcceptedException.of(List.of(new TxAttempt("c", 7, EXPIRED, sends)));
+      assertNotEquals(Reason.MONITOR_STOPPED, notAccepted.reason());
+      assertNotEquals(Reason.OTHER, notAccepted.reason());
+    }
+  }
+
+  /// An unknown outcome is one while something sent may still land, so the factory refuses
+  /// attempts none of which may, and names the pending attempt the failure came after, or
+  /// says the failure came before a new send.
+  @Test
+  void anUnknownOutcomeNeedsSomethingLandable() {
+    final var cause = new IllegalStateException("boom");
+    assertThrows(IllegalArgumentException.class, () -> OutcomeUnknownException.of(List.of(), cause));
+    assertThrows(IllegalArgumentException.class, () -> OutcomeUnknownException.of(List.of(attempt("a", 5, EXPIRED)), cause));
+
+    final var afterSending = OutcomeUnknownException.of(List.of(attempt("a", 5, MISSING), attempt("b", 9, PENDING)), cause);
+    assertTrue(afterSending.mayStillLand());
+    assertEquals(
+        "The call failed after sending b, before its outcome was known; 2 transactions this call sent may still land,"
+            + " none after block height 9 passes.",
+        afterSending.getMessage()
+    );
+    final var beforeSending = OutcomeUnknownException.of(List.of(attempt("a", 5, MISSING)), cause);
+    assertEquals(
+        "The call failed before sending again; a, sent earlier by this call and not verified expired, may still land"
+            + " until block height 5 passes.",
+        beforeSending.getMessage()
+    );
   }
 }

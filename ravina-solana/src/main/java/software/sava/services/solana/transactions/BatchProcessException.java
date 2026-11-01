@@ -7,9 +7,9 @@ import java.util.List;
 /// not discarded with it: a caller can tell which instructions executed and retry only the
 /// rest. Every result it carries settled without an error, since an error result ends the run
 /// as its return value. A batch that failed before it settled is not among them, and whether
-/// it can still land is the cause's to say, as a `SendNotAcceptedException`'s
-/// `expiryVerified()` does; a batch whose accounts the caller's map refused to remove had
-/// settled first, so it is among them and must not be run again.
+/// it can still land is the cause's to say, as a `PublicationException`'s `mayStillLand()`
+/// does; a batch whose accounts the caller's map refused to remove had settled first, so it is
+/// among them and must not be run again.
 public final class BatchProcessException extends RuntimeException {
 
   private final List<TransactionResult> settled;

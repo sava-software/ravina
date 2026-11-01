@@ -197,6 +197,13 @@ public interface TransactionProcessor extends TxPublisher {
     return publish(transaction, base64Encoded, Settlement.COMMITMENT, blockHeight);
   }
 
+  /// Signs `transaction` and dispatches its send, returning the send's context. It throws only
+  /// before the send is dispatched, so that a failure out of it means nothing was sent:
+  /// `InstructionService.processInstructions` lets such a failure through as it is unless an
+  /// earlier attempt of the call may still land. A send that fails once dispatched fails the
+  /// context's future instead. The processor `createProcessor` builds meets that, given a clock
+  /// and capacity states that do not throw: after the dispatch it only reads the clock, charges
+  /// the send weight and registers a completion callback.
   SendTxContext signAndSendTx(final Transaction transaction, final long blockHeight);
 
   /// Builds the SIMD-0385 v1 transaction for `instructions` at the maximum compute unit limit, and, unless it

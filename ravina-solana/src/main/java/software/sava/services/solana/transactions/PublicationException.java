@@ -2,16 +2,31 @@ package software.sava.services.solana.transactions;
 
 import java.util.List;
 
-/// A failure that ends a send without a result, reported with what was sent: the attempts the
-/// thrower knew of, in order, and which of them may still land. A caller decides whether to
-/// rebuild from the catch type and these accessors alone, never from a JDK cause.
+/// The one verdict `InstructionService.processInstructions` ends with when it ends without a
+/// result after a send, or while an earlier attempt of the call may still land, or because a
+/// stopped monitor refused it; `BatchProcessException` carries it as the cause of the batch it
+/// names. The call builds it, as the only code that holds every attempt of the call, so a
+/// caller decides whether to rebuild from the catch type and these accessors alone, never from a
+/// JDK cause: [#attempts()] is every transaction the call signed and handed to a send, in order,
+/// with the sends its ledger recorded; [#mayStillLand()] says whether any of them may still
+/// land, [#landable()] names each that may, and [#landableUntil()] the last block height at
+/// which any of them can; [#reason()] says why the call ended. The message ends with the same
+/// landability, so a page that prints only the message still says it.
 ///
-/// [#attempts()] lists each transaction signed and handed to a send, with the sends its ledger
-/// recorded; [#mayStillLand()] says whether any of them may still land, [#landable()] names
-/// each that may, and [#landableUntil()] the last block height at which any of them can;
-/// [#reason()] says why the send ended. The message ends with the same landability, so a page
-/// that prints only the message still says it.
-public abstract sealed class PublicationException extends RuntimeException permits SendNeverLeftException {
+/// The subtype says how the call ended. [SendNotAcceptedException]: no send of the last attempt
+/// was accepted, and its status settled as not landed. [SendNeverLeftException]: no send of the
+/// last attempt reached a server. [TxMonitorStoppedException]: the transaction monitor's loop
+/// stopped. [OutcomeUnknownException]: another failure ended the call while something it sent
+/// may still land. A `TxMonitorService` throws, or fails a queued future with, an instance of
+/// its own that speaks for its one transaction alone; `processInstructions` never rethrows one,
+/// it throws its own.
+///
+/// Rebuild on one whose `mayStillLand()` is false, pacing by its `reason()`; on one whose
+/// `mayStillLand()` is true, do not, until the settled block height has passed
+/// `landableUntil()` by the expiration monitor's settle buffer and a history-searching
+/// `getSignatureStatuses` read of `landable()` says what landed.
+public abstract sealed class PublicationException extends RuntimeException
+    permits SendNotAcceptedException, SendNeverLeftException, TxMonitorStoppedException, OutcomeUnknownException {
 
   /// Why a call ended without a result, and, for one failed send, the class of its failure
   /// (`SendFailure.reason()`). The declaration order is the precedence: where several apply,
@@ -49,7 +64,9 @@ public abstract sealed class PublicationException extends RuntimeException permi
     this.landable = TxAttempt.landable(this.attempts);
   }
 
-  /// Every transaction signed and handed to a send, in order.
+  /// Every transaction signed and handed to a send, in order. Every attempt but the last was
+  /// accepted and is `EXPIRED` (with `verifyExpired` true) or `MISSING` (false); the list is
+  /// empty only when a stopped monitor refused the call's first attempt.
   public final List<TxAttempt> attempts() {
     return attempts;
   }
@@ -77,7 +94,10 @@ public abstract sealed class PublicationException extends RuntimeException permi
     return TxAttempt.landableUntil(attempts);
   }
 
-  /// Why the send ended, for a page and for pacing.
+  /// Why the call ended, for a page and for pacing: [Reason#MONITOR_STOPPED] on every
+  /// [TxMonitorStoppedException], [Reason#UNREACHABLE] on every [SendNeverLeftException],
+  /// [Reason#OTHER] on every [OutcomeUnknownException], and on a [SendNotAcceptedException] the
+  /// first in declaration order of the classes of its last attempt's failed sends.
   public abstract Reason reason();
 
   /// `ending` followed by the landability of `attempts` and a period: nothing landable, the one
