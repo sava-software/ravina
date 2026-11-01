@@ -26,7 +26,9 @@ import java.util.List;
 /// an attempt before that attempt's send, which the call throws again with its earlier attempts
 /// ahead of the ones it names.
 ///
-/// Rebuild on one whose `mayStillLand()` is false, pacing by its `reason()`; on one whose
+/// Rebuild on one whose `mayStillLand()` is false, pacing by its `reason()` and, whatever the
+/// reason, by the `retryAfterSeconds()` of its last attempt's last failure, when that is a
+/// refusal that carries one (a 503 that does reads `SERVER_ERROR`); on one whose
 /// `mayStillLand()` is true, do not, until the settled block height has passed
 /// `landableUntil()` by the expiration monitor's settle buffer and a history-searching
 /// `getSignatureStatuses` read of `landable()` says what landed.
@@ -39,20 +41,23 @@ public abstract sealed class PublicationException extends RuntimeException
   public enum Reason {
     /// The transaction monitor's loop stopped, and the service refuses every later call.
     MONITOR_STOPPED,
-    /// The provider refused the key, the plan or the allow-list: a 401 or a 403, which pacing
-    /// within a block hash window does not fix. Read only from an HTTP status, which sava-rpc
-    /// does not yet carry (see `SendFailure.Refused`), so no classification produces it yet.
+    /// The provider refused the key, the plan or the allow-list: an HTTP 401 or 403, whatever
+    /// the body, which pacing within a block hash window does not fix. Read only from the
+    /// status; see `SendFailure.Refused` for how a status ranks over a JSON-RPC code.
     UNAUTHORIZED,
-    /// The provider asked for less: a JSON-RPC error with code 429, or a `retry-after` hint.
+    /// The provider asked for less: an HTTP 429; or, where the status decides nothing, a
+    /// JSON-RPC error with code 429, or a `retry-after` hint on any answer.
     RATE_LIMITED,
-    /// The provider failed: JSON-RPC -32603 (internal error), or agave's -32005 (node
-    /// unhealthy).
+    /// The provider failed: an HTTP status of 500 or above; or, where the status decides
+    /// nothing, JSON-RPC -32603 (internal error) or agave's -32005 (node unhealthy).
     SERVER_ERROR,
-    /// Any other answer a server gave that was not the signature.
+    /// Any other answer a server gave that was not the signature, a body sava-rpc could not
+    /// read under a 2xx among them.
     REFUSED,
     /// No answer: a timeout, the response deadline, a cancellation, a reset or closed
-    /// connection, a TLS failure, an unreadable response, a dispatch rejection, or a send still
-    /// in flight when its ledger was read.
+    /// connection, a TLS failure, a gzip body that could not be inflated or a result that could
+    /// not be parsed, a dispatch rejection, or a send still in flight when its ledger was read.
+    /// An HTTP 408, the timeout of the server or of a gateway in front of it, reads as this too.
     UNANSWERED,
     /// The connection never formed: refused, unresolved or timed out while connecting.
     UNREACHABLE,

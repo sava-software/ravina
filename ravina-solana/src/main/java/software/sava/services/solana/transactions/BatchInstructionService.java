@@ -65,13 +65,13 @@ public interface BatchInstructionService extends InstructionService {
   /// carries the results of the batches settled before it, which are never run again, the
   /// exception as its cause, and the failing batch, so a caller retries only what is left.
   /// With its `mayStillLand()` false nothing of the failing batch can land, and it is retried
-  /// with the rest, paced by the verdict's `reason()`; with it true the failing batch is held
-  /// out of every retry until the settled block height has passed the verdict's
-  /// `landableUntil()` by the settle buffer and a status read of its `landable()` says what
-  /// landed (see `BatchProcessException`). An interrupt propagates as `InterruptedException`,
-  /// which carries no results, and the batch it interrupted may still land; an `Error` is not
-  /// wrapped. A ComputeBudget instruction anywhere in `instructions` is refused before any
-  /// batch is sent.
+  /// with the rest, paced by the verdict's `reason()` and its last failure's `retry-after` hint;
+  /// with it true the failing batch is held out of every retry until the settled block height
+  /// has passed the verdict's `landableUntil()` by the settle buffer and a status read of its
+  /// `landable()` says what landed (see `BatchProcessException`). An interrupt propagates as
+  /// `InterruptedException`, which carries no results, and the batch it interrupted may still
+  /// land; an `Error` is not wrapped. A ComputeBudget instruction anywhere in `instructions` is
+  /// refused before any batch is sent.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final List<Instruction> instructions,
                                        final BigDecimal maxLamportPriorityFee,

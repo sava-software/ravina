@@ -26,11 +26,13 @@ import java.util.Optional;
 /// With `mayStillLand()` false, nothing of the failing batch can land: retry it and the rest,
 /// paced by the verdict's `reason()`, where `UNREACHABLE` and `RATE_LIMITED` pace, `UNAUTHORIZED`
 /// stops, and `MONITOR_STOPPED` means the service refuses every later call, so the retry belongs
-/// to a new process; or at once when there is no verdict. With it true, hold the failing batch
-/// out of every retry until the settled block height has passed the verdict's
-/// `landableUntil()` by the expiration monitor's settle buffer, then read its `landable()` with
-/// a history-searching status read, drop what landed and retry the rest; in the accounts
-/// overload those keys are still in the caller's map.
+/// to a new process, and, whatever the reason, by the `retryAfterSeconds()` of its last
+/// attempt's last failure when the provider sent one, as a 503 can under `SERVER_ERROR`; or at
+/// once when there is no verdict. With it true, hold the failing batch out of every retry until
+/// the settled block height has passed the verdict's `landableUntil()` by the expiration
+/// monitor's settle buffer, then read its `landable()` with a history-searching status read,
+/// drop what landed and retry the rest; in the accounts overload those keys are still in the
+/// caller's map.
 public final class BatchProcessException extends RuntimeException {
 
   private final List<TransactionResult> settled;

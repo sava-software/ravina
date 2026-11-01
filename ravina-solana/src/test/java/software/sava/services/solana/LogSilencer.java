@@ -43,7 +43,13 @@ public final class LogSilencer implements AutoCloseable {
 
   /// Suppresses everything logged by `loggingClass` until the scope closes.
   public static LogSilencer silenced(final Class<?> loggingClass) {
-    return new LogSilencer(Logger.getLogger(loggingClass.getName()), Level.OFF);
+    return silenced(loggingClass.getName());
+  }
+
+  /// Suppresses everything logged under `loggerName` until the scope closes: for a logger named
+  /// after a class this module cannot name, such as a dependency's package-private one.
+  public static LogSilencer silenced(final String loggerName) {
+    return new LogSilencer(Logger.getLogger(loggerName), Level.OFF);
   }
 
   @Override

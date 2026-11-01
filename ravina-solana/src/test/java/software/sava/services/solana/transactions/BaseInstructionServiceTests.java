@@ -1164,7 +1164,7 @@ final class BaseInstructionServiceTests {
     assertEquals(TxAttempt.Status.EXPIRED, expired.status());
     assertEquals(monitor.ledgers.getFirst().reading(), expired.sends());
     assertEquals(1, expired.sends().attempted());
-    assertEquals(PublicationException.Reason.REFUSED, thrown.reason(), "a text-bodied status reads as a refusal");
+    assertEquals(PublicationException.Reason.UNAUTHORIZED, thrown.reason(), "a 401 is a key refusal, whatever its body");
     assertEquals(
         "No send of " + expired.sig() + " was accepted (1 attempted) and its block hash expired with nothing of it"
             + " landed; nothing this call sent can still land.",

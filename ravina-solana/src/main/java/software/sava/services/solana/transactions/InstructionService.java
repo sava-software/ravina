@@ -239,16 +239,16 @@ public interface InstructionService {
   /// the rebuilds after attempts with an accepted send, so a provider that
   /// refuses every send costs one block hash window with `verifyExpired` true,
   /// or one websocket await and a polling pass with `false`, not a rebuild
-  /// loop. Its `reason()` tells a rate to pace (`RATE_LIMITED`, with the last
-  /// failure's `retryAfterSeconds()` when the provider sent one) from a
-  /// refusal; a key refusal (`UNAUTHORIZED`) is told apart only once sava-rpc
-  /// carries the HTTP status, and reads as `REFUSED` until then (see
-  /// `SendFailure.Refused`). [SendNeverLeftException]: no send of the last
-  /// attempt reached a server, because each connection never formed (refused,
-  /// unresolved or timed out while connecting, which holds for the JDK
-  /// client's defaults; see `TxMonitorService.validateResponse`), so it arrives
-  /// within a round of connection attempts rather than a block hash window,
-  /// and a caller that rebuilds on it paces itself.
+  /// loop. Its `reason()` tells a key to fix (`UNAUTHORIZED`, a 401 or a 403)
+  /// and a rate to pace (`RATE_LIMITED`) from a refusal (see
+  /// `SendFailure.Refused`), and its last failure's `retryAfterSeconds()`,
+  /// when the provider sent one, says how long to wait whatever the reason: a
+  /// 503 that carries one reads `SERVER_ERROR`. [SendNeverLeftException]: no
+  /// send of the last attempt reached a server, because each connection never
+  /// formed (refused, unresolved or timed out while connecting, which holds
+  /// for the JDK client's defaults; see `TxMonitorService.validateResponse`),
+  /// so it arrives within a round of connection attempts rather than a block
+  /// hash window, and a caller that rebuilds on it paces itself.
   /// [TxMonitorStoppedException]: the monitor's loop stopped, before an attempt
   /// or with one pending (below). [OutcomeUnknownException]: any other failure
   /// ended the call while a transaction it sent may still land, that failure
@@ -267,11 +267,12 @@ public interface InstructionService {
   /// given a `TransactionProcessor` whose `signAndSendTx` throws only before
   /// its send is dispatched, as ravina's does. Rebuild on such an exception, or
   /// on a `PublicationException` whose `mayStillLand()` is false, pacing by its
-  /// `reason()`; on one whose `mayStillLand()` is true, do not, until the
-  /// settled block height has passed `landableUntil()` by the expiration
-  /// monitor's settle buffer and a history-searching `getSignatureStatuses`
-  /// read of `landable()` says what landed. An interrupt or an `Error` carries
-  /// no verdict, and what was in flight may land.
+  /// `reason()` and its last failure's `retry-after` hint; on one whose
+  /// `mayStillLand()` is true, do not, until the settled block height has
+  /// passed `landableUntil()` by the expiration monitor's settle buffer and a
+  /// history-searching `getSignatureStatuses` read of `landable()` says what
+  /// landed. An interrupt or an `Error` carries no verdict, and what was in
+  /// flight may land.
   /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every

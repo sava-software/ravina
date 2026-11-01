@@ -513,11 +513,11 @@ implementation locks the bug in.
   too. `aSendThatNeverLeftIsSignalledByItsOwnType` in
   `TxCommitmentMonitorServiceTests`, nine `BaseInstructionServiceTests` named
   in the commit, and a probe of the batch wrapper's message failed against
-  the code before each change. HTTP statuses are not read from sava-rpc's
-  message text: until sava-rpc carries them typed, a text-bodied 401, 429 or
-  503 reads as `REFUSED`, which
-  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pins
-  so that the refinement changes a test. Two independent reviews of the
+  the code before each change. HTTP statuses were not read from sava-rpc's
+  message text: until sava-rpc carried them typed, a text-bodied 401, 429 or
+  503 read as `REFUSED`, which
+  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pinned
+  for the refinement to change, as it did. Two independent reviews of the
   change found one more way to the same double execution before the push,
   and a second open to a third-party processor. The call's guard passed any
   `PublicationException` through as the call's verdict, so a hook, a
@@ -534,10 +534,11 @@ implementation locks the bug in.
   `aForeignStopFromTheQueueAfterAMissingStatusIsAnUnknownOutcome` and
   `aRebuildOverALimitAfterAMissingStatusEndsTheBatchInsteadOfShrinking`,
   whose simulator is scripted to exceed the limit on the rebuild, failed
-  against the first form. The pin above does not enforce the refinement
-  either, since sava-rpc's typed failure still matches the coarse test;
-  `SendFailureTests.theTypedStatusesAreNotYetOnTheModulePath` fails once the
-  typed API reaches the module path.
+  against the first form. The pin above did not enforce the refinement
+  either, since sava-rpc's typed failure still matched the coarse test; the
+  sentinel `SendFailureTests.theTypedStatusesAreNotYetOnTheModulePath`
+  failed once the typed API reached the module path, and the refinement
+  that reads the typed statuses deleted it.
 
 ### Running the JFR soak harness
 

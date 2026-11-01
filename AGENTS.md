@@ -687,14 +687,23 @@ them, because the list is the argument for the effort.
   ends the batch call with an `OutcomeUnknownException` over that result's attempts, never a
   shrink. Verdict messages print base58 signatures and unsigned heights, never the configured
   formatter's output, so a formatter that throws cannot cost the verdict. `SendFailure.of` is
-  the one classifier of a failed send; sava-rpc 25.13.1 carries no HTTP status, so a text-bodied
-  401, 429 or 503 reads `REFUSED` until `SendFailure.Refused.ofSavaRpc` reads the typed statuses
-  of the release after it. The catalog bump alone changes no value of
-  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient`, since the typed
-  `HttpResponseException` still matches the coarse test, so the sentinel beside it,
-  `theTypedStatusesAreNotYetOnTheModulePath`, is what fails then. The bump also moves a body the
-  parser cannot read, and an `error` member that is no readable object, from unanswered to
-  refused, and a date-valued `retry-after` stops throwing; none changes `mayStillLand`.
+  the one classifier of a failed send, and `SendFailure.Refused.ofSavaRpc` the one place
+  sava-rpc's typed failures are read: an `HttpResponseException` by its status and `retry-after`
+  hint, a `JsonRpcException` by its code, its hint and the status it arrived under. The status
+  decides first: 401 and 403 read `UNAUTHORIZED`, 429 `RATE_LIMITED`, 500 and above
+  `SERVER_ERROR`, and 408, the server's or a gateway's own timeout, `UNANSWERED`, though it stays
+  a `Refused` that may still land. The code and the hint decide only where the status does not:
+  with no status, as over the websocket, or one no rule names, a 2xx among them, where an HTTP
+  failure's hint counts as a JSON-RPC error's does. An `HttpResponseException` with a suppressed
+  failure is a body sava-rpc could not read, read by its status and its hint like any other, so
+  under a 2xx it is `REFUSED` without a `retry-after` hint and `RATE_LIMITED` with one. Whatever
+  the class, the hint stays on the `Refused`: a 503 that carries one reads `SERVER_ERROR` and
+  still says how long to wait, so the pacing advice names the hint whatever the reason. The bare
+  `UncheckedIOException` over an `UnknownServiceException` that sava-rpc threw before it typed
+  the failure is not read as an answer, since nothing on the send path throws it any more. None
+  of this moves `mayStillLand`: only a connection that never formed reads as never left.
+  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pins the reading against
+  sava-rpc's own throws through its real client.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

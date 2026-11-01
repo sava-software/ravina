@@ -79,7 +79,8 @@ final class SendNeverLeftExceptionTests {
     final var lastMayLand = assertThrows(IllegalArgumentException.class,
         () -> SendNeverLeftException.of(SIG, HEIGHT, reading(1, answered, answered), answered, null));
     assertEquals(
-        "A failure that may still land cannot be reported as never left: java.io.UncheckedIOException",
+        "A failure that may still land cannot be reported as never left:"
+            + " software.sava.rpc.json.http.response.HttpResponseException",
         lastMayLand.getMessage()
     );
     assertThrows(IllegalArgumentException.class,

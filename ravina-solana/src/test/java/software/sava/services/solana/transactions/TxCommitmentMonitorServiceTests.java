@@ -6,6 +6,7 @@ import software.sava.core.accounts.Signer;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
 import software.sava.rpc.json.http.request.Commitment;
+import software.sava.rpc.json.http.response.HttpResponseException;
 import software.sava.rpc.json.http.response.JsonRpcException;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxResult;
@@ -25,8 +26,9 @@ import java.lang.reflect.Proxy;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.UnknownHostException;
-import java.net.UnknownServiceException;
 import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -297,12 +299,23 @@ final class TxCommitmentMonitorServiceTests {
     return rpcException("{\"code\":" + code + ",\"message\":\"error " + code + "\"}");
   }
 
-  /// What sava-rpc reports for an HTTP status whose body is no JSON-RPC error
-  /// (`BaseJsonResponseController.throwUncheckedIOException`).
-  static UncheckedIOException httpStatusFailure(final int status) {
-    return new UncheckedIOException(new UnknownServiceException(String.format(
-        "HTTP request failed with [httpCode:%d], [body=%s]", status, "upstream unavailable"
-    )));
+  /// What sava-rpc throws for an HTTP status whose body is no JSON-RPC error.
+  static HttpResponseException httpStatusFailure(final int status) {
+    return httpStatusFailure(status, "upstream unavailable", Map.of());
+  }
+
+  /// What sava-rpc throws for a response with `status`, `body` and `headers` whose body is no
+  /// JSON-RPC error, built by the factory both of its response controllers call: a `retry-after`
+  /// header in seconds is the failure's hint.
+  static HttpResponseException httpStatusFailure(final int status,
+                                                 final String body,
+                                                 final Map<String, List<String>> headers) {
+    return HttpResponseException.of(new SendFailureTests.ScriptedResponse(
+        status,
+        body.getBytes(StandardCharsets.UTF_8),
+        HttpHeaders.of(headers, (_, _) -> true),
+        HttpRequest.newBuilder(URI.create("https://fake.rpc.invalid")).build()
+    ), body);
   }
 
   private FakeRpcClient rpcClient;

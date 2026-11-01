@@ -1,12 +1,11 @@
 package software.sava.services.solana.transactions;
 
+import software.sava.rpc.json.http.response.HttpResponseException;
 import software.sava.rpc.json.http.response.JsonRpcException;
 import software.sava.services.solana.transactions.PublicationException.Reason;
 
-import java.io.UncheckedIOException;
 import java.net.ConnectException;
 import java.net.UnknownHostException;
-import java.net.UnknownServiceException;
 import java.net.http.HttpConnectTimeoutException;
 import java.util.Objects;
 import java.util.OptionalInt;
@@ -57,12 +56,14 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
     }
   }
 
-  /// A server answered, with something other than the signature: a JSON-RPC error, its code
-  /// in [#rpcCode()] and the response's `retry-after` hint, when it had one, in
-  /// [#retryAfterSeconds()]; or an HTTP status whose body was no JSON-RPC answer. The server
-  /// may be a gateway that forwarded the send first, so the transaction may still land.
-  /// [#httpStatus()] is empty: sava-rpc does not yet carry the status of either failure (see
-  /// [#ofSavaRpc(Throwable)]).
+  /// A server answered, with something other than the signature: a response sava-rpc could not
+  /// use, an [HttpResponseException] (a status outside 2xx, or a body that was no JSON-RPC
+  /// answer, an unreadable one included), or a JSON-RPC error object, a [JsonRpcException],
+  /// its code in [#rpcCode()]. [#httpStatus()] is the status the answer arrived under, empty
+  /// only for a JSON-RPC error that arrived without one, as over the websocket, and
+  /// [#retryAfterSeconds()] the response's `retry-after` hint, when it gave one in seconds. The
+  /// server may be a gateway that forwarded the send first, so the transaction may still land,
+  /// whatever the status.
   record Refused(Throwable failure,
                  OptionalInt httpStatus,
                  OptionalLong rpcCode,
@@ -77,11 +78,25 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
       Objects.requireNonNull(retryAfterSeconds, "retryAfterSeconds");
     }
 
-    /// [Reason#RATE_LIMITED] for JSON-RPC code 429 or a `retry-after` hint,
-    /// [Reason#SERVER_ERROR] for code -32603 (internal error) or -32005 (node unhealthy), and
-    /// [Reason#REFUSED] otherwise, an HTTP status failure among them.
+    /// The status decides first, whatever the code and the hint: 401 and 403 are
+    /// [Reason#UNAUTHORIZED], a key, plan or allow-list refusal that pacing does not fix, though
+    /// `HttpErrorTracker` docks capacity for a 403 as a rate limit; 429 is [Reason#RATE_LIMITED];
+    /// 500 and above, as `HttpErrorTracker` reads a server error, are [Reason#SERVER_ERROR]; and
+    /// 408 is [Reason#UNANSWERED]. A 408 is a timeout, the server's own or a gateway's waiting on
+    /// its upstream: the send was not processed in time, but nothing proves it was not forwarded,
+    /// so it stays a refusal, which may still land, read as a send that went unanswered. With no
+    /// status, or one no rule names, a 2xx among them, the code and the hint decide, an HTTP
+    /// failure's hint as a JSON-RPC error's: [Reason#RATE_LIMITED] for code 429 or a
+    /// `retry-after` hint, [Reason#SERVER_ERROR] for code -32603 (internal error) or -32005 (node
+    /// unhealthy), and [Reason#REFUSED] otherwise, an unreadable body under a 2xx without a hint
+    /// included. Whatever the class, the hint stays in [#retryAfterSeconds()]: a 503 that carries
+    /// one reads [Reason#SERVER_ERROR] and still says how long to wait.
     @Override
     public Reason reason() {
+      final var byStatus = reasonOfStatus(httpStatus.orElse(0));
+      if (byStatus != null) {
+        return byStatus;
+      }
       final long code = rpcCode.orElse(0);
       if (code == 429 || retryAfterSeconds.isPresent()) {
         return Reason.RATE_LIMITED;
@@ -92,45 +107,46 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
       }
     }
 
-    /// The refusal sava-rpc reported `failure` as, or null when `failure` is not one of its two
-    /// failures for an answered request. The one place they are read, and deliberately coarse.
+    /// The class `status` decides by itself, or null when it leaves the class to the code and
+    /// the hint; 0 stands for no status.
+    private static Reason reasonOfStatus(final int status) {
+      return switch (status) {
+        case 401, 403 -> Reason.UNAUTHORIZED;
+        case 408 -> Reason.UNANSWERED;
+        case 429 -> Reason.RATE_LIMITED;
+        default -> status >= 500 ? Reason.SERVER_ERROR : null;
+      };
+    }
+
+    /// The refusal sava-rpc reported `failure` as, or null when `failure` is neither of its two
+    /// failures for an answered request; the one place they are read. An [HttpResponseException]
+    /// is read by its status and `retry-after` hint, a [JsonRpcException] by its code, its hint
+    /// and the status it arrived under.
     ///
-    /// sava-rpc 25.13.1 drops the HTTP status of both. A JSON-RPC error object it throws as a
-    /// [JsonRpcException], with the code and the `retry-after` hint but not the status it
-    /// arrived under. A status outside 2xx, or a 2xx whose body was no JSON-RPC answer, it
-    /// throws as an `UncheckedIOException` whose cause is an `UnknownServiceException`, with
-    /// the status only in the message text, which is not parsed here: it reads as a refusal
-    /// with no status, [Reason#REFUSED], whether it was a 401, a 429 or a 503.
-    ///
-    /// The release after 25.13.1 types both: `HttpResponseException`, which extends
-    /// `UncheckedIOException` and keeps that cause, so the coarse test here still matches it,
-    /// carries `statusCode()` and `retryAfterSeconds()`, and `JsonRpcException.httpStatus()` the
-    /// status of a JSON-RPC error. Once the catalog pins it, an `HttpResponseException` test goes
-    /// ahead of the coarse one, both fill [#httpStatus()], and [#reason()] reads it: 401 and 403
-    /// as [Reason#UNAUTHORIZED] (a 403 is a plan, key or allow-list refusal that pacing does not
-    /// fix, though `HttpErrorTracker` docks capacity for it as a rate limit), 429 as
-    /// [Reason#RATE_LIMITED], a 5xx as [Reason#SERVER_ERROR]; a 408, a gateway's own timeout, is
-    /// decided then, between [Reason#UNANSWERED] and [Reason#REFUSED], and an
-    /// `HttpResponseException` with a suppressed failure is a body sava-rpc could not read. The
-    /// bump does not ask for that refinement by itself: the coarse test goes on matching, and
-    /// `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient`, which pins this
-    /// reading against sava-rpc's own throws, keeps every value. The sentinel beside it,
-    /// `theTypedStatusesAreNotYetOnTheModulePath`, is what fails then. The bump also reclassifies
-    /// two cases that pin does not cover: an `error` member that is not a readable object, and a
-    /// body the parser cannot read, which escape as the parser's own exception here and read as
-    /// [Reason#UNANSWERED], become `HttpResponseException`s, refused; and a date-valued
-    /// `retry-after`, whose `NumberFormatException` reads as unanswered here, stops throwing and
-    /// leaves the server's JSON-RPC error to be read. Neither changes `mayStillLand`.
+    /// An `HttpResponseException` with a suppressed failure attached is a body sava-rpc's
+    /// JSON-RPC gate could not read: an object it could not get through, or an `error` member
+    /// that is no readable error object. It is read by its status and its hint like any other, so
+    /// under a 2xx it is [Reason#REFUSED] without a `retry-after` hint and [Reason#RATE_LIMITED]
+    /// with one: the server answered, and it may have forwarded the send. The bare
+    /// `UncheckedIOException` over an `UnknownServiceException` that sava-rpc threw before it
+    /// typed the failure is not read as an answer: sava-rpc now builds that pair only as an
+    /// `HttpResponseException`, matched here by its own type, so the pair from anything else is
+    /// [Unanswered], like every failure not named here.
     static Refused ofSavaRpc(final Throwable failure) {
-      if (failure instanceof JsonRpcException rpcException) {
+      if (failure instanceof HttpResponseException httpFailure) {
         return new Refused(
             failure,
-            OptionalInt.empty(),
+            OptionalInt.of(httpFailure.statusCode()),
+            OptionalLong.empty(),
+            httpFailure.retryAfterSeconds()
+        );
+      } else if (failure instanceof JsonRpcException rpcException) {
+        return new Refused(
+            failure,
+            rpcException.httpStatus(),
             OptionalLong.of(rpcException.code()),
             rpcException.retryAfterSeconds()
         );
-      } else if (failure instanceof UncheckedIOException && failure.getCause() instanceof UnknownServiceException) {
-        return new Refused(failure, OptionalInt.empty(), OptionalLong.empty(), OptionalLong.empty());
       } else {
         return null;
       }
@@ -138,9 +154,10 @@ public sealed interface SendFailure permits SendFailure.NeverConnected, SendFail
   }
 
   /// No answer: the send may have reached a server, so it may still land. A timeout, the
-  /// response deadline, a cancellation, a reset or closed connection, a TLS failure, an
-  /// unreadable response, a send that failed while it was dispatched, and any failure the
-  /// classification does not name.
+  /// response deadline, a cancellation, a reset or closed connection, a TLS failure, a gzip body
+  /// sava-rpc could not inflate or a result it could not parse, a send that failed while it was
+  /// dispatched, and any failure the classification does not name. A 408 reads as
+  /// [Reason#UNANSWERED] too, but a server answered it, so it is a [Refused].
   record Unanswered(Throwable failure) implements SendFailure {
 
     /// [Reason#UNANSWERED].

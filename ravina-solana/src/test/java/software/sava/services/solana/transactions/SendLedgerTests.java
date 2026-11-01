@@ -17,7 +17,9 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.*;
 import static software.sava.services.solana.transactions.PublicationException.Reason.RATE_LIMITED;
 import static software.sava.services.solana.transactions.PublicationException.Reason.REFUSED;
+import static software.sava.services.solana.transactions.PublicationException.Reason.SERVER_ERROR;
 import static software.sava.services.solana.transactions.PublicationException.Reason.UNANSWERED;
+import static software.sava.services.solana.transactions.PublicationException.Reason.UNAUTHORIZED;
 import static software.sava.services.solana.transactions.PublicationException.Reason.UNREACHABLE;
 import static software.sava.services.solana.transactions.TxCommitmentMonitorServiceTests.httpStatusFailure;
 import static software.sava.services.solana.transactions.TxCommitmentMonitorServiceTests.rpcError;
@@ -161,9 +163,9 @@ final class SendLedgerTests {
   }
 
   /// The set keeps the class of every failed send, the in-flight one read as unanswered, while
-  /// the first and last failure keep only two: a refusal followed by rate limits stays visible.
-  /// It holds no more than one entry per class however many sends repeat it, and a send in
-  /// flight is still the only one held.
+  /// the first and last failure keep only two: a key refusal followed by rate limits stays
+  /// visible. It holds no more than one entry per class however many sends repeat it, and a
+  /// send in flight is still the only one held.
   @Test
   void aReadingFoldsTheClassOfEverySend() {
     final var refusal = httpStatusFailure(401);
@@ -179,8 +181,8 @@ final class SendLedgerTests {
     ledger.add(new CompletableFuture<>());
 
     final var reading = ledger.reading();
-    assertEquals(Set.of(REFUSED, RATE_LIMITED, UNANSWERED, UNREACHABLE), reading.failures());
-    assertEquals(new SendFailure.Refused(refusal, OptionalInt.empty(), OptionalLong.empty(), OptionalLong.empty()), reading.firstFailure());
+    assertEquals(Set.of(UNAUTHORIZED, RATE_LIMITED, UNANSWERED, UNREACHABLE), reading.failures());
+    assertEquals(new SendFailure.Refused(refusal, OptionalInt.of(401), OptionalLong.empty(), OptionalLong.empty()), reading.firstFailure());
     assertEquals(new SendFailure.NeverConnected(neverLeft), reading.lastFailure());
     assertEquals(5, reading.attempted());
 
@@ -205,7 +207,7 @@ final class SendLedgerTests {
 
     ledger.add(CompletableFuture.failedFuture(new ConnectException("Connection refused")));
 
-    assertEquals(Set.of(REFUSED), reading.failures());
+    assertEquals(Set.of(SERVER_ERROR), reading.failures());
     assertThrows(UnsupportedOperationException.class, () -> reading.failures().add(UNREACHABLE));
     final var source = EnumSet.of(REFUSED);
     final var built = new SendLedger.Reading(1, false, null, null, source);
