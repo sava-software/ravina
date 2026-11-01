@@ -44,8 +44,9 @@ tasks.register<Test>("liveTest") {
   }
   // The signing tests take their key version and credential source from Gradle properties
   // (LiveKms names them; keep the key name in ~/.gradle/gradle.properties rather than on the
-  // command line), forwarded here as system properties; without the key they are skipped.
-  listOf("sava.kms.live.keyVersion", "sava.kms.live.credentials").forEach { name ->
+  // command line) and sign only with the per-run opt-in -Psava.kms.live.sign=true, all three
+  // forwarded here as system properties; without the opt-in or the key they are skipped.
+  listOf("sava.kms.live.sign", "sava.kms.live.keyVersion", "sava.kms.live.credentials").forEach { name ->
     providers.gradleProperty(name).orNull?.let { systemProperty(name, it) }
   }
   // grpc-netty-shaded loads a native library; under JDK 25 that warns unless native access is

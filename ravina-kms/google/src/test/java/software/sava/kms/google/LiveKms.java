@@ -29,12 +29,20 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /// The live KMS fixture for the `live`-tagged tests: a real key version and the credentials to
 /// reach it, both taken from the system properties `liveTest` forwards from Gradle properties
-/// of the same name, set in `~/.gradle/gradle.properties`:
+/// of the same name, and a per-run opt-in without which nothing is signed:
 ///
+/// - `sava.kms.live.sign`: `true` to run the signing tests at all, passed on the command line
+///   (`-Psava.kms.live.sign=true`; it carries no secret) and never written to a properties file,
+///   where it would be standing consent and every `liveTest` would sign again. Without it every
+///   signing test is skipped, so `liveTest` alone runs only the path tests, whatever key the
+///   properties file names: a key configured there is not consent to sign with it on every run.
 /// - `sava.kms.live.keyVersion`: a full resource name,
 ///   `projects/P/locations/L/keyRings/R/cryptoKeys/K/cryptoKeyVersions/N`, of an Ed25519 key the
-///   credentials may read and sign with. A test that needs it is skipped when it is unset, and
-///   fails when it is set to something that is not such a name.
+///   credentials may read and sign with, set in `~/.gradle/gradle.properties`. It must be a key
+///   dedicated to tests: the tests sign short fixed test strings (one with a nanoTime suffix),
+///   never a transaction, but every signature is a real signature by that key, and an entry in
+///   its audit log where Data Access logging is enabled for KMS. A test that needs it is skipped
+///   when it is unset, and fails when it is set to something that is not such a name.
 /// - `sava.kms.live.credentials`: `adc` (the default) for application-default credentials,
 ///   which must be configured by the file or the variable the auth library reads (a configured
 ///   key with neither fails, naming what to do; on Compute Engine, where the metadata server
@@ -49,13 +57,18 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /// refused call, which the refused-call test silences.
 final class LiveKms {
 
+  static final String SIGN_PROPERTY = "sava.kms.live.sign";
   static final String KEY_VERSION_PROPERTY = "sava.kms.live.keyVersion";
   static final String CREDENTIALS_PROPERTY = "sava.kms.live.credentials";
 
   private LiveKms() {
   }
 
-  static CryptoKeyVersionName keyVersion() {
+  /// The key the signing tests use, once this run has opted into signing; a test that calls this
+  /// is skipped without the opt-in or the key.
+  static CryptoKeyVersionName signingKeyVersion() {
+    assumeTrue("true".equals(System.getProperty(SIGN_PROPERTY)),
+        "signing tests run only with -P" + SIGN_PROPERTY + "=true on the liveTest command line");
     final var name = System.getProperty(KEY_VERSION_PROPERTY);
     assumeTrue(name != null && !name.isBlank(),
         "no key version: set " + KEY_VERSION_PROPERTY + "=projects/.../cryptoKeyVersions/N in ~/.gradle/gradle.properties");

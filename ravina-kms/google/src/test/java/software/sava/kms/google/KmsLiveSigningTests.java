@@ -25,12 +25,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 /// `gcp-kms` convention leaves (see [GoogleKMSClientFactory]): the public key is fetched, messages
 /// are signed, and every signature is checked by the JDK's own Ed25519 verifier ([Ed25519Jdk]),
 /// which shares nothing with the client or with sava. The key and the credentials come from
-/// [LiveKms]; without a key every test here is skipped.
+/// [LiveKms]; without its per-run opt-in, or without a key, every test here is skipped.
 ///
 /// Tagged `live`: `test`, `check`, CI and PIT never run this class (the tag is excluded from the
 /// `test` task and the class from the `googleKms` suite's selection in the module's build script).
-/// Run it on purpose with `./gradlew :ravina-kms-google:liveTest`, the two properties set in
-/// `~/.gradle/gradle.properties`.
+/// Run it on purpose with `./gradlew :ravina-kms-google:liveTest -Psava.kms.live.sign=true`,
+/// the key and credential properties set in `~/.gradle/gradle.properties`.
 @Tag("live")
 final class KmsLiveSigningTests {
 
@@ -40,7 +40,7 @@ final class KmsLiveSigningTests {
 
   @Test
   void aFactoryBuiltServiceSignsWithTheRealKeyAndTheJdkVerifies() throws Exception {
-    final var keyVersion = LiveKms.keyVersion();
+    final var keyVersion = LiveKms.signingKeyVersion();
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor();
          final var service = LiveKms.service(executor, keyVersion, LiveKms.monitor(Duration.ofSeconds(1)))) {
       final PublicKey publicKey = service.publicKey().join();
@@ -58,7 +58,7 @@ final class KmsLiveSigningTests {
 
   @Test
   void publicKeyWithRetriesAgreesWithPublicKey() throws Exception {
-    final var keyVersion = LiveKms.keyVersion();
+    final var keyVersion = LiveKms.signingKeyVersion();
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor();
          final var service = LiveKms.service(executor, keyVersion, LiveKms.monitor(Duration.ofSeconds(1)))) {
       assertEquals(service.publicKey().join(), service.publicKeyWithRetries().join());
@@ -67,7 +67,7 @@ final class KmsLiveSigningTests {
 
   @Test
   void aSliceIsSignedAlone() throws Exception {
-    final var keyVersion = LiveKms.keyVersion();
+    final var keyVersion = LiveKms.signingKeyVersion();
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor();
          final var service = LiveKms.service(executor, keyVersion, LiveKms.monitor(Duration.ofSeconds(1)))) {
       final byte[] rawKey = service.publicKey().join().toByteArray();
@@ -87,7 +87,7 @@ final class KmsLiveSigningTests {
   /// guards against in process does not arise here, but the claim is cheap to check live).
   @Test
   void concurrentSignsEachVerify() throws Exception {
-    final var keyVersion = LiveKms.keyVersion();
+    final var keyVersion = LiveKms.signingKeyVersion();
     final int callers = 8;
     try (final var executor = Executors.newVirtualThreadPerTaskExecutor();
          final var service = LiveKms.service(executor, keyVersion, LiveKms.monitor(Duration.ofSeconds(1)))) {
@@ -114,7 +114,7 @@ final class KmsLiveSigningTests {
   /// configured backoff: with every duration the bucket's own reset, the whole bucket.
   @Test
   void aRefusedCallIsReportedThroughTheErrorTrackerAndDocksCapacity() throws Exception {
-    final var missing = LiveKms.missingVersionOf(LiveKms.keyVersion());
+    final var missing = LiveKms.missingVersionOf(LiveKms.signingKeyVersion());
     final var monitor = LiveKms.monitor(Duration.ofHours(1));
     // The tracker logs the refusal, resource name included, at ERROR: silenced, as every
     // expected-failure test here does, so the key's name stays out of the report. Silencer
@@ -137,7 +137,7 @@ final class KmsLiveSigningTests {
   /// nothing else, so this runs only where those are configured.
   @Test
   void thePropertiesFactoryPathSignsWithApplicationDefaultCredentials() throws Exception {
-    final var keyVersion = LiveKms.keyVersion();
+    final var keyVersion = LiveKms.signingKeyVersion();
     assumeTrue(LiveKms.applicationDefaultCredentialsPresent(), "no application-default credentials on this machine");
     final var props = new Properties();
     props.setProperty("project", keyVersion.getProject());

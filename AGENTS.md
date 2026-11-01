@@ -120,8 +120,10 @@ parsing, and KMS-backed signing.
   classes in ravina-kms-google. `KmsLivePathTests` drives the KMS client's TLS
   handshake and token fetch against Google's public endpoints and expects their
   refusal; `KmsLiveSigningTests` signs with a real Ed25519 key, verified by the
-  JDK's own provider, when `liveTest` is given one (`LiveKms` names the two
-  properties: the key version, and `adc` or `gcloud` credentials). The tag is
+  JDK's own provider, only when `liveTest` is run with
+  `-Psava.kms.live.sign=true` and given a dedicated test key (`LiveKms` names
+  the three properties: the opt-in, the key version, and `adc` or `gcloud`
+  credentials); a configured key alone never signs. The tag is
   excluded from the module's `test` task and the classes from the `googleKms`
   suite by `excludeTestClass`, so `check`, CI and the gate never run them;
   `./gradlew :ravina-kms-google:liveTest` runs them on the class path, on purpose. A new
