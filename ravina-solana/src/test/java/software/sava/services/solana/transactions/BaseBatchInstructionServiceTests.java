@@ -13,9 +13,11 @@ import software.sava.services.solana.remote.call.RpcCaller;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -177,6 +179,11 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(processor.simulatedBatches.getFirst(), thrown.settled().getFirst().instructions());
     assertEquals(2, processor.simulatedBatches.size(), "the third batch is never simulated");
     assertEquals(1, monitor.queueResultCalls);
+    assertSame(notAccepted, thrown.publicationFailure().orElseThrow());
+    assertFalse(thrown.mayStillLand(), "a verified expiry leaves nothing of the batch that can land");
+    assertEquals(processor.simulatedBatches.get(1), thrown.failedInstructions());
+    assertEquals(List.of(), thrown.failedAccounts(), "the instruction overload names no keys");
+    assertEquals("A " + LOG_CONTEXT + " batch failed after 1 settled; nothing it sent can still land.", thrown.getMessage());
   }
 
   /// A first batch that throws ends the run with nothing settled, and says so. The fake throws
@@ -197,7 +204,40 @@ final class BaseBatchInstructionServiceTests {
 
     assertSame(failure, assertInstanceOf(OutcomeUnknownException.class, thrown.getCause()).getCause());
     assertTrue(thrown.settled().isEmpty());
-    assertEquals("A " + LOG_CONTEXT + " batch failed after 0 settled.", thrown.getMessage());
+    assertTrue(thrown.mayStillLand());
+    assertEquals(
+        "A " + LOG_CONTEXT + " batch failed after 0 settled; what it sent may still land, none after block height 8642 passes.",
+        thrown.getMessage()
+    );
+  }
+
+  /// A batch that fails while what it sent may still land is named, with its verdict: the
+  /// batches before it settled and are never run again, it is held back until its verdict's
+  /// height, and the rest is the caller's to retry.
+  @Test
+  void aBatchThatEndsOnALandableVerdictNamesItsBatch() {
+    final var processor = new FakeTxProcessor();
+    final var monitor = new FakeMonitor();
+    monitor.webSocketScript = call -> call == 0 ? new TxResult(null, "confirmed", null) : null;
+    monitor.stopsAtQueue = true;
+    final var service = service(processor, monitor, 1, 1);
+    final var ixs = instructions(3);
+
+    final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+        1.0, ixs, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT
+    ));
+
+    assertEquals(1, thrown.settled().size());
+    final var verdict = assertInstanceOf(TxMonitorStoppedException.class, thrown.publicationFailure().orElseThrow());
+    assertSame(thrown.getCause(), verdict);
+    assertTrue(thrown.mayStillLand());
+    assertEquals(List.of(ixs.get(1)), thrown.failedInstructions());
+    assertEquals(List.of(), thrown.failedAccounts());
+    assertEquals(
+        "A " + LOG_CONTEXT + " batch failed after 1 settled; what it sent may still land, none after block height 8642 passes.",
+        thrown.getMessage()
+    );
+    assertThrows(UnsupportedOperationException.class, () -> thrown.failedInstructions().clear());
   }
 
   @Test
@@ -446,6 +486,9 @@ final class BaseBatchInstructionServiceTests {
     assertSame(failure, assertInstanceOf(OutcomeUnknownException.class, thrown.getCause()).getCause());
     assertEquals(1, thrown.settled().size());
     assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+    assertTrue(thrown.mayStillLand());
+    assertEquals(List.of(keys.get(1)), thrown.failedAccounts(), "the failing batch's keys, still in the map");
+    assertEquals(processor.simulatedBatches.get(1), thrown.failedInstructions());
   }
 
   /// A batch factory that throws is a failing batch like any other: the batches settled
@@ -475,6 +518,39 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(1, thrown.settled().size());
     assertEquals(1, processor.simulatedBatches.size());
     assertEquals(List.of(keys.get(1), keys.get(2)), List.copyOf(accountsMap.keySet()));
+    assertEquals(Optional.empty(), thrown.publicationFailure(), "a factory failure is no verdict");
+    assertFalse(thrown.mayStillLand());
+    assertEquals(List.of(), thrown.failedInstructions(), "the factory built nothing");
+    assertEquals(List.of(keys.get(1)), thrown.failedAccounts());
+    assertEquals("A " + LOG_CONTEXT + " batch failed after 1 settled.", thrown.getMessage());
+  }
+
+  /// A factory that breaks its contract, answering null or a list holding a null, fails its
+  /// batch like any other, and the batches settled before it are still reported.
+  @Test
+  void aFactoryAnsweringNullOrANullInstructionStillReportsTheSettledBatches() {
+    final List<Instruction> withNull = new ArrayList<>();
+    withNull.add(null);
+    for (final var answer : Arrays.asList(null, withNull)) {
+      final var processor = new FakeTxProcessor();
+      final var service = service(processor, confirmingMonitor(), 1, 1);
+      final var accountsMap = accounts(2);
+      final var keys = List.copyOf(accountsMap.keySet());
+      final var factory = new RecordingBatchFactory() {
+        @Override
+        public List<Instruction> apply(final List<PublicKey> batchKeys) {
+          return chunks.isEmpty() ? super.apply(batchKeys) : answer;
+        }
+      };
+
+      final var thrown = assertThrows(BatchProcessException.class, () -> service.batchProcess(
+          1.0, accountsMap, MAX_FEE, CONFIRMED, PROCESSED, true, false, MAX_RETRIES, LOG_CONTEXT, factory
+      ));
+
+      assertEquals(1, thrown.settled().size(), String.valueOf(answer));
+      assertEquals(List.of(keys.get(1)), thrown.failedAccounts());
+      assertEquals(answer == null ? List.of() : withNull, thrown.failedInstructions());
+    }
   }
 
   /// A batch that throws a checked exception past a signature that does not declare it, as a
@@ -609,6 +685,9 @@ final class BaseBatchInstructionServiceTests {
     assertEquals(1, thrown.settled().size(), "the first batch settled before its removal was refused");
     assertNull(thrown.settled().getFirst().error());
     assertEquals(1, processor.simulatedBatches.size());
+    assertEquals(List.of(), thrown.failedAccounts(), "the batch settled, so no batch is failing");
+    assertEquals(List.of(), thrown.failedInstructions());
+    assertFalse(thrown.mayStillLand());
   }
 
   @Test

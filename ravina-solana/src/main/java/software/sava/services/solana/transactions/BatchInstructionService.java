@@ -58,13 +58,16 @@ public interface BatchInstructionService extends InstructionService {
   /// run stops at the first result with an error, which is returned last.
   /// The service refuses a batch size or a reduce size below one. A batch that fails
   /// with an exception, checked or not, ends the run with a [BatchProcessException] that
-  /// carries the results of the batches settled before it, the exception as its cause, so a
-  /// caller retries only what is left; whether the failing batch can still land is the cause's
-  /// to say, as a `PublicationException`'s `mayStillLand()` does, and a batch it says may is not
-  /// retried either. An interrupt
-  /// propagates as `InterruptedException`, which carries no results, and the batch it
-  /// interrupted may still land; an `Error` is not wrapped. A ComputeBudget instruction
-  /// anywhere in `instructions` is refused before any batch is sent.
+  /// carries the results of the batches settled before it, which are never run again, the
+  /// exception as its cause, and the failing batch, so a caller retries only what is left.
+  /// With its `mayStillLand()` false nothing of the failing batch can land, and it is retried
+  /// with the rest, paced by the verdict's `reason()`; with it true the failing batch is held
+  /// out of every retry until the settled block height has passed the verdict's
+  /// `landableUntil()` by the settle buffer and a status read of its `landable()` says what
+  /// landed (see `BatchProcessException`). An interrupt propagates as `InterruptedException`,
+  /// which carries no results, and the batch it interrupted may still land; an `Error` is not
+  /// wrapped. A ComputeBudget instruction anywhere in `instructions` is refused before any
+  /// batch is sent.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final List<Instruction> instructions,
                                        final BigDecimal maxLamportPriorityFee,
@@ -81,7 +84,8 @@ public interface BatchInstructionService extends InstructionService {
   /// without an error, so the map holds what is left: a caller that retries with the same map
   /// resumes after the last settled batch. The map must be mutable; a batch whose accounts it
   /// refuses to remove has still settled, and is among the results the [BatchProcessException]
-  /// carries, as is every batch settled before a `batchFactory` that throws an exception.
+  /// carries, as is every batch settled before a `batchFactory` that throws an exception. The
+  /// exception's `failedAccounts()` are the failing batch's keys, still in the map.
   List<TransactionResult> batchProcess(final double cuBudgetMultiplier,
                                        final Map<PublicKey, ?> accountsMap,
                                        final BigDecimal maxLamportPriorityFee,

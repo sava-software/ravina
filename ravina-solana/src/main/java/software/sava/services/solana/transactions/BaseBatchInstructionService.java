@@ -104,10 +104,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var results = new ArrayList<TransactionResult>();
     final int numAccounts = instructions.size();
     for (int from = 0, to; from < numAccounts; ) {
+      // Outside the try, so that a failure names its batch; empty until the batch is sliced.
+      List<Instruction> batch = List.of();
       final TransactionResult transactionResult;
       try {
         to = Math.min(numAccounts, from + batchSize);
-        final var batch = to - from == numAccounts
+        batch = to - from == numAccounts
             ? instructions
             : instructions.subList(from, to);
 
@@ -129,7 +131,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       } catch (final Exception failure) {
         // Exception, not only RuntimeException: a collaborator written without checked
         // exceptions can throw one, and the settled results must not be lost with it.
-        throw new BatchProcessException(logContext, results, failure);
+        throw new BatchProcessException(logContext, results, failure, batch, List.of());
       }
 
       if (transactionResult == null) {
@@ -162,14 +164,18 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
     final var publicKeys = List.copyOf(accountsMap.keySet());
     final int numAccounts = publicKeys.size();
     for (int from = 0, to; from < numAccounts; ) {
+      // Outside the try, so that a failure names its batch: its keys once sliced, its
+      // instructions once built, and neither once it has settled.
+      List<PublicKey> batchAccounts = List.of();
+      List<Instruction> batch = List.of();
       // The removal is inside: a batch that settled is already among the results when an
       // immutable map refuses to forget its accounts.
       try {
         to = Math.min(numAccounts, from + batchSize);
-        final var batchAccounts = to - from == numAccounts
+        batchAccounts = to - from == numAccounts
             ? publicKeys
             : publicKeys.subList(from, to);
-        final var batch = batchFactory.apply(batchAccounts);
+        batch = batchFactory.apply(batchAccounts);
 
         final var transactionResult = processBatch(
             cuBudgetMultiplier,
@@ -193,7 +199,12 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
         if (error != null) {
           return results;
         } else {
-          batchAccounts.forEach(accountsMap::remove);
+          // Settled: should the map refuse the removal, the batch is among the results, and
+          // no longer the one that failed.
+          final var settledAccounts = batchAccounts;
+          batchAccounts = List.of();
+          batch = List.of();
+          settledAccounts.forEach(accountsMap::remove);
           from = to;
         }
       } catch (final InterruptedException interrupted) {
@@ -202,7 +213,7 @@ public class BaseBatchInstructionService extends BaseInstructionService implemen
       } catch (final Exception failure) {
         // Exception, not only RuntimeException: a collaborator written without checked
         // exceptions can throw one, and the settled results must not be lost with it.
-        throw new BatchProcessException(logContext, results, failure);
+        throw new BatchProcessException(logContext, results, failure, batch, batchAccounts);
       }
     }
     return results;

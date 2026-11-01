@@ -446,8 +446,16 @@ stddev 0).
 `to - from == size` that choose between the collection itself and a
 `subList`/`copyOfRange` of the whole thing: the accounts-map overload of
 `BaseBatchInstructionService.batchProcess`. Both branches yield equal contents,
-and that list is internal (a `List.copyOf` of the map's keys), so no
-caller-visible reference identity distinguishes them. (The same guard in the
+the keys the batch factory is given and the keys
+`BatchProcessException.failedAccounts()` names, and equal contents are all
+either promises. Reference identity is observable: `failedAccounts()` is a
+`List.copyOf` of the factory's argument, which returns the whole-collection
+list itself unchanged, so in that branch it is the very instance the factory
+received, where the mutant gives the factory a `subList` and names a fresh
+copy, and `assertSame(factoryArg, thrown.failedAccounts())` would kill it.
+Such a test would pin an identity nothing promises, so the acceptance stands on
+equal contents; it is invalidated by a contract that promises the factory's
+own list back, or a caller that comes to rely on it. (The same guard in the
 instruction-list overload *is* killed — there a caller-supplied list makes
 `assertSame` meaningful.)
 
