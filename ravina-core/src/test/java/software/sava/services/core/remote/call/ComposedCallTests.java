@@ -172,4 +172,85 @@ final class ComposedCallTests {
     final var cause = assertInstanceOf(java.io.IOException.class, thrown.getCause());
     assertEquals("io down", cause.getMessage());
   }
+
+  /// A clock whose every sleep is interrupted, as a shutdown interrupts a thread parked in one.
+  private static final class InterruptingClock implements NanoClock {
+
+    private static final int MAX_READS_BETWEEN_SLEEPS = 100_000;
+    private int readsSinceSleep;
+
+    private final InterruptedException interrupt = new InterruptedException("shutdown");
+    private final List<Long> sleeps = new ArrayList<>();
+
+    @Override
+    public long nanoTime() {
+      // A wait loop that lost its sleep spins on a clock that never moves: fail it by name.
+      if (++readsSinceSleep > MAX_READS_BETWEEN_SLEEPS) {
+        throw new AssertionError("clock read " + readsSinceSleep + " times without a sleep: a wait loop is spinning");
+      }
+      return 1_000_000_000L;
+    }
+
+    @Override
+    public void sleep(final long millis) throws InterruptedException {
+      readsSinceSleep = 0;
+      sleeps.add(millis);
+      throw interrupt;
+    }
+  }
+
+  /// `CompletableFuture.get` clears the thread's interrupt status when it throws, so a wrapper
+  /// that rethrows the `InterruptedException` wrapped must restore it: the thread's owner (an
+  /// executor's `shutdownNow`, a loop that checks the flag) still has to see the shutdown.
+  @Test
+  void anInterruptWhileAwaitingTheResponseRestoresTheInterruptFlag() {
+    final var clock = new TestClock();
+    final var call = Call.createComposedCall(
+        CompletableFuture<Long>::new,
+        Backoff.linear(MILLISECONDS, 10, 30),
+        CallContext.createContext(1, 0, false),
+        clock,
+        "test::interruptedAwait"
+    );
+    final RuntimeException thrown;
+    final boolean restored;
+    Thread.currentThread().interrupt();
+    try {
+      thrown = assertThrows(RuntimeException.class, call::get);
+      restored = Thread.currentThread().isInterrupted();
+    } finally {
+      Thread.interrupted();
+    }
+    assertInstanceOf(InterruptedException.class, thrown.getCause());
+    assertTrue(restored, "the interrupt status must be restored before the wrapped interrupt is thrown");
+    assertEquals(List.of(), clock.sleeps, "an interrupt is not a failure to back off from");
+  }
+
+  @Test
+  void anInterruptedBackoffSleepRestoresTheInterruptFlag() {
+    final var clock = new InterruptingClock();
+    final var attempts = new AtomicInteger();
+    final var call = Call.createComposedCall(
+        () -> CompletableFuture.failedFuture(new IllegalStateException("boom " + attempts.incrementAndGet())),
+        Backoff.linear(MILLISECONDS, 10, 30),
+        // Bounded: a mutant that never reaches the interrupted sleep must run out of retries or
+        // claim tries and fail an assertion, not spin until the watchdog.
+        CallContext.createContext(1, 0, 2, false, 2, false),
+        clock,
+        "test::interruptedBackoff"
+    );
+    final RuntimeException thrown;
+    final boolean restored;
+    try {
+      thrown = assertThrows(RuntimeException.class, call::get);
+      restored = Thread.currentThread().isInterrupted();
+    } finally {
+      Thread.interrupted();
+    }
+    assertSame(clock.interrupt, thrown.getCause());
+    assertTrue(restored, "the interrupt status must be restored before the wrapped interrupt is thrown");
+    assertEquals(1, attempts.get(), "the interrupted backoff must not be followed by another attempt");
+    assertEquals(List.of(10L), clock.sleeps);
+  }
+
 }

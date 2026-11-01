@@ -711,9 +711,9 @@ final class BaseInstructionServiceTests {
     );
     final var futures = successfulSimulation(instructions(2));
 
-    // An attempted Thread.sleep would immediately consume this interrupt and
-    // make the lookup fail. Healthy-peer failover must preserve it because the
-    // balanced call skips the failed endpoint's backoff when switching peers.
+    // An attempted Thread.sleep would be interrupted at once and fail the lookup.
+    // Healthy-peer failover must leave the flag alone because the balanced call
+    // skips the failed endpoint's backoff when switching peers.
     final SendTxContext sendContext;
     final boolean interruptPreserved;
     Thread.currentThread().interrupt();
@@ -731,7 +731,7 @@ final class BaseInstructionServiceTests {
     }
 
     assertNotNull(sendContext);
-    assertTrue(interruptPreserved, "peer failover must not sleep the failed endpoint's backoff");
+    assertTrue(interruptPreserved, "no wait consumed the interrupt: a sleep on the failed endpoint's backoff would have failed the lookup first");
     assertEquals(List.of("failed", "healthy"), endpointCalls);
     assertEquals(List.of(FRESH_BLOCK_HASH), processor.latestBlockHashes);
     assertNotEquals(FEE_PAYER.toBase58(), FRESH_BLOCK_HASH.blockHash(),

@@ -99,6 +99,8 @@ class UncheckedBalancedCall<I, R> implements Call<R> {
         }
       }
     } catch (final InterruptedException ex) {
+      // get() and sleep() cleared the status: restore it for the thread's owner (see ComposedCall).
+      Thread.currentThread().interrupt();
       throw new RuntimeException(ex);
     }
   }

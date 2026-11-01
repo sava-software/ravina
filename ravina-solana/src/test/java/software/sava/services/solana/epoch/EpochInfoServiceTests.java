@@ -81,6 +81,9 @@ final class EpochInfoServiceTests {
   );
 
   private static final RuntimeException CLOSED_CLIENT = new RuntimeException(new IOException("closed"));
+  /// Scripts a `shutdownNow` that lands while the round trip is pending: the calling thread is
+  /// interrupted and the response never arrives.
+  private static final Object INTERRUPT_WHILE_PENDING = new Object();
 
   private static EpochInfo epochInfo(final long epoch,
                                      final int slotIndex,
@@ -220,6 +223,10 @@ final class EpochInfoServiceTests {
           return CompletableFuture.failedFuture(CLOSED_CLIENT);
         }
         final var response = script[i];
+        if (response == INTERRUPT_WHILE_PENDING) {
+          Thread.currentThread().interrupt();
+          return new CompletableFuture<EpochInfo>();
+        }
         return response instanceof EpochInfo info
             ? CompletableFuture.completedFuture(info)
             : CompletableFuture.failedFuture((Throwable) response);
@@ -1265,4 +1272,24 @@ final class EpochInfoServiceTests {
     assertDoesNotThrow(service::fetchEpochNow);
     assertFalse(service.lock.isLocked());
   }
+
+  /// An executor's `shutdownNow` interrupts the loop's thread once. When that lands while a
+  /// `getEpochInfo` round trip is pending, `CompletableFuture.get` throws the interrupt and clears
+  /// the status, and the call wrapper rethrows it wrapped; the loop must still see the shutdown
+  /// and end at once, with no backoff sleep and no second fetch. A loop that reads a clear flag
+  /// there treats the interrupt as a failed fetch, sleeps a real second and fetches again, so the
+  /// executor never terminates.
+  @Test
+  void anInterruptWhileAwaitingTheEpochInfoResponseStopsTheServiceWithoutARetry() {
+    final var fake = new FakeRpcClient(INTERRUPT_WHILE_PENDING);
+    final var service = serviceFor(fake);
+
+    service.run();
+
+    assertEquals(1, fake.epochCalls, "the interrupted round trip must not be retried");
+    assertEquals(List.of(), clock.sleeps, "an interrupted service must not sleep a backoff");
+    assertNull(service.epochInfo(), "nothing was fetched, so nothing is published");
+    assertFalse(service.lock.isLocked());
+  }
+
 }

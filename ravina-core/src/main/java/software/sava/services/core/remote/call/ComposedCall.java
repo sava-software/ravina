@@ -73,6 +73,10 @@ class ComposedCall<T> implements Call<T> {
         }
       }
     } catch (final InterruptedException e) {
+      // get() and sleep() clear the interrupt status when they throw it: restore it, so that the
+      // thread's owner (an executor's shutdownNow, a loop that checks the flag) still sees the
+      // shutdown. An interrupt is not a failure to retry.
+      Thread.currentThread().interrupt();
       throw new RuntimeException(e);
     }
   }

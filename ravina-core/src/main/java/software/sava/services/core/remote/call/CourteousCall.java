@@ -34,6 +34,8 @@ final class CourteousCall<R> extends GreedyCall<R> {
           try {
             clock.sleep(delayMillis);
           } catch (final InterruptedException e) {
+            // sleep() cleared the status: restore it for the thread's owner (see ComposedCall).
+            Thread.currentThread().interrupt();
             throw new RuntimeException(e);
           }
         }
