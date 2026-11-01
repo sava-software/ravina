@@ -497,9 +497,15 @@ them, because the list is the argument for the effort.
   configuration, so `simulateAndEstimate` refuses them rather than let a
   `RequestHeapFrame` silently do nothing. The v1 limits bind independently (65
   accounts fit in ~2.3KB), so batch shrinking keys on every one of them, not on
-  size alone. `FeePayerSigningSpan` locates the fee payer's signing span for all
-  three formats: a v1 message comes *before* its signatures, with no count
-  prefix.
+  size alone. A shrink never discards an attempt that may still land: a rebuild
+  over a limit after an attempt whose status was only missing ends the batch call
+  with a `BatchProcessException` naming that attempt, since the smaller batches
+  would resend instructions it may still execute. Ravina's own processor decides
+  the limits from the instructions and the fee payer alone, so its rebuild never
+  exceeds one the sent attempt did not; the rule guards a `TransactionProcessor`
+  whose check can differ between two simulations of the same instructions.
+  `FeePayerSigningSpan` locates the fee payer's signing span for all three
+  formats: a v1 message comes *before* its signatures, with no count prefix.
 - **A confirmed or finalized transaction is settled; settled state is read at finalized.**
   `transactions.Settlement` is the
   decision point for the transactions package. `CONFIRMED` and `FINALIZED` are
@@ -557,18 +563,21 @@ them, because the list is the argument for the effort.
   hands a second caller the pending future rather than a fresh one nobody would complete,
   because the caller joins it uninterruptibly; a second caller with stricter settings
   (`PROCESSED` is below `CONFIRMED`/`FINALIZED`; `verifyExpired` and `retrySend` true
-  are above false) is refused with `IllegalArgumentException` instead of answered below
-  its level. In the expiration stage, which runs on the monitor thread and cannot throw, the
-  entry goes to whichever waiter dominates, or to a join demanding the stricter of each
-  setting when neither does (the settings are a partial order), and the others follow its
-  outcome, exceptions included; the monitors settle entries by key and value for that
-  reason. Publishing one transaction twice is therefore safe. The second publisher's
+  are above false) is refused with `IllegalArgumentException` instead of answered below its
+  level, which `processInstructions` ends with `OutcomeUnknownException`, since the
+  transaction was sent. In the expiration stage, which runs on the monitor thread and cannot
+  throw, the entry goes to whichever waiter dominates, or to a join demanding the stricter
+  of each setting when neither does (the settings are a partial order), and the others
+  follow its outcome, exceptions included; the monitors settle entries by key and value for
+  that reason. Publishing one transaction twice is therefore safe. The second publisher's
   websocket subscription is refused by the socket (already subscribed), and a refused
   subscription polls at once rather than waiting out the websocket timeout, so it settles
   by the next poll. The future is shared, the `SendLedger` is not: each caller's holds only
   its own sends, and the monitor's resends go to the pending context's, so at a `null`
-  verdict one caller may throw `SendNotAcceptedException` while another rebuilds, and both
-  are safe after a verified expiry.
+  verdict one caller's call may end with `SendNotAcceptedException` while another's
+  rebuilds, both safe after a verified expiry. A stop's exception is shared with the future
+  too, which is why each call throws a `TxMonitorStoppedException` of its own, naming its own
+  attempts and sends, and never the monitor's instance.
 - **Sends are charged, not paced; a failed first send fails over once; resends decline
   while docked.** `TransactionProcessorRecord.publish` sends first and claims the send
   weight afterwards, so a block hash's validity is spent on the wire and not in a queue;
@@ -577,14 +586,15 @@ them, because the list is the argument for the effort.
   response deadline) is sent once more with the same bytes on the peer that ranks first
   once the failure is marked, when that is a different peer (`validateResponse` and
   `TxPublisher.failOver`). After that the failure is thrown only when no attempt reached a
-  server, because each connection never formed. A failure a server answered may follow a
-  forward, a 429 and a malformed-request code included, since ravina cannot tell a node from
-  a gateway in front of one and a gateway may answer a forwarded send with any error, so the
-  transaction is awaited and monitored like an accepted send, its resends paced by the dock,
-  rather than thrown to a caller who could rebuild it while it can still land
-  (`mayStillLand`; a wrong "never left" executes twice). Each attempt's sends, the first,
-  the failover and every resend, are recorded in the caller's `SendLedger`, and an attempt
-  none of whose sends was accepted (answered with the signature) ends the call with
+  server, because each connection never formed, as a `SendNeverLeftException` whose
+  `landable()` names any earlier attempt that may still land. A failure a server answered
+  may follow a forward, a 429 and a malformed-request code included, since ravina cannot
+  tell a node from a gateway in front of one and a gateway may answer a forwarded send with
+  any error, so the transaction is awaited and monitored like an accepted send, its resends
+  paced by the dock, rather than thrown to a caller who could rebuild it while it can still
+  land (`mayStillLand`; a wrong "never left" executes twice). Each attempt's sends, the first,
+  the failover and every resend, are recorded in the caller's `SendLedger`, and an attempt none
+  of whose sends was accepted (answered with the signature) ends the call with
   `SendNotAcceptedException` at its `null` verdict, a verified expiry or, with
   `verifyExpired` false, the first missing status, instead of rebuilding, whatever
   `maxRetriesAfterExpired` allows. A provider that refuses every send therefore costs one
@@ -637,24 +647,54 @@ them, because the list is the argument for the effort.
   install side is a CAS then a volatile read, the stop side a volatile write then plain
   node reads, so without the fence the JMM lets both sides miss each other). That exception
   means the outcome is unknown and the transaction may still land, so a caller must not
-  rebuild on it; `processInstructions` throws it as itself, and `batchProcess` wraps it with
-  the settled results like any failure. `TxMonitorService.stopped()` reports the stop, and
-  `processInstructions` asks it before each attempt, so a call made after the stop is
-  refused with nothing more sent rather than sending a transaction nobody will watch;
-  `sent()` then says whether an earlier attempt of the call may still land (only with
-  `verifyExpired` false, where the attempt's status was merely missing). Either loop's
-  stop counts, whatever the attempt would have needed. Two scope decisions: a persistent pass failure stops
-  the whole monitor and fails every pending future, not only the batch that provoked it,
-  because nothing says which context did; and the commitment and expiration monitors stop
-  independently, a stopped expiration monitor failing each hand-off at once rather than
-  stranding it, while the other monitor goes on settling its own entries. A stopped monitor
-  does not restart. Keep the bound a constant: nobody tunes it, and a `TxMonitorConfig` field
-  costs a parser ordinal, a parity fuzz case and config rows. A failure that belongs to one
-  node goes inside the read's future, not into the pass: a status read answered with another
-  number of statuses than signatures asked (a provider has answered an empty array for one
-  signature, which sava-rpc accepts) fails the read in `statusesFor`, so the `Call` wrapper
-  retries it with backoff and fails it over, where an index past the end thrown from the pass
-  would spend the bound on one bad provider.
+  rebuild on it; `processInstructions` throws one of its own, the call's attempts with the
+  pending one last and the loop's failure as its cause, and `batchProcess` wraps that with
+  the settled results and the failing batch like any failure. `TxMonitorService.stopped()`
+  reports the stop, and `processInstructions` asks it before each attempt, so a call made
+  after the stop is refused with nothing more sent rather than sending a transaction nobody
+  will watch; `mayStillLand()` then says whether an earlier attempt of the call may still
+  land (only with `verifyExpired` false, where the attempt's status was merely missing), and
+  `landable()` names each. Either loop's stop counts, whatever the attempt would have
+  needed. Two scope decisions: a persistent pass failure stops the whole monitor and fails
+  every pending future, not only the batch that provoked it, because nothing says which
+  context did; and the commitment and expiration monitors stop independently, a stopped
+  expiration monitor failing each hand-off at once rather than stranding it, while the other
+  monitor goes on settling its own entries. A stopped monitor does not restart. Keep the bound a
+  constant: nobody tunes it, and a `TxMonitorConfig` field costs a parser ordinal, a parity fuzz
+  case and config rows. A failure that belongs to one node goes inside the read's future, not
+  into the pass: a status read answered with another number of statuses than signatures asked (a
+  provider has answered an empty array for one signature, which sava-rpc accepts) fails the read
+  in `statusesFor`, so the `Call` wrapper retries it with backoff and fails it over, where an
+  index past the end thrown from the pass would spend the bound on one bad provider.
+- **After a send, a call ends without a result only with a `PublicationException`, built by the
+  call.** `processInstructions` keeps every attempt it signed and sent and builds every
+  call-level verdict but one, the batch service's below: the monitor's own
+  `SendNeverLeftException` and `TxMonitorStoppedException`, from the await or the queued future,
+  speak for one transaction and are never rethrown, and the guard around each attempt lets
+  through only the verdict this call built, matched by identity. A verdict a hook, a processor
+  or a monitor throws anywhere else is a failure like any other, except a
+  `SendNeverLeftException` thrown in an attempt before that attempt's send, which the call
+  throws again with its earlier attempts ahead of the ones it names. The guard wraps a failure
+  in `OutcomeUnknownException` exactly when something the call sent may still land, after a send
+  or on a rebuild after a missing status, so a bare `RuntimeException` means nothing can, given
+  a `signAndSendTx` that throws only before its dispatch. Keep the order that makes the guard
+  right: an attempt is recorded as the last statement before the rebuild, return or throw its
+  verdict decides, after any log line, so only a constructor runs between the record and the
+  exit; a log or a factory moved after the record would let the guard record the same signature
+  again as `PENDING` and report a verified expiry as landable. It is statement order, not a
+  defensive check, because a check nothing can reach is a surviving mutant. The batch service
+  builds the other: a rebuild over a v1 limit whose result names an attempt that may still land
+  ends the batch call with an `OutcomeUnknownException` over that result's attempts, never a
+  shrink. Verdict messages print base58 signatures and unsigned heights, never the configured
+  formatter's output, so a formatter that throws cannot cost the verdict. `SendFailure.of` is
+  the one classifier of a failed send; sava-rpc 25.13.1 carries no HTTP status, so a text-bodied
+  401, 429 or 503 reads `REFUSED` until `SendFailure.Refused.ofSavaRpc` reads the typed statuses
+  of the release after it. The catalog bump alone changes no value of
+  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient`, since the typed
+  `HttpResponseException` still matches the coarse test, so the sentinel beside it,
+  `theTypedStatusesAreNotYetOnTheModulePath`, is what fails then. The bump also moves a body the
+  parser cannot read, and an `error` member that is no readable object, from unanswered to
+  refused, and a date-valued `retry-after` stops throwing; none changes `mayStillLand`.
 - Build a `SolanaRpcClient` through `SolanaRpcClient.build()`; the error tracker
   goes in via `.testResponse(...)`, which takes a
   `BiPredicate<HttpResponse<?>, byte[]>` — the client reads the body itself and

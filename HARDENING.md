@@ -479,19 +479,65 @@ implementation locks the bug in.
   rebuild claiming nothing had been sent when, with `verifyExpired` false,
   the earlier attempt's status was only missing and it may still land; the
   refusal now names that attempt
-  (`aStopBeforeTheRebuildReportsTheAttemptThatMayStillLand` failed against
-  the blanket refusal). It also found two interrupt tests whose only exit was
-  the flag the loop sets again, so a mutant dropping it would have spun them
-  into a timeout member; each now throws its wrapped interrupt on one pass
-  only, and the count is the exit. The owner's reviewer of the
-  send fixes found the concrete trigger that had been missing: a provider
-  that answers an empty status array for one signature, which sava-rpc
-  accepts, threw `IndexOutOfBoundsException` out of `completeFutures` in
-  either monitor, ending its loop. Both reads now check the count inside the
-  read's future (`statusesFor`), so the failure reaches the `Call` wrapper,
-  which retries the read and fails it over to another peer, instead of the
-  pass; `aStatusReadAnsweredWithAnotherCountIsRetried` in each monitor's
-  tests failed against the unchecked read.
+  (`aStopBeforeTheRebuildReportsTheAttemptThatMayStillLand`, since replaced
+  by `aRefusalBeforeTheRebuildNamesEveryMissingAttemptByTheLargestHeight`,
+  failed against the blanket refusal). It also found two interrupt tests
+  whose only exit was the flag the loop sets again, so a mutant dropping it
+  would have spun them into a timeout member; each now throws its wrapped
+  interrupt on one pass only, and the count is the exit. The owner's
+  reviewer of the send fixes found the concrete trigger that had been
+  missing: a provider that answers an empty status array for one signature,
+  which sava-rpc accepts, threw `IndexOutOfBoundsException` out of
+  `completeFutures` in either monitor, ending its loop. Both reads now check
+  the count inside the read's future (`statusesFor`), so the failure reaches
+  the `Call` wrapper, which retries the read and fails it over to another
+  peer, instead of the pass; `aStatusReadAnsweredWithAnotherCountIsRetried`
+  in each monitor's tests failed against the unchecked read.
+- 2026-11-01: `InstructionService.processInstructions` documented that a
+  publication failure propagates only when no attempt reached a server, and
+  threw a send that never left as a bare `RuntimeException`, even after an
+  earlier attempt of a `verifyExpired`-false call whose status was only
+  missing. A caller reading the contract took the throw as nothing having
+  landed and could rebuild while that earlier transaction could still land.
+  The stop's refusal and a stop under a rebuild named one transaction at
+  most, by the last attempt's height, which a lagging node can serve lower
+  than an earlier one's, and every other failure after a send escaped bare,
+  with nothing saying a transaction was in flight. A test note had kept the
+  never-left throw plain because a flag on the failing attempt could not
+  speak for the earlier one; the monitor-stop fix of the next morning gave
+  `processInstructions` the call-scope state the note said was missing, and
+  the premise lapsed unnoticed. Found while reviewing designs for a typed
+  never-left signal. The call now keeps every attempt and ends without a
+  result only with a sealed `PublicationException` whose `landable()` and
+  `landableUntil()` name what may still land, and results carry the attempts
+  too. `aSendThatNeverLeftIsSignalledByItsOwnType` in
+  `TxCommitmentMonitorServiceTests`, nine `BaseInstructionServiceTests` named
+  in the commit, and a probe of the batch wrapper's message failed against
+  the code before each change. HTTP statuses are not read from sava-rpc's
+  message text: until sava-rpc carries them typed, a text-bodied 401, 429 or
+  503 reads as `REFUSED`, which
+  `SendFailureTests.savaRpcStatusFailuresClassifyThroughTheRealClient` pins
+  so that the refinement changes a test. Two independent reviews of the
+  change found one more way to the same double execution before the push,
+  and a second open to a third-party processor. The call's guard passed any
+  `PublicationException` through as the call's verdict, so a hook, a
+  processor or a monitor that threw one of its own on a rebuild after a
+  missing status ended the call naming none of the call's earlier attempts;
+  only the verdict the call built passes now, matched by identity. And the
+  batch service would shrink and resend a batch whose rebuild exceeded a v1
+  limit while its first attempt could still land: ravina's own processor
+  cannot produce that result, since it decides the limits from the
+  instructions and the fee payer alone, but a `TransactionProcessor` whose
+  check differs between two simulations of the same instructions could, so
+  the batch call ends instead, naming that attempt.
+  `aForeignNeverLeftFromAHookOnARebuildNamesTheEarlierAttempt`,
+  `aForeignStopFromTheQueueAfterAMissingStatusIsAnUnknownOutcome` and
+  `aRebuildOverALimitAfterAMissingStatusEndsTheBatchInsteadOfShrinking`,
+  whose simulator is scripted to exceed the limit on the rebuild, failed
+  against the first form. The pin above does not enforce the refinement
+  either, since sava-rpc's typed failure still matches the coarse test;
+  `SendFailureTests.theTypedStatusesAreNotYetOnTheModulePath` fails once the
+  typed API reaches the module path.
 
 ### Running the JFR soak harness
 
