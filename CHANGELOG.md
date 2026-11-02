@@ -1,5 +1,22 @@
 # Changelog
 
+## [25.9.0](https://github.com/sava-software/ravina/compare/25.8.0...25.9.0) (2026-11-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **solana:** implementers of TransactionProcessor, InstructionService and BatchInstructionService must implement the new abstract simulateAndEstimate taking a TxConfig last, processInstructions taking one after the instructions, and the two batchProcess overloads taking one after the instructions or the accounts map, while callers of the existing overloads are unaffected. SimulationFutures gains a txConfig component, so its canonical constructor takes seven arguments.
+
+### Features
+
+* **solana:** carry a v1 transaction configuration through simulation and construction ([3d0af80](https://github.com/sava-software/ravina/commit/3d0af808d058ac8c0df99344eb15c3cf48a5a774))
+* **solana:** read a 402 as UNAUTHORIZED ([80bac06](https://github.com/sava-software/ravina/commit/80bac06ef33ac1d7e1d279d7aeed137ec4b1675b))
+
+
+### Bug Fixes
+
+* **deps:** bump solanaBOMVersion to 25.30.50 for sava-rpc 25.13.3 ([333b028](https://github.com/sava-software/ravina/commit/333b028c5794c0c6ea8e7e223c1b7ef96e09f39b))
+
 ## [25.8.0](https://github.com/sava-software/ravina/compare/25.7.0...25.8.0) (2026-11-01)
 
 
