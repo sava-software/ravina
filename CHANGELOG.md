@@ -1,5 +1,12 @@
 # Changelog
 
+## [25.9.1](https://github.com/sava-software/ravina/compare/25.9.0...25.9.1) (2026-11-07)
+
+
+### Bug Fixes
+
+* **build:** upgrade to Gradle 9.9 and scope plugin repositories ([75b8d72](https://github.com/sava-software/ravina/commit/75b8d72d386484003fcffdd46de7a8f2cc430e5c))
+
 ## [25.9.0](https://github.com/sava-software/ravina/compare/25.8.0...25.9.0) (2026-11-02)
 
 
