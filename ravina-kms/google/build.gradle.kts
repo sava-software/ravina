@@ -24,6 +24,8 @@ testModuleInfo {
 // from its selection). AGENTS.md's "tests never hit the network" names them as its opt-in
 // exception.
 tasks.test {
+  // grpc-netty-shaded loads its native transport in this named module under JPMS.
+  jvmArgs("--enable-native-access=io.grpc.netty.shaded")
   useJUnitPlatform {
     excludeTags("live")
   }
@@ -66,6 +68,8 @@ hardening {
   // mutant population or tool class path differ from another's.
   recompileExcludes = listOf("Integ.java")
   mutation.register("googleKms") {
+    // PIT runs the transport on the class path, so its native caller is in the unnamed module.
+    minionJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
     // NAKED_RECEIVER trialled 2026-07-22: fires here (numbers in
     // config/pitest/README.md); fluent receiver-typed calls are otherwise
     // invisible to STRONGER.

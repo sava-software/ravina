@@ -994,8 +994,8 @@ final class TransactionProcessorRecordTests {
     // balancer were not sorted; one error is enough to demote it.
     unhealthy.failed();
 
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{unhealthy, healthy});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(unhealthy, healthy));
     final var processor = processor(null, null, sendClients, null);
     final var transaction = smallTransaction();
     final int healthyCapacity = healthyMonitor.capacityState().capacity();
@@ -1083,8 +1083,8 @@ final class TransactionProcessorRecordTests {
     final var other = item(rpcClient(otherHandler), monitor());
     failing.sample(10);
     other.sample(20);
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{failing, other});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(failing, other));
     final var processor = processor(null, null, sendClients, null);
     final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
     otherHandler.dispatchFailure = dispatchFailure;
@@ -1113,8 +1113,8 @@ final class TransactionProcessorRecordTests {
     other.failed();
     failing.sample(10);
     other.sample(20);
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{failing, other});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(failing, other));
     final var processor = processor(null, null, sendClients, null);
     final var transaction = smallTransaction();
     final var first = processor.publish(transaction, "BASE64-TX", Commitment.FINALIZED, 8_642L);
@@ -1163,8 +1163,8 @@ final class TransactionProcessorRecordTests {
     final var other = item(rpcClient(otherHandler), monitor());
     failing.sample(10);
     other.sample(20);
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{failing, other});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(failing, other));
     final var processor = processor(null, null, sendClients, null);
     final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
     assertSame(failing, first.rpcClient());
@@ -1192,8 +1192,8 @@ final class TransactionProcessorRecordTests {
     final var alsoFailing = item(rpcClient(alsoFailingHandler), monitor());
     failing.sample(10);
     alsoFailing.sample(20);
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{failing, alsoFailing});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(failing, alsoFailing));
     final var processor = processor(null, null, sendClients, null);
     final var first = processor.publish(smallTransaction(), "BASE64-TX", Commitment.FINALIZED, 8_642L);
 
@@ -1239,8 +1239,8 @@ final class TransactionProcessorRecordTests {
     other.sample(20);
     // The frozen clock never refills, so what is claimed here stays claimed.
     dockedMonitor.capacityState().claimRequest(dockedMonitor.capacityState().capacity());
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{docked, other});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(docked, other));
     final var processor = processor(null, null, sendClients, null);
     final var transaction = smallTransaction();
     final var previous = new SendTxContext(docked, CompletableFuture.completedFuture("SIG"), transaction, "BASE64-TX", 8_642L, 1L);
@@ -1270,8 +1270,8 @@ final class TransactionProcessorRecordTests {
     final var erred = item(rpcClient(erredHandler), monitor());
     final var healthy = item(rpcClient(healthyHandler), monitor());
     erred.failed();
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createSortedBalancer(
-        new BalancedItem[]{erred, healthy});
+    final var sendClients = LoadBalancer.createSortedBalancer(
+        List.of(erred, healthy));
     final var processor = processor(null, null, sendClients, null);
     final var previous = new SendTxContext(erred, CompletableFuture.completedFuture("SIG"), smallTransaction(), "BASE64-TX", 8_642L, 1L);
 
@@ -1307,8 +1307,8 @@ final class TransactionProcessorRecordTests {
   void signAndSendSignsBeforePublishing() {
     final var handler = new FakeRpcClient(null, "SENT-SIG");
     final var monitor = monitor();
-    @SuppressWarnings("unchecked") final var sendClients = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(rpcClient(handler), monitor)});
+    final var sendClients = LoadBalancer.createBalancer(
+        List.of(item(rpcClient(handler), monitor)));
     final var signingService = new FakeSigningService();
     final var processor = processor(signingService, null, sendClients, null);
     final var transaction = smallTransaction();
@@ -1336,11 +1336,11 @@ final class TransactionProcessorRecordTests {
 
   private static Harness harness(final TxSimulation simulationResult) {
     final var handler = new FakeRpcClient(simulationResult, null);
-    @SuppressWarnings("unchecked") final var rpcClients = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(rpcClient(handler), monitor())});
+    final var rpcClients = LoadBalancer.createBalancer(
+        List.of(item(rpcClient(handler), monitor())));
     final var feeProvider = new FakeFeeProvider(BigDecimal.valueOf(12_345));
-    @SuppressWarnings("unchecked") final var feeProviders = LoadBalancer.createBalancer(
-        new BalancedItem[]{item(feeProvider, monitor())});
+    final var feeProviders = LoadBalancer.createBalancer(
+        List.of(item(feeProvider, monitor())));
     return new Harness(processor(null, rpcClients, null, feeProviders), handler, feeProvider);
   }
 

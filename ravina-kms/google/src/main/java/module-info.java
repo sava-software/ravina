@@ -1,6 +1,8 @@
 import software.sava.kms.core.signing.SigningServiceFactory;
 import software.sava.kms.google.GoogleKMSClientFactory;
 
+// The public factory accepts KeyManagementServiceClient, so consumers need this automatic module.
+@SuppressWarnings("requires-transitive-automatic")
 module software.sava.google_kms {
   requires transitive systems.comodal.json_iterator;
 
