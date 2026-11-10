@@ -86,10 +86,14 @@ certificate-absent, measured 2026-08-04 under PIT 1.25.9 and base 1.7.1: `epoch`
 20/22, `config` 129/132, `epochService` 95/105, `catchAll` 696/750. All but one
 of those removals is a `RemoveConditionalMutator_*` sibling ArcMutate subsumes;
 the exception is a single `NullReturnValsMutator` in `catchAll`. The 2026-09-24
-observations under the new toolchain, after the slot-time work of 2026-08-13 and
+observations under that toolchain, after the slot-time work of 2026-08-13 and
 the v1 change, were `epoch` 122, `formatting` 43, `fees` 57, `config` 110,
 `epochService` 104 and `catchAll` 725 licensed; the certificate-absent side was
-not re-measured.
+not re-measured. The 2026-11-10 move changed no population: every suite's
+mutants and their statuses were identical to a run of the same sources under PIT
+1.30.0 and base 1.7.2 (`epoch` 122, `formatting` 43, `fees` 58, `config` 110,
+`epochService` 104 and `catchAll` 1071 on that day's sources), and the
+certificate-absent side was again not re-measured.
 
 ## Audited timeout sets (`<suite>-timeouts.csv`)
 

@@ -57,7 +57,8 @@ certificate, expires 15/08/2027), whose mere presence puts `com.arcmutate:base`
 on PIT's tool classpath for every module; the licensed engine subsumes
 `RemoveConditionalMutator_*` siblings, so its population is smaller than open
 PIT's — `signing` was 84 licensed vs 88 certificate-absent on 2026-08-04 (PIT
-1.25.9, base 1.7.1), and the 2026-09-24 rebase observed the same 84.
+1.25.9, base 1.7.1), and the 2026-09-24 and 2026-11-10 rebases each observed
+the same 84.
 
 ## Mutator set: the `EXPERIMENTAL_NAKED_RECEIVER` trial
 

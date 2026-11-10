@@ -59,8 +59,11 @@ PIT's — licensed vs certificate-absent here, measured 2026-08-04 under PIT
 calls 94/110, config 330/357, errorTracking 53/58, catchAll 190/202. All but one
 of those removals is a `RemoveConditionalMutator_*` sibling; the exception is a
 single `NullReturnValsMutator` in `config`. The 2026-09-24 rebase observed the
-same licensed populations except `calls`, now 95 (its code changed on
-2026-08-06).
+same licensed populations except `calls`, then 95 (its code changed on
+2026-08-06). The 2026-11-10 move changed no population: every suite's mutants
+and their statuses were identical to a run of the same sources under PIT 1.30.0
+and base 1.7.2 (backoff 79, capacity 112, loadBalance 189, calls 105, config 360,
+errorTracking 53, catchAll 201 on that day's sources).
 
 ## Timeout-detected mutants: baseline covers both execution modes
 
