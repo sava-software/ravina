@@ -43,8 +43,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /// passed, and the public Builder gives a test no way to drive that clock. So no test here
 /// asserts such a replay. The reconnect tests register new subscriptions while the manager backs
 /// off instead, which are due the moment the next connection opens. The test of a refusal also
-/// meets the one replay that needs no clock, since the engine resets the stamps of a refused
-/// batch's requests.
+/// meets a replay that needs no clock, since the engine resets the stamps of a refused batch's
+/// requests.
 final class WebSocketManagerBatchingTests {
 
   private static final URI WS_URI = URI.create("wss://ws.example.com");
