@@ -1,5 +1,14 @@
 # Changelog
 
+## [25.9.1](https://github.com/sava-software/ravina/compare/25.9.0...25.9.1) (2026-11-10)
+
+
+### Bug Fixes
+
+* **build:** upgrade to Gradle 9.9 and scope plugin repositories ([75b8d72](https://github.com/sava-software/ravina/commit/75b8d72d386484003fcffdd46de7a8f2cc430e5c))
+* **deps:** bump solanaBOMVersion to 25.30.57 for sava 25.13.4 ([e5d1088](https://github.com/sava-software/ravina/commit/e5d1088badc318c09e955f136ce5b47f0785a044))
+* **deps:** bump solanaBOMVersion to 25.30.58 ([e633a62](https://github.com/sava-software/ravina/commit/e633a62bc953ed9ef76292c55f40141cef34cc27))
+
 ## [25.9.0](https://github.com/sava-software/ravina/compare/25.8.0...25.9.0) (2026-11-02)
 
 
