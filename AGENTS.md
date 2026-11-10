@@ -434,10 +434,12 @@ them, because the list is the argument for the effort.
   Do **not** "fix" it by suppressing the cancellation claim: an implementation that reports a real
   failure only by cancelling would then stall in `CONNECTING` forever. The manager cannot fence it
   locally, because it installs one handler set on the reused wrapper at construction. Reordering
-  upstream does not work either: it is `inFlightBuild.cancel(true)` that settles the consumer's
-  future, through the `ownedBuild.whenComplete` bridge in `SolanaJsonRpcWebsocket`, and that
-  cancel must stay ahead of user policy to release builder ownership — so deferring
-  `inFlightConnect.cancel(true)` past the notice changes nothing. If production evidence ever
+  upstream does not work either. In `SolanaJsonRpcWebsocket.retireConnection` it is normally the
+  cancel of the in-flight build (`build.cancel(true)`, on the local that took the `inFlightBuild`
+  field) that settles the consumer's future, through the `ownedBuild.whenComplete` bridge in
+  `buildReservedAttempt`, and that cancel must stay ahead of user policy to release builder
+  ownership — so deferring the cancel of the attempt itself (`inFlight.cancel(true)`, on the
+  local that took `inFlightConnect`) past the notice changes nothing. If production evidence ever
   demands a fix, it has to be additive upstream: attempt-correlated lifecycle callbacks, or a
   narrower typed "retired; the callback owns recovery" failure. The trigger condition, the agreed
   upstream design (a per-attempt `connectAttempt()` handle with `connected()`/`retired()` futures
