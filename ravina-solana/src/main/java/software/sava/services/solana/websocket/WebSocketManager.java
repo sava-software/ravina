@@ -49,6 +49,20 @@ import java.util.function.Consumer;
 /// provided the builder answers `subscriptionResendDelay()`, since that read comes first and a
 /// builder that throws there fails as itself. The stock builder implements the capability and is
 /// unaffected.
+///
+/// Beyond that throttle, the resend delay and the lifecycle handlers the manager writes nothing
+/// on the builder, so every other setting reaches each websocket it creates, the first and any
+/// replacement. That includes sava-rpc's subscribe batching,
+/// [SolanaRpcWebsocket.Builder#subscribeBatchBytes(int)] and
+/// [SolanaRpcWebsocket.Builder#singleSubscribeBudget(int)], which stays off unless the builder
+/// turns it on. The factories that take a URI build their own builder and leave it off: to
+/// batch, build the prototype and pass it to a factory that takes one. With a cap set, the
+/// registrations an `onNewWebSocket` consumer makes, which wait for the wrapper's first open,
+/// reach the server as JSON-RPC arrays instead of one message each, and so do registrations made
+/// on the wrapper while the manager backs off. For a burst on an open connection, see
+/// [SolanaRpcWebsocket#registerAll(Consumer)]. What sava-rpc learns about an endpoint that
+/// cannot take an array it keeps on the websocket instance, so it lasts as long as the wrapper
+/// does: across this manager's reconnects, and not into a replacement.
 public interface WebSocketManager extends AutoCloseable {
 
   static WebSocketManager createManager(final Backoff backoff,

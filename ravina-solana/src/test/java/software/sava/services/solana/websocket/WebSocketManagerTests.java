@@ -764,6 +764,10 @@ final class WebSocketManagerTests {
         assertEquals(3_000L, prototype.subscriptionResendDelay(),
             "changing reconnect pacing must not change subscription escalation");
         assertNotNull(prototype.webSocketBuilder());
+        assertEquals(0, prototype.subscribeBatchBytes(),
+            "subscribe batching stays off unless a caller's own builder turns it on");
+        assertEquals(0, prototype.singleSubscribeBudget(),
+            "and no single-subscribe budget is declared for it");
       }
     }
   }
@@ -2088,6 +2092,10 @@ final class WebSocketManagerTests {
         "the throttle must be disabled on the instance the manager kept");
     assertEquals(71L, manager.builderPrototype.subscriptionResendDelay(),
         "the resend delay must survive on the instance the manager kept");
+    assertEquals(1_234, manager.builderPrototype.subscribeBatchBytes(),
+        "the batch cap, which the manager never writes, must be on the instance it kept");
+    assertEquals(97, manager.builderPrototype.singleSubscribeBudget(),
+        "and so must the single-subscribe budget");
     assertEquals(47L, builder.reConnectDelay,
         "the caller's builder must be left untouched");
   }

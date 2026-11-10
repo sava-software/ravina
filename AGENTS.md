@@ -488,6 +488,25 @@ them, because the list is the argument for the effort.
   `lock` field. For the same reason a claim's policy takes what it releases as arguments, not as
   a lambda, and installs its deadline inside the guard whose every other way out is `close()`,
   and a drive cancels the token it took only after its guarded call.
+- **Subscribe batching is the caller's builder setting; the manager only carries it.** sava-rpc
+  25.13.4's `subscribeBatchBytes` and `singleSubscribeBudget` live on the
+  `SolanaRpcWebsocket.Builder`. `WebSocketManagerImpl` writes neither, so they reach every wrapper
+  it creates, and the URI factories, which build their own prototype, leave batching off. A batch
+  is what one engine pass finds due: the registrations waiting at an open (an `onNewWebSocket`
+  consumer's, or those made on the wrapper while the manager backs off), not
+  `TxCommitmentMonitorService`'s one `signatureSubscribe` per transaction, which sava sends as it
+  is registered. sava keeps what it learns about an endpoint's batches on the websocket instance,
+  so it holds across the manager's reconnects and ends with a replaced wrapper.
+  `WebSocketManagerBatchingTests` pins all of this on the wire, with sava's real engine behind the
+  manager and a scripted JDK `WebSocket.Builder` that opens from inside `buildAsync`, which keeps
+  every step but one on the test thread; copy that seam for anything that needs the engine. It
+  cannot assert a replay after a lost connection: the engine re-sends a subscription only once
+  `subscriptionResendDelay` has passed since its last send, on its own clock, and the setter that
+  takes one, `SolanaRpcWebsocketBuilder.clock`, is package-private in sava. So those tests set the
+  engine's windows far out and register new subscriptions while the manager backs off, which are
+  due at the next open. A test that shrinks the windows and waits instead depends on real time
+  twice over, for the window to pass and for no stall to outlast four of them, after which sava
+  reads the batch as unanswered and replays one request per message.
 - **Ravina-built transactions are SIMD-0385 v1.**
   `SimulationFutures.createV1Transaction` is the one recipe (non-strict, so a
   batch over a v1 limit is reported as `SIZE_LIMIT_EXCEEDED` and shrunk rather

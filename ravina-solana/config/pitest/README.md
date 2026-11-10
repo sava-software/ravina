@@ -491,8 +491,8 @@ a running minimum (`TxExpirationMonitorService.processTransactions`, the
 earliest-gate scan): the equal case reassigns the value already held.
 
 **Restating the builder default** `# restating-default` (`catchAll`) — `NakedReceiverMutator` on
-`WebSocketManager.createManager` line 97, `.commitment(Commitment.FINALIZED)`.
-The resolved sava-rpc builder (25.13.0, through the BOM) initialises its
+`WebSocketManager.createManager`, the URI factory's `.commitment(Commitment.FINALIZED)`.
+The resolved sava-rpc builder (25.13.4, through the BOM) initialises its
 commitment field to `FINALIZED` (`SolanaRpcWebsocketBuilder`, read from its
 sources jar), so dropping the call leaves the identical prototype state, and
 `theUriFactoryConfiguresAFinalizedPrototype`, which asserts the prototype's
