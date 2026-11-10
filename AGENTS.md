@@ -107,7 +107,12 @@ parsing, and KMS-backed signing.
   `gradle/verification/version-scoped-keys.txt`, say what to do, and the files are only ever
   edited in their own shape (a key's version and its `gradle/verification/` list line
   move together). A `-PsavaBuildLocalRepo` build needs `--dependency-verification
-  lenient`, since the test repo's artifacts are unsigned.
+  lenient`, since the test repo's artifacts are unsigned. No IDE sync is owed after a
+  policy change, and a session never asks for one: a session that edits a rule, scope or
+  keyring block nothing on the command line uses, or an unsigned module's sources pin, or
+  bumps the wrapper, says so in its report, and a report of any other change says nothing
+  about the IDE (sava-build's README at `main`, the closing paragraph of "Adopting and
+  updating"; its README at tags up to 21.8.7 still has the step that paragraph replaced).
 - Commits follow Conventional Commits (`feat(core): ...`, `fix(gradle): ...`);
   release-please cuts releases from them.
 
