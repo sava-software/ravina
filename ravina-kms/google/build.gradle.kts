@@ -8,8 +8,8 @@ testModuleInfo {
   // The live tests and KmsClientClassPathTests build the Google client themselves: gax for
   // NoCredentialsProvider, the auth library for a service-account or access-token credential and
   // its credentials base for the Credentials type gax takes. All three are in the gcp-kms
-  // convention's client family, so these edges carry its exclusions too (the two auth module
-  // names are mapped in gradle/modules.properties until sava-build 21.8.2 maps them itself).
+  // convention's client family, so these edges carry its exclusions too (the convention has
+  // mapped the two auth module names since sava-build 21.8.2).
   requires("com.google.api.gax")
   requires("com.google.auth.oauth2")
   requires("com.google.auth")

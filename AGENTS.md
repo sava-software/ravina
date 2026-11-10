@@ -212,7 +212,10 @@ edges, and the bugs the effort has found.
   exclusions, `targetTests` and mutator sets all move the population, so
   re-run the suites they touch.
 - **Certification is local.** CI deliberately runs only `check`; the release
-  checklist runs root `:hardeningCertifyAll`. It writes
+  checklist runs root `:hardeningCertifyAll`, and beside it root
+  `verificationKeyStatus`, which asks the key servers whether a key the policy
+  trusts has been revoked or has expired (sava-build's README, "Key status").
+  `:hardeningCertifyAll` writes
   `.pitest-history/pitest-certification-all.tsv`, a Gradle-root inventory of
   all five hardening projects and 16 suites that hashes each of the five child
   receipts. This removes manual repository-wide receipt enumeration, but it is
@@ -273,8 +276,9 @@ edges, and the bugs the effort has found.
   dormant acceptances were later pruned after repeated history-free evidence;
   each module's README records their disposition. A population comparison is only
   meaningful between runs that agree on the certificate. The records moved to
-  PIT 1.30.0 and `com.arcmutate:base` 1.7.2 by rebase on 2026-09-24, which did
-  not re-measure the certificate-absent side.
+  PIT 1.30.0 and `com.arcmutate:base` 1.7.2 by rebase on 2026-09-24, and to PIT
+  1.30.2 and base 1.7.3 by rebase on 2026-11-10. Neither rebase re-measured the
+  certificate-absent side.
 - **Speed has been measured, not guessed.** Suite splitting and `targetTests`
   narrowing pay; PIT's `threads` does not. A suite that got faster without
   getting narrower is a bug report — `HARDENING.md` records what has been

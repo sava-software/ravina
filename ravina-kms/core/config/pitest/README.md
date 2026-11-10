@@ -51,7 +51,8 @@ with `pitestSigningBaselineRebase` — the only path that adopts a
 PIT/ArcMutate/certificate change, running fresh and history-free, keeping every
 accepted row and seeding newly observed ones `# untriaged` — and rebased again
 on 2026-09-24 when the plugin moved PIT to 1.30.0 and `com.arcmutate:base` to
-1.7.2. The repository root carries a committed `arcmutate-licence.txt` (OSSS
+1.7.2, and on 2026-11-10 when it moved them to 1.30.2 and 1.7.3. The
+repository root carries a committed `arcmutate-licence.txt` (OSSS
 certificate, expires 15/08/2027), whose mere presence puts `com.arcmutate:base`
 on PIT's tool classpath for every module; the licensed engine subsumes
 `RemoveConditionalMutator_*` siblings, so its population is smaller than open

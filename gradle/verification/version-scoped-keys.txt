@@ -4,7 +4,7 @@
 # key is used by no rule any more. One key per line:
 # <fingerprint> <why it stays version-scoped>
 #
-# Not listed, by decision: eight keys are trusted for their groups or modules with no version
+# Not listed, by decision: seven keys are trusted for their groups or modules with no version
 # on the corroboration of gradle/gradle's own policy alone, no publisher source having been
 # found for them (audited 2026-10-31): the Google API client libraries key
 # 47504B76CF89C15C0512D9AFE16AB52D79FD224F, the protobuf release key
@@ -12,8 +12,7 @@
 # B02335AA54CCF21E52BBF9ABD9C565AA72BA2FDD, Eamonn McManus's
 # C7BE5BCC9FEC15518CFDA882B0F3710FA64900E7 (gson), Szczepan Faber's mockito key
 # 147B691A19097624902F4EA9689CBE64F4BC997F, which gradle/gradle trusts for all of
-# org.mockito (mockito publishes no KEYS file, mockito/mockito#2851), Aleksey Shipilev's
-# 019082BC00E0324E2AEF4CF00D3B328562A119A7 (jmh), the javaparser key
+# org.mockito (mockito publishes no KEYS file, mockito/mockito#2851), the javaparser key
 # 6DE9B8077FBB2F8A019F4904BD17A565509DEE20 and the Spock robot's
 # 76E94E8FF0AB5AF3B6F8366972FEFD1572EB75E1.
 # Version-scoping the Google keys would pin about fifteen group-and-version rules that
@@ -31,10 +30,7 @@ AC1A3DD4471FE0F6EA28300F1BA25353622A192B ArcMutate signer, publisher identity un
 # 80 bits of security, whoever still signs with them) and retired release managers' keys that
 # signed old releases in the graph. A new version under any of them is a reason to stop.
 1BD97A6A154E7810EE0BC832E2F38302C8075E3D Gradle Inc. publishing key, revoked 2026-08-08 as superseded (gradle.org/keys); signed foojay-resolver 1.0.0 while active
-0CDE80149711EB46DFF17AE421A24B3F8B0F594A expired key
-808D78B17A5A2D7C3668E31FBFFC9B54721244AD expired key
 44FBDBBC1A00FE414F1C1873586654072EAD6677 DSA-1024 key
 517B94F8D0A46317A28D8AB30DA8A5EC02D11EAD DSA-1024 key
 2E3A1AFFE42B5F53AF19F780BCF4173966770193 expired key
-41A1A08C62FCA78B79D3081164A16FAAEC16A4BE release-manager key of an old release
 694621A7227D8D5289699830ABE9F3126BB741C1 release-manager key of an old release

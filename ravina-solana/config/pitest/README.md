@@ -77,7 +77,8 @@ suite here was repaired with `pitest<Suite>BaselineRebase` on 2026-08-04, the
 only path that adopts a PIT/ArcMutate/certificate/toolchain change (`fees`,
 which keeps no baseline, had a leftover orphan stamp that rebase removed), and
 rebased again on 2026-09-24 when the plugin moved PIT to 1.30.0 and
-`com.arcmutate:base` to 1.7.2. The root's committed `arcmutate-licence.txt`
+`com.arcmutate:base` to 1.7.2, and on 2026-11-10 when it moved them to 1.30.2
+and 1.7.3. The root's committed `arcmutate-licence.txt`
 (OSSS, expires 15/08/2027) puts `com.arcmutate:base` on PIT's tool classpath for
 every module, which *shrinks* the mutant population — licensed vs
 certificate-absent, measured 2026-08-04 under PIT 1.25.9 and base 1.7.1: `epoch`
