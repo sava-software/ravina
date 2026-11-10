@@ -211,6 +211,10 @@ final class WebSocketManagerTests {
     private BiConsumer<SolanaRpcWebsocket, Throwable> onSendTextError;
     private BiConsumer<SolanaRpcWebsocket, Throwable> onPingError;
     private int maxMessageLength = 12_345;
+    /// The subscribe-batching settings sava-rpc 25.13.4 added to the Builder. The manager calls
+    /// neither; the fake carries them so that its copies stay whole.
+    private int subscribeBatchBytes = 1_234;
+    private int singleSubscribeBudget = 97;
     private long connectTimeout = 8_000;
     private long reConnectDelay = 47;
     private long pingDelay = 53;
@@ -253,6 +257,8 @@ final class WebSocketManagerTests {
       this.onSendTextError = prototype.onSendTextError;
       this.onPingError = prototype.onPingError;
       this.maxMessageLength = prototype.maxMessageLength;
+      this.subscribeBatchBytes = prototype.subscribeBatchBytes;
+      this.singleSubscribeBudget = prototype.singleSubscribeBudget;
       this.connectTimeout = prototype.connectTimeout;
       this.reConnectDelay = prototype.reConnectDelay;
       this.pingDelay = prototype.pingDelay;
@@ -321,6 +327,28 @@ final class WebSocketManagerTests {
     @Override
     public int maxMessageLength() {
       return maxMessageLength;
+    }
+
+    @Override
+    public SolanaRpcWebsocket.Builder subscribeBatchBytes(final int subscribeBatchBytes) {
+      this.subscribeBatchBytes = subscribeBatchBytes;
+      return this;
+    }
+
+    @Override
+    public int subscribeBatchBytes() {
+      return subscribeBatchBytes;
+    }
+
+    @Override
+    public SolanaRpcWebsocket.Builder singleSubscribeBudget(final int singleSubscribeBudget) {
+      this.singleSubscribeBudget = singleSubscribeBudget;
+      return this;
+    }
+
+    @Override
+    public int singleSubscribeBudget() {
+      return singleSubscribeBudget;
     }
 
     @Override
