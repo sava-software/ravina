@@ -59,10 +59,13 @@ import java.util.function.Consumer;
 /// batch, build the prototype and pass it to a factory that takes one. With a cap set, the
 /// registrations an `onNewWebSocket` consumer makes, which wait for the wrapper's first open,
 /// reach the server as JSON-RPC arrays instead of one message each, and so do registrations made
-/// on the wrapper while the manager backs off. For a burst on an open connection, see
-/// [SolanaRpcWebsocket#registerAll(Consumer)]. What sava-rpc learns about an endpoint that
-/// cannot take an array it keeps on the websocket instance, so it lasts as long as the wrapper
-/// does: across this manager's reconnects, and not into a replacement.
+/// on the wrapper while the manager backs off, on a connection that batches. sava-rpc stops
+/// batching in two cases, whose rules its `subscribeBatchBytes` javadoc gives: the connection
+/// after one lost with a batch unanswered sends one request per message, short of a declared
+/// budget its replay would exceed, and an endpoint that refused an array is sent none again. It
+/// keeps both on the websocket instance, so they follow the wrapper through this manager's
+/// reconnects and end with a replacement. For a burst on an open connection, see
+/// [SolanaRpcWebsocket#registerAll(Consumer)].
 public interface WebSocketManager extends AutoCloseable {
 
   static WebSocketManager createManager(final Backoff backoff,

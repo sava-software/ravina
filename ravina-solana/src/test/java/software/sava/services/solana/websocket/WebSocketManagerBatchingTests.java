@@ -17,13 +17,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /// Subscribe batching, which sava-rpc 25.13.4 added to its Builder, through the manager. The
@@ -32,20 +29,22 @@ import static org.junit.jupiter.api.Assertions.*;
 ///
 /// The wire tests show that where it counts, with sava-rpc's real engine behind the manager and
 /// a scripted JDK transport under the engine: what the transport is asked to send is what a
-/// server would receive. All but one step happens on the test thread. The transport opens a
-/// connection from inside `buildAsync`, as the JDK does before it completes the handshake's
-/// future, the engine's adoption pass sends from inside that call, and an answer fed to the
-/// listener is handled before the call returns. The engine's own loop is a real thread, so its
-/// ping, check and resend windows are set far beyond any test, and every test closes its
-/// manager, which stops that thread. The one step that loop takes here is the re-send after a
-/// refused batch, which the engine hands to it: that test waits for the frames, bounded, and
-/// never sleeps.
+/// server would receive. Every step whose timing a test depends on happens on the test thread.
+/// The transport opens a connection from inside `buildAsync`, as the JDK does before it completes
+/// the handshake's future, the engine's adoption pass sends from inside that call, and an answer
+/// fed to the listener is handled before the call returns. The engine's own loop is a real
+/// thread, so its ping, check and resend windows are set far beyond any test, and every test
+/// closes its manager, which stops that thread. The one thing that loop sends here is a refused
+/// batch's requests again, which the engine hands to it. No test waits for that or depends on
+/// when it happens: the test of a refusal asserts what holds whether the loop has run or not.
 ///
-/// The engine paces a replay on its own clock: a subscription sent on a connection that was
-/// then lost keeps its last attempt's stamp and is re-sent once the resend window has passed,
-/// and the public Builder gives a test no way to drive that clock. So no test here asserts a
-/// replay. The reconnect tests register new subscriptions while the manager backs off instead,
-/// which are due the moment the next connection opens.
+/// The engine paces an ordinary replay on its own clock: a subscription sent on a connection
+/// that was then lost keeps its last attempt's stamp and is re-sent once the resend window has
+/// passed, and the public Builder gives a test no way to drive that clock. So no test here
+/// asserts such a replay. The reconnect tests register new subscriptions while the manager backs
+/// off instead, which are due the moment the next connection opens. The test of a refusal also
+/// meets the one replay that needs no clock, since the engine resets the stamps of a refused
+/// batch's requests.
 final class WebSocketManagerBatchingTests {
 
   private static final URI WS_URI = URI.create("wss://ws.example.com");
@@ -54,9 +53,6 @@ final class WebSocketManagerBatchingTests {
   /// Ten minutes: no ping, check or resend falls due inside a test.
   private static final long FAR_MILLIS = 600_000L;
   private static final long RETRY_MILLIS = 25L;
-  /// The bound on the one wait for the engine's loop thread, which normally answers in well
-  /// under a millisecond.
-  private static final long WAIT_SECONDS = 2;
   /// sava-rpc's engine logs under its own class, which this module cannot name.
   private static final String ENGINE_LOGGER = "software.sava.rpc.json.http.ws.SolanaJsonRpcWebsocket";
 
@@ -65,6 +61,8 @@ final class WebSocketManagerBatchingTests {
   private static final PublicKey KEY_C = PublicKey.fromBase58Encoded("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
   private static final PublicKey KEY_D = PublicKey.fromBase58Encoded("H4vnBqifaSACnKa7acsxstsY1iV1bvJNxsCY7enrd1hq");
   private static final PublicKey KEY_E = PublicKey.fromBase58Encoded("83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri");
+  private static final PublicKey KEY_F = PublicKey.fromBase58Encoded("GLAMbTqav9N9witRjswJ8enwp9vv5G8bsSJ2kPJ4rcyc");
+  private static final PublicKey KEY_G = PublicKey.fromBase58Encoded("11111111111111111111111111111111");
 
   private static final String SUBSCRIBE = "\"method\":\"accountSubscribe\"";
   private static final Pattern REQUEST_ID = Pattern.compile("\"id\":(\\d+)");
@@ -96,50 +94,21 @@ final class WebSocketManagerBatchingTests {
     }
   }
 
-  /// Records what the engine writes. Guarded, because the engine's loop thread sends too: with
-  /// the windows these tests set, only what a refused batch hands it.
+  /// Records what the engine writes. Thread-safe, because the engine's loop thread sends too:
+  /// with the windows these tests set, only a refused batch's requests.
   private static final class ScriptedSocket implements WebSocket {
 
-    private final ReentrantLock lock = new ReentrantLock();
-    private final Condition sent = lock.newCondition();
-    private final List<String> sentText = new ArrayList<>();
+    private final List<String> sentText = new CopyOnWriteArrayList<>();
     private volatile boolean outputClosed;
 
     @Override
     public CompletableFuture<WebSocket> sendText(final CharSequence data, final boolean last) {
-      lock.lock();
-      try {
-        sentText.add(data.toString());
-        sent.signalAll();
-      } finally {
-        lock.unlock();
-      }
+      sentText.add(data.toString());
       return CompletableFuture.completedFuture(this);
     }
 
     private List<String> sent() {
-      lock.lock();
-      try {
-        return List.copyOf(sentText);
-      } finally {
-        lock.unlock();
-      }
-    }
-
-    /// Everything sent, once that is at least `frames` messages; fails if they do not arrive in
-    /// [#WAIT_SECONDS].
-    private List<String> awaitSent(final int frames) throws InterruptedException {
-      long nanos = SECONDS.toNanos(WAIT_SECONDS);
-      lock.lock();
-      try {
-        while (sentText.size() < frames) {
-          assertTrue(nanos > 0, frames + " messages within " + WAIT_SECONDS + "s, not only " + sentText);
-          nanos = sent.awaitNanos(nanos);
-        }
-        return List.copyOf(sentText);
-      } finally {
-        lock.unlock();
-      }
+      return List.copyOf(sentText);
     }
 
     @Override
@@ -200,9 +169,9 @@ final class WebSocketManagerBatchingTests {
       listener.onText(socket, json, true);
     }
 
-    /// Grants every subscribe request in `frames` a subscription id, in one message when
-    /// `asArray`, as a server answers a batch, and otherwise one message per request.
-    private void grant(final List<String> frames, final boolean asArray) {
+    /// Grants every subscribe request in `frames` a subscription id, in one message, as a server
+    /// answers a batch.
+    private void grant(final List<String> frames) {
       final var grants = new ArrayList<String>();
       for (final var frame : frames) {
         final var ids = REQUEST_ID.matcher(frame);
@@ -210,11 +179,7 @@ final class WebSocketManagerBatchingTests {
           grants.add("{\"jsonrpc\":\"2.0\",\"result\":" + (9_000 + grants.size()) + ",\"id\":" + ids.group(1) + '}');
         }
       }
-      if (asArray) {
-        receive('[' + String.join(",", grants) + ']');
-      } else {
-        grants.forEach(this::receive);
-      }
+      receive('[' + String.join(",", grants) + ']');
     }
 
     /// The peer closes the connection.
@@ -404,8 +369,10 @@ final class WebSocketManagerBatchingTests {
 
   /// A lost connection is reconnected on the same wrapper, which goes on batching: two
   /// subscriptions registered while the manager backs off share one message when the next
-  /// connection opens. The three granted on the lost connection are not in it, since their
-  /// replay waits out the resend window, which no test here outlasts.
+  /// connection opens. The first connection's batch is answered before it is lost, because one
+  /// left unanswered changes the next connection, which is the next test's subject. The three
+  /// granted on the lost connection are not in the message, since their replay waits out the
+  /// resend window, which no test here outlasts.
   @Test
   void registrationsMadeWhileBackingOffShareABatchOnTheReconnect() {
     final var transport = new ScriptedTransport();
@@ -415,7 +382,7 @@ final class WebSocketManagerBatchingTests {
       final var webSocket = manager.webSocket();
       assertNotNull(webSocket);
       final var first = transport.connection(1);
-      first.grant(first.sent(), true);
+      first.grant(first.sent());
 
       try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
         first.lose();
@@ -433,14 +400,13 @@ final class WebSocketManagerBatchingTests {
     }
   }
 
-  /// What sava-rpc learns about an endpoint's batches it keeps on the websocket instance, so
-  /// under the manager it lasts exactly as long as the wrapper does. An endpoint that answers
-  /// an array with a parse error naming no request cannot read one: the engine re-sends that
-  /// batch's requests one per message and stops batching on that instance. The manager's
-  /// reconnect reuses the instance, so the next connection sends one request per message too.
-  /// Only a replacement wrapper, built from the same prototype, starts batching again.
+  /// A connection lost while the batch it sent is still unanswered may have been lost to that
+  /// batch, so sava-rpc sends the next connection's requests one per message. Under the manager
+  /// the next connection is the reconnect of the same wrapper, and the registrations made while
+  /// it backed off go out that way too. It lasts one connection: that one, lost in turn with no
+  /// batch outstanding, leaves the one after it batching again.
   @Test
-  void anEndpointsRefusalOfBatchesHoldsAcrossAReconnectAndEndsWithTheWrapper() throws InterruptedException {
+  void aConnectionLostWithItsBatchUnansweredMakesTheReconnectSendOnePerMessageOnce() {
     final var transport = new ScriptedTransport();
     final var clock = new TestClock();
 
@@ -450,28 +416,85 @@ final class WebSocketManagerBatchingTests {
       final var first = transport.connection(1);
       assertBatchOf(first.sent().getFirst(), KEY_A, KEY_B, KEY_C);
 
-      // The engine re-queues the batch's requests and wakes its loop thread, which sends them.
-      final List<String> resent;
+      try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
+        first.lose();
+      }
+      subscribe(webSocket, KEY_D, KEY_E);
+      clock.advanceMillis(RETRY_MILLIS);
+      try (var ignored = LogSilencer.silenced(ENGINE_LOGGER)) {
+        assertSame(webSocket, manager.webSocket(), "the retry reconnects the same wrapper");
+      }
+      final var second = transport.connection(2);
+      assertOnePerMessage(second.sent(), KEY_D, KEY_E);
+
+      try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
+        second.lose();
+      }
+      subscribe(webSocket, KEY_F, KEY_G);
+      clock.advanceMillis(RETRY_MILLIS);
+      assertSame(webSocket, manager.webSocket(), "the retry reconnects the same wrapper");
+      final var sent = transport.connection(3).sent();
+      assertEquals(1, sent.size(), "one message for the two new registrations: " + sent);
+      assertBatchOf(sent.getFirst(), KEY_F, KEY_G);
+    }
+  }
+
+  /// What sava-rpc learns about an endpoint's batches it keeps on the websocket instance, so
+  /// under the manager it lasts exactly as long as the wrapper does. An endpoint that answers
+  /// an array with a parse error naming no request cannot read one: sava-rpc sends that batch's
+  /// requests again one per message and stops batching on that instance. The manager's
+  /// reconnects reuse the instance, so every later connection sends one request per message,
+  /// the second as well as the first, which is what tells a refusal from the one-connection
+  /// suspension of the test above. Only a replacement wrapper, built from the same prototype,
+  /// starts batching again.
+  ///
+  /// sava-rpc re-sends the refused requests from its loop thread, and this test does not wait
+  /// for that. Either the loop has sent them before the connection is lost, or it has not, and
+  /// they are due when the reconnect opens, ahead of the two registrations made meanwhile, whose
+  /// requests are newer. A pass sends under the lock that retiring a connection takes, so it is
+  /// one or the other. Once the reconnect has opened, the two connections together have carried
+  /// each refused request once, alone, and then the two new ones, in both orders: that is what
+  /// is asserted, and without a refusal the three would not have been sent again at all.
+  @Test
+  void anEndpointsRefusalOfBatchesHoldsAcrossReconnectsAndEndsWithTheWrapper() {
+    final var transport = new ScriptedTransport();
+    final var clock = new TestClock();
+
+    try (final var manager = manager(prototype(transport).subscribeBatchBytes(BATCH_BYTES), THREE_ACCOUNTS, clock)) {
+      final var webSocket = manager.webSocket();
+      assertNotNull(webSocket);
+      final var first = transport.connection(1);
+      assertBatchOf(first.sent().getFirst(), KEY_A, KEY_B, KEY_C);
+
       try (var ignored = LogSilencer.silenced(ENGINE_LOGGER)) {
         first.receive(ARRAY_REFUSED);
-        resent = first.socket().awaitSent(4).subList(1, 4);
       }
-      assertOnePerMessage(resent, KEY_A, KEY_B, KEY_C);
-      first.grant(resent, false);
-
       try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
         first.lose();
       }
       subscribe(webSocket, KEY_D, KEY_E);
       clock.advanceMillis(RETRY_MILLIS);
       assertSame(webSocket, manager.webSocket(), "the retry reconnects the same wrapper");
-      assertOnePerMessage(transport.connection(2).sent(), KEY_D, KEY_E);
+
+      final var second = transport.connection(2);
+      final var onFirst = first.sent();
+      final var sinceTheRefusal = new ArrayList<>(onFirst.subList(1, onFirst.size()));
+      sinceTheRefusal.addAll(second.sent());
+      assertOnePerMessage(sinceTheRefusal, KEY_A, KEY_B, KEY_C, KEY_D, KEY_E);
+
+      try (var ignored = LogSilencer.silenced(WebSocketManagerImpl.class)) {
+        second.lose();
+      }
+      subscribe(webSocket, KEY_F, KEY_G);
+      clock.advanceMillis(RETRY_MILLIS);
+      assertSame(webSocket, manager.webSocket(), "the second retry reconnects the same wrapper");
+      assertOnePerMessage(transport.connection(3).sent(), KEY_F, KEY_G);
 
       webSocket.close();
       final var replacement = manager.webSocket();
       assertNotNull(replacement, "a wrapper closed directly is replaced on the next call");
       assertNotSame(webSocket, replacement);
-      final var sent = transport.connection(3).sent();
+      final var sent = transport.connection(4).sent();
       assertEquals(1, sent.size(), "the replacement batches the consumer's registrations: " + sent);
       assertBatchOf(sent.getFirst(), KEY_A, KEY_B, KEY_C);
     }
