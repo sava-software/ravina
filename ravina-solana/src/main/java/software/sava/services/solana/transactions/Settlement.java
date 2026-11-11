@@ -32,21 +32,21 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 /// commitment, on a node where `finalized` trails `confirmed`, and by a server
 /// that ignores a status read's commitment (agave before 4.4, Surfpool).
 ///
-/// The commitment monitor's status poll reads each transaction at the level
-/// its caller's settings ask of a status ([#polledSettled]). A transaction
-/// whose expiry is verified and whose awaits are both settled, which the
-/// overloads that take no commitment ask for, is read at [#COMMITMENT] like
-/// every other settled read, since 2026-11-11: its status is found once its
-/// block is final, and a missing one is never a verdict there, it makes a
-/// resend due or hands the transaction to the expiration monitor, whose own
-/// read at `finalized` decides "never landed". The price is the gap between a
-/// node's processed bank and its finalized one, one slot, about 215 ms, in
-/// nearly every sample of mainnet-beta and testnet on 2026-11-11 and one or two
-/// on devnet: a transaction that landed inside it reads as missing for one pass
-/// and can be resent once, the same bytes, which land at most once. If
-/// finality fell behind the blocks being produced the
-/// resends would repeat, one each resend delay, until it caught up, since the
-/// resend floor is counted from the finalized height.
+/// The commitment monitor's status poll reads each transaction at the level its
+/// caller's settings ask of a status ([#polledSettled]). A transaction whose
+/// expiry is verified and whose awaits are both settled, which the overloads
+/// that take no commitment ask for, is read at [#COMMITMENT] like every other
+/// settled read, since 2026-11-11: its status is found once its block is final,
+/// and a missing one is never a verdict there, it makes a resend due or hands
+/// the transaction to the expiration monitor, whose own read at `finalized`
+/// decides "never landed". The price is the gap between a node's processed bank
+/// and its finalized one, one slot, about 215 ms, in nearly every sample of
+/// mainnet-beta and testnet on 2026-11-11 and one or two on devnet: a
+/// transaction that landed inside it reads as missing for one pass and can be
+/// resent once, the same bytes, which land at most once. If finality fell
+/// behind the blocks being produced the resends would repeat, one each resend
+/// delay, until it caught up, since the resend floor is counted from the
+/// finalized height.
 ///
 /// The other transactions are read with no commitment named, which a node
 /// answers from its processed bank. With `verifyExpired` false the first
@@ -56,7 +56,12 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 /// `PROCESSED` await, on the result or on an error, is released by a status
 /// that is not final. Do not move either to [#COMMITMENT] with the rest. A
 /// pass that holds both kinds makes both reads, and each transaction is
-/// answered from its own.
+/// answered from its own. Read from agave 4.4's source and not observed: in
+/// the moment between a node publishing a new root and applying it, a read at
+/// its processed bank can label `finalized` a transaction in a block that node
+/// voted for and the cluster skipped, or miss one that is final. A read at
+/// `finalized` does neither, and agave 4.5 publishes the root only after
+/// applying it.
 final class Settlement {
 
   /// The commitment ravina reads block heights and block hashes at, simulates

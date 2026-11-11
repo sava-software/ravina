@@ -106,32 +106,36 @@ public interface TxMonitorService extends Worker {
   /// Completes with the signature's status once it meets `awaitCommitment`,
   /// or `awaitCommitmentOnError` if the transaction failed. `PROCESSED` is
   /// met by any status. `CONFIRMED` and `FINALIZED` are one settled level,
-  /// met by either: on an Alpenglow cluster they are the same event, and on a
-  /// TowerBFT environment ravina accepts a confirmed transaction as final, so
-  /// an await on `FINALIZED` is released by a `CONFIRMED` status too.
+  /// met by either: on an Alpenglow cluster, which every public cluster is,
+  /// they are the same event, and on a TowerBFT test validator, a development
+  /// setup, ravina accepts a confirmed transaction as final, so an await on
+  /// `FINALIZED` is released by a `CONFIRMED` status too.
   ///
-  /// Completes with `null` when the transaction is judged never to have
-  /// landed. With `verifyExpired` true that judgement waits until the settled
-  /// block height has passed the block hash's last valid height and a
+  /// Completes with `null` when the transaction is judged never to have landed.
+  /// With `verifyExpired` true that judgement waits until the settled block
+  /// height has passed the block hash's last valid height and a
   /// history-searching status read behind the expiration monitor's settle
   /// buffer still finds nothing, answered by a node that has itself finalized
   /// past every block the transaction could be in, so a rebuild on `null`
   /// cannot overlap a transaction that can still land. Two cases are not
-  /// covered. A server whose answer does not say how far it has finalized
-  /// (agave before 4.4, Surfpool) leaves only the buffer, which a status
-  /// backend that lags the height backend by that much or more defeats. And
-  /// once the landing has left the answering node's recent status cache, the
-  /// verdict rests on that node's stored history, which a node restored from a
-  /// snapshot, or one that lost queued status writes in a crash, can have a
-  /// hole in: that takes a read held up, a height backend behind the status
-  /// backend, or a verdict held because the answering node was behind, by at
-  /// most 119 to 269 blocks, which at 200 ms a slot with none skipped is about
-  /// 24 s to 54 s (see `TxExpirationMonitorService`). The verdict waits for as
-  /// long as the answering node stays behind, and that wait counts toward the
-  /// same window. With `verifyExpired` false the
-  /// first poll that finds no status completes `null` at once, with no resend,
-  /// while the transaction can still land for the rest of its window; a caller
-  /// that rebuilds on that `null` may execute the instructions twice.
+  /// covered. Once the landing has left the answering node's recent status
+  /// cache, the verdict rests on that node's stored history, which a node
+  /// restored from a snapshot, one that lost queued status writes in a crash
+  /// or, read from agave 4.4's source and not observed, a 4.4 node whose status
+  /// writer has fallen some 300 blocks behind the landing, can have a hole in:
+  /// that takes a read held up, a height backend behind the status backend, or
+  /// a verdict held because the answering node was behind, by at most 119 to
+  /// 269 blocks, which at 215 ms a slot with none skipped is about 26 s to 58 s
+  /// (see `TxExpirationMonitorService`). And a server whose answer does not say
+  /// how far it has finalized (agave before 4.4 and Surfpool, development
+  /// setups today, and any provider front end that does not pass a node's
+  /// context slot through, which nobody has surveyed) leaves only the buffer,
+  /// which a status backend that lags the height backend by that much or more
+  /// defeats. The verdict waits for as long as the answering node stays behind,
+  /// and that wait counts toward the same window. With `verifyExpired` false
+  /// the first poll that finds no status completes `null` at once, with no
+  /// resend, while the transaction can still land for the rest of its window; a
+  /// caller that rebuilds on that `null` may execute the instructions twice.
   ///
   /// One signature has one pending entry. A second queue of a pending
   /// signature is handed the pending future, provided the pending settings

@@ -707,7 +707,8 @@ the slot `getSignatureStatuses` reported for the transaction; `notifyMillis` run
 Every late subscription was notified, about one slot later. Agave runs every live signature
 subscription through `Bank::get_signature_status_processed_since_parent` on each commitment update
 (`rpc/src/rpc_subscriptions.rs`, `notify_watchers`), and that reads the status cache across the
-bank's ancestors: at the v4.2.2 tag it returns any status whose slot is at or below the bank's own,
+bank's ancestors: at the v4.2.2 tag, and unchanged at v4.4.0 and v4.5.0-beta.0, what the public
+clusters ran on 2026-11-11, it returns any status whose slot is at or below the bank's own,
 whatever its name suggests. A signature that landed before its subscription registered is found on
 the next update. The proposed status check after subscribing was therefore not adopted, and
 `../AGENTS.md` carries the rule.

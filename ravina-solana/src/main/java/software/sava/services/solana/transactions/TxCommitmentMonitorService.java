@@ -285,7 +285,7 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     // inside one call: a failure of either is retried as one read, so no half of the batch
     // is acted on while the other half's read is still failing. That call is charged for two
     // requests and, like the expiration monitor's pair, is not sampled for the balancer's
-    // latency, since the time two requests take is not one request's.
+    // latency, since the slower of two concurrent requests is not one request's time.
     final var atSettled = new ArrayList<String>(signatures.size());
     final var atProcessed = new ArrayList<String>(signatures.size());
     for (final var sig : signatures) {

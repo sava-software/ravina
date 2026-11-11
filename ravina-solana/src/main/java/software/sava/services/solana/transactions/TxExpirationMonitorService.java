@@ -32,25 +32,31 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
   /// depth buys no finality and is kept as margin for the backend lag below;
   /// faster finality is no reason to trim it. One client is one URL, and a
   /// provider may balance that URL across backends of differing lag, so the
-  /// height that opens this gate and the nil can come from two nodes. The
-  /// cover slot check binds the two on a server whose answer says how far it
-  /// has finalized; on one whose answer does not (see [#coverSlots]) this
-  /// buffer is the only margin, so it must not be trimmed on the strength of
-  /// the check. The margin is denominated in blocks while the lag it covers is
-  /// wall-clock, so SIMD-0525 halved it: without the check a nil is wrong only
-  /// when the backend answering the status read has not replayed through the
-  /// last block that could hold the transaction, the one after the hash's last
-  /// valid height, while the one answering the height is at least 32 blocks
-  /// past that height, a lag of at least 32 blocks between the two: about
-  /// 6.4 s at 200 ms slots, 12.8 s before. Raising the depth is a decision for
-  /// measured lag between a provider's backends; nothing here derives it from
-  /// a slot time.
+  /// height that opens this gate and the nil can come from two nodes. The cover
+  /// slot check binds the two on a server whose answer says how far it has
+  /// finalized, which agave 4.4 and later does, so the nodes of every public
+  /// cluster today do too: there the check carries the argument, and the buffer
+  /// is a second margin that costs 32 blocks of the status cache window
+  /// described at [#coverSlots]. On a server whose answer does not say (agave
+  /// before 4.4 and Surfpool, development setups today, and any provider front
+  /// end that does not pass a node's context slot through, which nobody has
+  /// surveyed) this buffer is the only margin, and it is kept for those. The
+  /// margin is denominated in blocks while the lag it covers is wall-clock, so
+  /// SIMD-0525 halved it: without the check a nil is wrong only when the
+  /// backend answering the status read has not replayed through the last block
+  /// that could hold the transaction, the one after the hash's last valid
+  /// height, while the one answering the height is at least 32 blocks past that
+  /// height, a lag of at least 32 blocks between the two: about 6.9 s at the
+  /// 215 ms a slot measured on mainnet-beta on 2026-11-11, and 12.8 s at the
+  /// 400 ms slots before it. Raising the depth is a decision for measured lag
+  /// between a provider's backends; nothing here derives it from a slot time.
   ///
-  /// If the finalized height stalls — a cluster halt — pending futures wait
-  /// rather than settle: the transaction's fate is unknowable mid-halt, and a
-  /// false "never landed" would re-execute it after the restart; the gate
-  /// opens within this many blocks of the chain resuming. Callers needing a
-  /// bounded wait can `orTimeout` the returned future.
+  /// If the finalized height stalls, pending futures wait rather than settle: a
+  /// block that is not final can still be dropped, so the transaction's fate is
+  /// unknowable until finality resumes, and a false "never landed" would
+  /// re-execute it afterwards; the gate opens within this many blocks of
+  /// finality resuming. Callers needing a bounded wait can `orTimeout` the
+  /// returned future.
   private static final BigInteger SETTLE_BUFFER_BLOCKS = BigInteger.valueOf(32);
 
   /// For each pending transaction whose height gate has opened, the cover slot: the finalized
@@ -68,37 +74,44 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
   /// recent status cache included (agave #15418). So against 4.5 this check is not optional:
   /// without it a node whose history trails answers nil for a transaction its cache holds, a
   /// restarted one with context slot 0. agave 4.4 answers with its finalized bank's slot.
-  /// agave before 4.4 and Surfpool ignore the commitment and answer with their processed tip,
-  /// which the check can only hold to having passed the cover slot; the buffer above is what
-  /// covers those. An answer with no context at all leaves nothing to compare and settles on
-  /// the height gate alone, as every answer did until 2026-11-11: no agave node sends one,
-  /// and waiting on a field that never comes would never end.
+  /// agave before 4.4 and Surfpool, development setups today, ignore the commitment and answer
+  /// with their processed tip, which the check can only hold to having passed the cover slot;
+  /// the buffer above is what covers those. An answer with no context at all leaves nothing to
+  /// compare and settles on the height gate alone, as every answer did until 2026-11-11: no
+  /// agave node sends one, and waiting on a field that never comes would never end.
   ///
-  /// The slot is recorded once and never moved: 4.5's history root trails the finalized slot
-  /// by design, so a nil compared against each pass's own fresh slot could wait for good on a
-  /// node whose history is seconds behind and long past the transaction. Recorded once, it
-  /// is passed for good as soon as that node's history reaches it. It is a slot, compared
-  /// with slots only: a slot is never derived from a block height or the reverse, since a
-  /// skipped slot holds no block.
+  /// The slot is recorded once and never moved. 4.5's history root is never above the
+  /// finalized slot: it normally equals it, as in each of twelve samples of the public testnet
+  /// endpoint on 2026-11-11, and falls behind while the node's status writes are backlogged. A
+  /// nil compared against each pass's own fresh slot could then wait for good on a node
+  /// whose history is seconds behind and long past the transaction. Recorded once, it is
+  /// passed for good as soon as that node's history reaches it. It is a slot, compared with
+  /// slots only: a slot is never derived from a block height or the reverse, since a skipped
+  /// slot holds no block.
   ///
-  /// The check is evidence of progress, not of a complete history. Once a landing has left
-  /// the node's recent status cache, which keeps its 300 newest roots, a nil rests on the
-  /// node's stored history, and a node restored from a snapshot, or one that lost queued
-  /// status writes in a crash, can report a slot past a hole in it. The gate opens at most
-  /// 119 blocks before the earliest landing leaves that cache and at most 269 before the
-  /// latest does, fewer by however many blocks the block height of the node's own root is
-  /// ahead of the finalized block height read here; at 200 ms a slot with none skipped, 119
-  /// and 269 blocks are about 24 s and 54 s. So it takes such a node and a nil that settles
-  /// only after the landing has left its cache, which three things can bring about: a first
-  /// open-gate read held up that long; a backend answering the height that far behind the
-  /// one answering the statuses, which needs no delay here at all; or a verdict this check
-  /// itself held that long because the answering node was behind. The cover slot says how
-  /// far a node has finalized, not how long ago the gate opened, so an answer that reaches
-  /// it late, from a node restarted on a newer snapshot or from another backend behind the
-  /// same URL, can come from stored history; reading the slot afresh each pass would close
-  /// none of it. The wait a held verdict spends counts toward that window; it does not
-  /// protect against the hole. The first two are older than the check, and all three are
-  /// the same on 4.4 as on 4.5 and are not closed here.
+  /// The check is evidence of progress, not of a complete history. Once a landing has left the
+  /// node's recent status cache, which keeps its 300 newest roots, a nil rests on the node's
+  /// stored history, and a node restored from a snapshot, or one that lost queued status
+  /// writes in a crash, can report a slot past a hole in it. The gate opens at most 119 blocks
+  /// before the earliest landing leaves that cache and at most 269 before the latest does,
+  /// fewer by however many blocks the block height of the node's own root is ahead of the
+  /// finalized block height read here; at the 215 ms a slot measured on mainnet-beta on
+  /// 2026-11-11, with none skipped, 119 and 269 blocks are about 26 s and 58 s. So it takes
+  /// such a node and a nil that settles only after the landing has left its cache, which three
+  /// things can bring about: a first open-gate read held up that long; a backend answering the
+  /// height that far behind the one answering the statuses, which needs no delay here at all;
+  /// or a verdict this check itself held that long because the answering node was behind. The
+  /// cover slot says how far a node has finalized, not how long ago the gate opened, so an
+  /// answer that reaches it late, from a node restarted on a newer snapshot or from another
+  /// backend behind the same URL, can come from stored history; reading the slot afresh each
+  /// pass would close none of it. The wait a held verdict spends counts toward that window; it
+  /// does not protect against the hole. The first two are older than the check, and all three
+  /// are the same on 4.4 as on 4.5 and are not closed here. Read from agave 4.4's source and
+  /// not observed, 4.4 adds a third kind of such node: it does not hold a history read to the
+  /// slot its status writes are complete through, as 4.5 does, so a 4.4 node whose status
+  /// writer has fallen some 300 blocks behind the landing, having lost nothing, answers the
+  /// same nil past the cover slot when one of those delays brings the read after the landing
+  /// has left its cache.
   ///
   /// Keyed like the pending map, by the context's ordering (block height, then signature),
   /// so that a waiter that takes a pending entry over keeps the entry's cover slot. Read and

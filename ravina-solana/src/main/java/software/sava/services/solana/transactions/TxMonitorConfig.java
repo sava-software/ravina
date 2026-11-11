@@ -54,8 +54,11 @@ public record TxMonitorConfig(Duration minSleepBetweenSigStatusPolling,
   /// test validator, where no block, vote or certificate crosses a network. A
   /// mainnet RPC node adds the block's propagation and the voting rounds and,
   /// unless a staked validator pushes certificates to it, waits for a later
-  /// block's footer to carry the finalization certificate; none of that has
-  /// been measured.
+  /// block's footer to carry the finalization certificate. On 2026-11-11 the
+  /// public endpoints' finalized slot trailed their processed slot by one slot
+  /// in nearly every sample of mainnet-beta and testnet and by one or two on
+  /// devnet, at about 215 ms a slot; the latency from a send to its
+  /// notification on a public cluster has not been measured.
   public static final Duration DEFAULT_WEB_SOCKET_CONFIRMATION_TIMEOUT = Duration.ofSeconds(3);
   /// Agave's own send-service retry rate.
   public static final Duration DEFAULT_RETRY_SEND_DELAY = Duration.ofSeconds(2);

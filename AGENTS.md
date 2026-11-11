@@ -457,7 +457,8 @@ them, because the list is the argument for the effort.
   `Bank::get_signature_status_processed_since_parent` on each commitment update
   (`rpc/src/rpc_subscriptions.rs`, `notify_watchers`), and that reads the status cache across
   the bank's ancestors, so a signature that landed before the subscription registered is found
-  on the next update. Measured on a local Agave 4.2.2 test validator on 2026-09-26, running
+  on the next update; the lookup is the same at `v4.4.0` and `v4.5.0-beta.0`, what the public
+  clusters run. Measured on a local Agave 4.2.2 test validator on 2026-09-26, running
   TowerBFT (started without `--alpenglow`): six subscriptions made only after
   `getSignatureStatuses` already reported `confirmed` were each notified about one slot later,
   no slower than subscriptions made right after the send (`soak/README.md` has the table). The
@@ -566,129 +567,145 @@ them, because the list is the argument for the effort.
   `FeePayerSigningSpan` locates the fee payer's signing span for all three
   formats: a v1 message comes *before* its signatures, with no count prefix.
 - **A confirmed or finalized transaction is settled; settled state is read at finalized.**
-  `transactions.Settlement` is the
-  decision point for the transactions package. `CONFIRMED` and `FINALIZED` are
-  one settled level, met by either observed status, and ravina reads settled
-  state (block heights, block hashes, simulations, signature subscriptions,
-  the expiration monitor's epoch info and status reads) at
-  `Settlement.COMMITMENT`, `FINALIZED` since 2026-10-24. Asking and answering
-  are separate: ravina never asks for `confirmed` on its own behalf, and
-  whatever level comes back is weighed by `Settlement.met`, so a `CONFIRMED`
-  status still settles a settled await. The epoch service names `FINALIZED`
-  itself in its `getEpochInfo` read (`Settlement` is package-private to the
-  transactions package), so a client built with another default commitment
-  cannot make it read below finalized, and `Epoch`'s slot and block height are
-  the finalized bank's whatever that default. What is not at the settled
-  commitment is a caller's own choice, in three forms. A commitment passed to
-  `TransactionProcessor`'s `publish` or `simulateAndEstimate` overloads is sent
-  as given. A `PROCESSED` await on both result and error subscribes at
-  `PROCESSED`. And the commitment monitor's status poll reads a transaction
-  with no commitment named, which a node answers from its processed bank, when
-  its settings ask for what only that bank answers (`Settlement.polledSettled`):
-  `verifyExpired` false, or a `PROCESSED` await on the result or on an error.
-  Every other transaction, the default settings among them, is polled at
-  `FINALIZED` since 2026-11-11, from the recent status cache only and with no
-  `minContextSlot`. There a missing status is never a verdict: it makes a
-  resend due or hands the transaction to the expiration monitor, whose own
-  finalized read decides "never landed". The price is the gap between a node's
-  processed bank and its finalized one, which was one slot, about 215 ms, in
-  nearly every sample of mainnet-beta and testnet on 2026-11-11 (one or two on
-  devnet): a transaction that landed inside it reads as missing for a pass and
-  can be resent once,
-  the same bytes, which land at most once. If finality fell behind the blocks
-  being produced the resends would repeat, one each resend delay, until it
-  caught up, since the resend floor is counted from the finalized height. A
-  pass that holds both kinds makes both reads in one call, charged for two, and
-  each transaction is answered from its own. Do not move the other two kinds to
-  `FINALIZED` with the rest. With `verifyExpired` false the first missing status
-  is the "never landed" verdict the caller rebuilds on, and read at `finalized`
-  it would also be the answer for a transaction that landed a slot ago, so the
-  rebuild would execute its instructions a second time; a `PROCESSED` await is
-  released by a status that is not final, which a finalized read does not
-  report. A change that moved every transaction was written on 2026-11-11 and
-  dropped in review before it was pushed; the case that review made
-  deterministic needed a TowerBFT test validator, and the split is what its
-  Alpenglow case, the one-slot gap, leaves. Until then every transaction was
-  polled with no commitment named.
+  `transactions.Settlement` is the decision point for the transactions package.
+  `CONFIRMED` and `FINALIZED` are one settled level, met by either observed
+  status, and ravina reads settled state (block heights, block hashes,
+  simulations, signature subscriptions, the expiration monitor's epoch info and
+  status reads) at `Settlement.COMMITMENT`, `FINALIZED` since 2026-10-24. Asking
+  and answering are separate: ravina never asks for `confirmed` on its own
+  behalf, and whatever level comes back is weighed by `Settlement.met`, so a
+  `CONFIRMED` status still settles a settled await. The epoch service names
+  `FINALIZED` itself in its `getEpochInfo` read (`Settlement` is package-private
+  to the transactions package), so a client built with another default
+  commitment cannot make it read below finalized, and `Epoch`'s slot and block
+  height are the finalized bank's whatever that default. What is not at the
+  settled commitment is a caller's own choice, in three forms. A commitment
+  passed to `TransactionProcessor`'s `publish` or `simulateAndEstimate`
+  overloads is sent as given. A `PROCESSED` await on both result and error
+  subscribes at `PROCESSED`. And the commitment monitor's status poll reads a
+  transaction with no commitment named, which a node answers from its processed
+  bank, when its settings ask for what only that bank answers
+  (`Settlement.polledSettled`): `verifyExpired` false, or a `PROCESSED` await on
+  the result or on an error. Every other transaction, the default settings among
+  them, is polled at `FINALIZED` since 2026-11-11, from the recent status cache
+  only and with no `minContextSlot`. There a missing status is never a verdict:
+  it makes a resend due or hands the transaction to the expiration monitor,
+  whose own finalized read decides "never landed". The price is the gap between
+  a node's processed bank and its finalized one, which was one slot, about 215
+  ms, in nearly every sample of mainnet-beta and testnet on 2026-11-11 (one or
+  two on devnet): a transaction that landed inside it reads as missing for a
+  pass and can be resent once, the same bytes, which land at most once. If
+  finality fell behind the blocks being produced the resends would repeat, one
+  each resend delay, until it caught up, since the resend floor is counted from
+  the finalized height. A pass that holds both kinds makes both reads in one
+  call, charged for two, and each transaction is answered from its own. Do not
+  move the other two kinds to `FINALIZED` with the rest. With `verifyExpired`
+  false the first missing status is the "never landed" verdict the caller
+  rebuilds on, and read at `finalized` it would also be the answer for a
+  transaction that landed a slot ago, so the rebuild would execute its
+  instructions a second time; a `PROCESSED` await is released by a status that
+  is not final, which a finalized read does not report. A change that moved
+  every transaction was written on 2026-11-11 and dropped in review before it
+  was pushed; the case that review made deterministic needed a TowerBFT test
+  validator, and the split is what its Alpenglow case, the one-slot gap, leaves.
+  Until then every transaction was polled with no commitment named. Read from
+  agave 4.4's source and not observed: in the moment between a node publishing a
+  new root and applying it, a read at its processed bank can label `finalized` a
+  transaction in a block that node voted for and the cluster skipped, or miss a
+  transaction that is final. A read at `finalized` does neither, and agave 4.5
+  publishes the root only after applying it; the transactions still polled with
+  no commitment named keep that exposure on 4.4.
   `aVerifiedSettledAwaitIsPolledAtTheSettledCommitment`,
   `anUnverifiedExpiryOrAProcessedAwaitIsPolledWithNoCommitment` and
   `aMixedPassReadsEachTransactionAtItsOwnLevel` pin which read a transaction
   gets, and `theSettledPollPutsFinalizedOnTheWire` and
   `theProcessedPollPutsNoCommitmentOnTheWire` the requests sava sends. On an
-  Alpenglow node,
-  which every public cluster has been since October 2026, both levels move on
-  the same root event, so a `FINALIZED` read costs no extra wait, and the
-  Solana Foundation's Alpenglow guide says `confirmed` is removed in a later
-  release. `finalized` trails `confirmed` on development setups only (an agave
-  test validator on TowerBFT, before 4.5.0-alpha.2 and started without
+  Alpenglow node, which every public cluster has been since October 2026, both
+  levels move on the same root event, so a `FINALIZED` read costs no extra wait,
+  and the Solana Foundation's Alpenglow guide says `confirmed` is removed in a
+  later release. `finalized` trails `confirmed` on development setups only (an
+  agave test validator on TowerBFT, before 4.5.0-alpha.2 and started without
   `--alpenglow`, or a Surfpool surfnet, which reports `finalized` 30 slots
   behind): there a `FINALIZED` read and subscription lag confirmation by about
   32 slots, so a settled websocket await runs out its timeout and polling
   settles it. It does so on `CONFIRMED` wherever the read is answered from the
-  processed bank: for every transaction on a server that ignores a status
-  read's commitment (agave before 4.4, Surfpool), and on an agave 4.4 test
-  validator on TowerBFT, which honours it, for a transaction polled with no
-  commitment named. A transaction that validator is polled at `FINALIZED` for
-  settles once its block is final, and is resent meanwhile if it opted in. On
-  the agave validator the next finalized simulation does not see
-  a transaction released at `CONFIRMED` either, while Surfpool simulates
-  against its current state and only delays statuses, block hashes and
-  heights. That is the accepted cost, and the soak passes `--alpenglow` for it.
-  Logs report the level actually observed (`Settlement.reached`), so a settled
-  await released by a `CONFIRMED` status on such an environment is not reported
-  as finalized.
-  `WebSocketManager` and `HeliusJsonRpcClient` pass `FINALIZED` as client
-  defaults, mirroring the defaults sava's builders adopted the same day, and
-  move with them. The expiration monitor's 32-block settle buffer is margin
-  for backend lag, not finality depth: faster finality is no reason to trim it.
+  processed bank: for every transaction on a server that ignores a status read's
+  commitment (agave before 4.4, Surfpool), and on an agave 4.4 test validator on
+  TowerBFT, which honours it, for a transaction polled with no commitment named.
+  A transaction that validator is polled at `FINALIZED` for settles once its
+  block is final, and is resent meanwhile if it opted in. On the agave validator
+  the next finalized simulation does not see a transaction released at
+  `CONFIRMED` either, while Surfpool simulates against its current state and
+  only delays statuses, block hashes and heights. That is the accepted cost, and
+  the soak passes `--alpenglow` for it. Logs report the level actually observed
+  (`Settlement.reached`), so a settled await released by a `CONFIRMED` status on
+  such an environment is not reported as finalized. `WebSocketManager` and
+  `HeliusJsonRpcClient` pass `FINALIZED` as client defaults, mirroring the
+  defaults sava's builders adopted the same day, and move with them. The
+  expiration monitor's 32-block settle buffer is margin for backend lag, not
+  finality depth: faster finality is no reason to trim it.
 - **A missing status is "never landed" only from a node that reports having finalized past the transaction; where a server does not report it, only behind the 32-block buffer.**
   `TxExpirationMonitorService` settles a nil as expired when two gates hold, each in its own
-  unit. Heights: the finalized block height has reached the transaction's last valid block
-  height plus the 32-block buffer. Slots: the status answer's own context slot has reached the
-  cover slot, the finalized slot read with the height that first opened the gate. Both come from
-  one `getEpochInfo` answer, which agave builds from one bank, so every block that could hold
-  the transaction is at or below the cover slot, and an answer that has reached it comes from a
-  node that has finalized through all of them; until then the nil is a lagging node's and the
-  pass waits. Never derive a slot from a height or compare one with the other: a skipped slot
-  holds no block. The cover slot is recorded once per pending entry and never moved, because
-  agave 4.5's history root trails the finalized slot by design and a nil held to each pass's
-  fresh slot could wait for good. The status read is at finalized commitment with a history
-  search, the one shape agave 4.5 answers with the root its history is complete through (the
-  lower of the finalized root and the highest rooted slot whose status writes are done,
-  agave #15418) and for which it hides everything above that root, recent status cache hits
-  included. So the commitment and the check go together: the read without the check is worse on
-  4.5 than the processed read it replaced, since a node whose history trails answers nil for a
-  transaction its cache holds, a restarted one with context slot 0. Do not add `minContextSlot`
-  to it: a node behind it answers -32016, which fails the read inside `courteousGet`, so the
-  peer is marked failed on a balancer the sends may share, and with one peer, or every peer
-  behind, the read is retried without bound and holds every transaction of the pass. The price
-  is that a peer that stays behind is polled again, not failed over from, and holds the verdict
-  for as long as it does; the pass that records a cover slot logs once, at INFO, when the answer
-  is short of it. What the check can say depends on the server: agave 4.4
-  reports its finalized bank's slot; agave before 4.4 and Surfpool ignore the commitment and
-  report their processed tip, which is why the buffer stays; an answer with no context settles
-  on the height gate alone. It is evidence of progress, not of a complete history: once a
-  landing has left the node's recent status cache, which keeps its 300 newest roots, a nil rests
-  on stored history, and a node restored from a snapshot or one that lost queued status writes
-  in a crash can report a slot past a hole in it. The gate opens at most 119 blocks before the
-  earliest landing leaves that cache and at most 269 before the latest does, fewer by however
-  many blocks the block height of the node's own root is ahead of the finalized block height
-  ravina read; at 200 ms a slot with none skipped, 119 and 269 blocks are about 24 s and 54 s.
-  So it takes such a node and a nil that settles only after the landing has left its cache,
-  which three things can bring about: a first open-gate read held up that long; a backend
-  answering the height that far behind the one answering the statuses, which needs no delay in
-  ravina; or a verdict the check itself held that long because the answering node was behind.
-  The cover slot says how far a node has finalized, not how long ago the gate opened, so an
-  answer that reaches it late, from a node restarted on a newer snapshot or from another backend
-  behind the same URL, can come from stored history; reading the slot afresh each pass would
-  close none of it. The wait a held verdict spends counts toward that window and does not
-  protect against the hole. That is so on 4.4 as on 4.5, and is not closed. A consumer that
-  settles
+  unit. Heights: the finalized block height has reached the transaction's last valid block height
+  plus the 32-block buffer. Slots: the status answer's own context slot has reached the cover
+  slot, the finalized slot read with the height that first opened the gate. Both come from one
+  `getEpochInfo` answer, which agave builds from one bank, so every block that could hold the
+  transaction is at or below the cover slot, and an answer that has reached it comes from a node
+  that has finalized through all of them; until then the nil is a lagging node's and the pass
+  waits. Never derive a slot from a height or compare one with the other: a skipped slot holds no
+  block. The cover slot is recorded once per pending entry and never moved, because agave 4.5's
+  history root, which normally equals the finalized slot, falls behind it while the node's status
+  writes are backlogged, and a nil held to each pass's fresh slot could then wait for good. The
+  status read is at finalized commitment with a history search, the one shape agave 4.5 answers
+  with the root its history is complete through (the lower of the finalized root and the highest
+  rooted slot whose status writes are done, agave #15418) and for which it hides everything above
+  that root, recent status cache hits included. So the commitment and the check go together: the
+  read without the check is worse on 4.5 than the processed read it replaced, since a node whose
+  history trails answers nil for a transaction its cache holds, a restarted one with context
+  slot 0. Do not add `minContextSlot` to it: a node behind it answers -32016, which fails the read
+  inside `courteousGet`, so the peer is marked failed on a balancer the sends may share, and with
+  one peer, or every peer behind, the read is retried without bound and holds every transaction
+  of the pass. The price is that a peer that stays behind is polled again, not failed over from,
+  and holds the verdict for as long as it does; the pass that records a cover slot logs once, at
+  INFO, when the answer is short of it. What the check can say depends on the server: agave 4.4
+  reports its finalized bank's slot and 4.5 its history root, so every public cluster today
+  reports how far it has finalized; agave before 4.4 and Surfpool, development setups today,
+  ignore the commitment and report their processed tip, and for those, and for any provider front
+  end that does not pass a node's context slot through, which nobody has surveyed, the buffer is
+  the only margin, which is why it stays; an answer with no context settles on the height gate
+  alone. On a server that does report it the check carries the argument and the buffer is a
+  second margin, at the cost of 32 blocks of the cache window below. It is evidence of progress,
+  not of a complete history: once a landing has left the node's recent status cache, which keeps
+  its 300 newest roots, a nil rests on stored history, and a node restored from a snapshot or one
+  that lost queued status writes in a crash can report a slot past a hole in it. The gate opens
+  at most 119 blocks before the earliest landing leaves that cache and at most 269 before the
+  latest does, fewer by however many blocks the block height of the node's own root is ahead of
+  the finalized block height ravina read; at the 215 ms a slot measured on mainnet-beta on
+  2026-11-11, with none skipped, 119 and 269 blocks are about 26 s and 58 s. So it takes such a
+  node and a nil that settles only after the landing has left its cache, which three things can
+  bring about: a first open-gate read held up that long; a backend answering the height that far
+  behind the one answering the statuses, which needs no delay in ravina; or a verdict the check
+  itself held that long because the answering node was behind. The cover slot says how far a node
+  has finalized, not how long ago the gate opened, so an answer that reaches it late, from a node
+  restarted on a newer snapshot or from another backend behind the same URL, can come from stored
+  history; reading the slot afresh each pass would close none of it. The wait a held verdict
+  spends counts toward that window and does not protect against the hole. That is so on 4.4 as on
+  4.5, and is not closed. Read from agave 4.4's source and not observed, 4.4 has a third kind of
+  node with the same gap: it does not hold a history read to the slot its status writes are
+  complete through, as 4.5 does, so a 4.4 node whose status writer has fallen some 300 blocks
+  behind the landing, having lost nothing, answers the same nil past the cover slot when one of
+  those delays brings the read after the landing has left its cache. A consumer that settles
   `landable()` attempts itself owes the same read (`PublicationException.landableUntil`).
-  Measured 2026-11-11 against the public mainnet, testnet and devnet
-  endpoints, all on 4.4.0: the commitment is honoured, the context slot is the finalized slot,
-  and unknown fields are ignored. What 4.5 does is read from source at `v4.5.0-beta.0`, not
-  measured.
+  Measured 2026-11-11 against the public endpoints: mainnet-beta and devnet on 4.4.0, testnet on
+  4.4.0 in the morning and on 4.5.0-beta.0 from 16:08 UTC. On both versions the commitment is
+  honoured, the context slot of a finalized read is the finalized slot, a `minContextSlot` ahead
+  of the node answers -32016, and unknown fields are ignored. On testnet's 4.5.0-beta.0 the
+  finalized read with a history search reported a context slot equal to the finalized slot in
+  each of twelve samples, and found transactions 14, 448 and 5,144 slots old, each labelled
+  `finalized`; without a history search both versions answered nil for the two older ones, as the
+  300-root cache implies. What 4.5 does when its history root is behind (the hidden cache hits,
+  the context slot short of the finalized slot, slot 0 after a restart) was not seen in those
+  samples and is read from source at `v4.5.0-beta.0`.
 - **`TxMonitorConfig`'s durations are budgets inside the block hash window, not rate limits.**
   A block hash is valid for 150 blocks whatever the slot time: SIMD-0525 kept the block hash
   queue its size and accepted that the window shrinks in wall-clock terms, so at 200 ms slots

@@ -364,17 +364,16 @@ public interface InstructionService {
   ///
   /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
   /// arrives with `verifyExpired` true only while the settled block height
-  /// advances (a cluster halt holds the expiration gate shut), the status and
-  /// epoch info reads succeed, since a read that fails is retried and failed
-  /// over for as long as it takes, and the node that answers the status read
-  /// has itself finalized past the transaction: one that stays behind, an
-  /// agave 4.5 node whose transaction history trails for one, holds the
-  /// verdict for as long as it does, logged once per pending entry. With `false`
-  /// it needs only a status read that succeeds. Until then the call waits, on
-  /// the monitor loops. A
-  /// monitor loop that stops, on an interrupt, after
-  /// `BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES` passes that failed in
-  /// a row, or on a `VirtualMachineError`, ends the call with a
+  /// advances (a stalled finalized height holds the expiration gate shut), the
+  /// status and epoch info reads succeed, since a read that fails is retried
+  /// and failed over for as long as it takes, and the node that answers the
+  /// status read has itself finalized past the transaction: one that stays
+  /// behind, an agave 4.5 node whose transaction history trails for one, holds
+  /// the verdict for as long as it does, logged once per pending entry. With
+  /// `false` it needs only a status read that succeeds. Until then the call
+  /// waits, on the monitor loops. A monitor loop that stops, on an interrupt,
+  /// after `BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES` passes that
+  /// failed in a row, or on a `VirtualMachineError`, ends the call with a
   /// `TxMonitorStoppedException` of its own, the failure that stopped the loop
   /// its cause, none for an interrupt; the monitor does not restart. A call
   /// that finds the monitor stopped before an attempt is refused with nothing
