@@ -1,14 +1,14 @@
 !sava-hardening-baseline-schema,1
-software.sava.services.solana.epoch.EpochInfoServiceImpl,awaitInitialized,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # slow-path-equivalent # line 145
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,ConditionalsBoundaryMutator,SURVIVED # idle-spin-only # line 287
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 259
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 259
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 259
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # fetch-disjunction-converging # line 287
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # fetch-disjunction-converging # line 287
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop # line 305
-software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,VoidMethodCallMutator,SURVIVED # log-removal # line 297
-software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,VoidMethodCallMutator,SURVIVED # log-removal # line 121
-software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,VoidMethodCallMutator,SURVIVED # log-removal # line 126
-software.sava.services.solana.epoch.EpochInfoServiceImpl,run,VoidMethodCallMutator,SURVIVED # log-removal # line 344
-software.sava.services.solana.epoch.EpochInfoServiceImpl,start,VoidMethodCallMutator,SURVIVED # log-removal # line 329
+software.sava.services.solana.epoch.EpochInfoServiceImpl,awaitInitialized,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # slow-path-equivalent # line 147
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,ConditionalsBoundaryMutator,SURVIVED # idle-spin-only # line 289
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 261
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 261
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,MathMutator,SURVIVED # await-pacing-only # line 261
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # fetch-disjunction-converging # line 289
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # fetch-disjunction-converging # line 289
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,RemoveConditionalMutator_EQUAL_ELSE,SURVIVED # else-direction-noop # line 307
+software.sava.services.solana.epoch.EpochInfoServiceImpl,checkCycle,VoidMethodCallMutator,SURVIVED # log-removal # line 299
+software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,VoidMethodCallMutator,SURVIVED # log-removal # line 123
+software.sava.services.solana.epoch.EpochInfoServiceImpl,getAndSetEpochInfo,VoidMethodCallMutator,SURVIVED # log-removal # line 128
+software.sava.services.solana.epoch.EpochInfoServiceImpl,run,VoidMethodCallMutator,SURVIVED # log-removal # line 346
+software.sava.services.solana.epoch.EpochInfoServiceImpl,start,VoidMethodCallMutator,SURVIVED # log-removal # line 331
