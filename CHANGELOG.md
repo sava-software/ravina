@@ -1,5 +1,13 @@
 # Changelog
 
+## [25.9.2](https://github.com/sava-software/ravina/compare/25.9.1...25.9.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **solana:** hold an expiry verdict to a node that has finalized past the transaction ([02d77b4](https://github.com/sava-software/ravina/commit/02d77b4fe410ca44b6ad4910413efc8d74a57c20))
+* **solana:** read the epoch at finalized by name ([b4d5824](https://github.com/sava-software/ravina/commit/b4d582464c6afc1512a0a8ac3eef4a7ece63f804))
+
 ## [25.9.1](https://github.com/sava-software/ravina/compare/25.9.0...25.9.1) (2026-11-10)
 
 
