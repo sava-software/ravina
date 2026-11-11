@@ -1,5 +1,6 @@
 package software.sava.services.solana.transactions;
 
+import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.*;
 import software.sava.services.core.NanoClock;
@@ -10,6 +11,7 @@ import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -235,18 +237,80 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
     return null;
   }
 
+  /// A mixed pass's two answers, each in the order its signatures were asked.
+  private record Polled(List<TxStatus> settled, List<TxStatus> processed) {
+  }
+
+  private static boolean polledSettled(final TxContext txContext) {
+    return Settlement.polledSettled(
+        txContext.awaitCommitment(), txContext.awaitCommitmentOnError(), txContext.verifyExpired()
+    );
+  }
+
+  /// The settled read: the recent status cache only, since a transaction this monitor still
+  /// holds is inside its block hash's window, and no minimum context slot, which a node
+  /// behind it would refuse with an error this call would retry without bound.
+  private static CompletableFuture<List<TxStatus>> settledStatuses(final SolanaRpcClient rpcClient,
+                                                                    final List<String> signatures) {
+    return rpcClient.getSigStatusList(Settlement.COMMITMENT, signatures, false)
+        .thenApply(list -> statusesFor(signatures, list));
+  }
+
+  private static CompletableFuture<List<TxStatus>> processedStatuses(final SolanaRpcClient rpcClient,
+                                                                      final List<String> signatures) {
+    return rpcClient.getSigStatusList(signatures).thenApply(list -> statusesFor(signatures, list));
+  }
+
+  /// The two reads' statuses back in the batch's order, which every later step indexes by and
+  /// the resend order's ties keep.
+  private static List<TxStatus> inBatchOrder(final Map<String, TxContext> contextMap,
+                                             final List<String> signatures,
+                                             final Polled polled) {
+    final var settled = polled.settled().iterator();
+    final var processed = polled.processed().iterator();
+    final var sigStatusList = new ArrayList<TxStatus>(signatures.size());
+    for (final var sig : signatures) {
+      sigStatusList.add((polledSettled(contextMap.get(sig)) ? settled : processed).next());
+    }
+    return sigStatusList;
+  }
+
   @Override
   protected void processTransactions(final Map<String, TxContext> contextMap) {
     final var signatures = List.copyOf(contextMap.keySet());
-    // No commitment is named, on purpose: a node then answers from its processed bank, and
-    // a nil below means it has not seen the transaction at all. Read at finalized, a nil
-    // would also be a landed transaction that is not final yet, which this pass would
-    // complete as never landed, with expiry unverified, for the caller to rebuild on, or
-    // would resend (see Settlement).
-    final var sigStatusList = rpcCaller.courteousGet(
-        rpcClient -> rpcClient.getSigStatusList(signatures).thenApply(list -> statusesFor(signatures, list)),
-        "rpcClient::getSigStatusList"
-    );
+    // Each transaction is read at the level its caller's settings ask of a status (see
+    // Settlement#polledSettled): at the settled commitment where expiry is verified and
+    // nothing is awaited at processed, and with no commitment named, which a node answers
+    // from its processed bank, for the rest. A pass that holds both kinds makes both reads
+    // inside one call: a failure of either is retried as one read, so no half of the batch
+    // is acted on while the other half's read is still failing. That call is charged for two
+    // requests and, like the expiration monitor's pair, is not sampled for the balancer's
+    // latency, since the time two requests take is not one request's.
+    final var atSettled = new ArrayList<String>(signatures.size());
+    final var atProcessed = new ArrayList<String>(signatures.size());
+    for (final var sig : signatures) {
+      (polledSettled(contextMap.get(sig)) ? atSettled : atProcessed).add(sig);
+    }
+    final List<TxStatus> sigStatusList;
+    if (atSettled.isEmpty()) {
+      sigStatusList = rpcCaller.courteousGet(
+          rpcClient -> processedStatuses(rpcClient, atProcessed),
+          "rpcClient::getSigStatusList"
+      );
+    } else if (atProcessed.isEmpty()) {
+      sigStatusList = rpcCaller.courteousGet(
+          rpcClient -> settledStatuses(rpcClient, atSettled),
+          "rpcClient::getSigStatusList"
+      );
+    } else {
+      final var polled = rpcCaller.courteousGet(
+          rpcClient -> settledStatuses(rpcClient, atSettled)
+              .thenCombine(processedStatuses(rpcClient, atProcessed), Polled::new),
+          2,
+          "rpcClient::getSigStatusList"
+      );
+      sigStatusList = inBatchOrder(contextMap, signatures, polled);
+    }
 
     completeFutures(contextMap, signatures, sigStatusList);
 

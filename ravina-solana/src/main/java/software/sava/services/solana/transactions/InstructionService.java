@@ -21,18 +21,19 @@ import java.util.function.Function;
 /// higher on-error commitment waits for the settled level (see
 /// [TxMonitorService#tryAwaitCommitmentViaWebSocket]).
 ///
-/// On an agave test validator running TowerBFT (before 4.5.0-alpha.2, started
-/// without `--alpenglow`) an await is released by a `confirmed` status about 32
-/// slots before the root bank that finalized simulations read contains the
-/// transaction, so a dependent follow-up can fail simulation, and that result is
-/// returned rather than retried. Start the validator with `--alpenglow`, or set
-/// `TxMonitorConfig.webSocketConfirmationTimeout` above the rooting time so the
-/// finalized subscription releases the await; the polling fallback still
-/// releases at `confirmed`. Raising that timeout also delays the first resend,
-/// because polling and resending start only once the websocket await has run
-/// out, and at 200 ms slots a timeout near the block hash's validity, about
-/// 30 s, leaves a lost transaction no resend at all; do it only where resends
-/// are not needed.
+/// Development setups only, since no public cluster lags like this: on an agave
+/// test validator running TowerBFT (before 4.5.0-alpha.2, started without
+/// `--alpenglow`) `finalized` trails `confirmed` by about 32 slots, and the
+/// finalized subscription outlasts the websocket await. The polling fallback
+/// then releases the await at `confirmed` wherever the status is read from the
+/// processed bank: for every transaction on a validator older than 4.4, which
+/// ignores a status read's commitment, and on 4.4 for one polled with no
+/// commitment named (`verifyExpired` false, or an await at `PROCESSED`). That
+/// is before the root bank that finalized simulations read contains the
+/// transaction, so a dependent follow-up can fail simulation, and that result
+/// is returned rather than retried. On 4.4 a transaction polled at `finalized`,
+/// as the default settings are, is released once its block is final and, with
+/// `retrySend`, is resent meanwhile. Start the validator with `--alpenglow`.
 public interface InstructionService {
 
   static InstructionService createService(final RpcCaller rpcCaller,

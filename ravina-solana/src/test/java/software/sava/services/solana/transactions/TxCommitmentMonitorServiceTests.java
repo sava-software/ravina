@@ -15,6 +15,7 @@ import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.rpc.json.http.ws.SolanaRpcWebsocket;
 import software.sava.services.core.NanoClock;
 import software.sava.services.solana.config.ChainItemFormatter;
+import software.sava.services.solana.remote.call.RpcCaller;
 import software.sava.services.solana.websocket.WebSocketManager;
 import systems.comodal.jsoniter.JsonIterator;
 
@@ -34,6 +35,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -1268,47 +1270,168 @@ final class TxCommitmentMonitorServiceTests {
     assertEquals(0, rpcClient.blockHeightCalls, "no missing status means no expiration check");
   }
 
-  /// The status poll names no commitment, so a node answers it from its processed bank, and
-  /// its nil means the node has not seen the transaction at all. This monitor acts on a nil
-  /// three times (the verdict when expiry is not verified, the resend, the hand-off), and a
-  /// read at finalized would also answer nil for a transaction that has landed and is not
-  /// final yet: the verdict would rebuild instructions that have executed. It is not a read
-  /// to move to the settled commitment with the others. It reads the recent status cache
-  /// only, and sends no minimum context slot.
+  // ------------------------------------------- the level a status is read at --
+
+  /// A transaction whose expiry is verified and whose awaits are both settled, which is what
+  /// the overloads that take no commitment ask for, is polled at the settled commitment. Its
+  /// status is found once its block is final, and a missing one is never a verdict here:
+  /// this monitor resends on it or hands the transaction to the expiration stage. The read
+  /// is of the recent status cache only and sends no minimum context slot.
   @Test
-  void theStatusPollNamesNoCommitment() {
+  void aVerifiedSettledAwaitIsPolledAtTheSettledCommitment() {
     final var service = service();
     final var finalized = txContext("finalized", 900, FINALIZED, FINALIZED);
-    final var processed = txContext("processed", 900, PROCESSED, PROCESSED);
-    rpcClient.sigStatuses = _ -> List.of(status(FINALIZED), status(FINALIZED));
+    final var confirmed = txContext("confirmed", 900, CONFIRMED, CONFIRMED);
+    final var first = status(FINALIZED);
+    final var second = status(FINALIZED);
+    rpcClient.sigStatuses = _ -> List.of(first, second);
 
-    service.processTransactions(contextMap(finalized, processed));
+    service.processTransactions(contextMap(finalized, confirmed));
 
+    assertEquals(List.of(List.of("finalized", "confirmed")), rpcClient.sigStatusRequests, "one read for the pass");
+    assertEquals(List.of(FINALIZED), rpcClient.sigStatusCommitments);
+    assertEquals(List.of(Boolean.FALSE), rpcClient.searchTransactionHistoryFlags);
+    assertEquals(Collections.singletonList(null), rpcClient.sigStatusMinContextSlots);
+    assertSame(first, settledValue(finalized.sigStatusFuture()));
+    assertSame(second, settledValue(confirmed.sigStatusFuture()));
+  }
+
+  /// Each of the three settings that asks for what only a node's processed bank answers
+  /// keeps the read that names no commitment, the one request made for every transaction
+  /// before 2026-11-11: an expiry that is not verified, whose first missing status is the
+  /// "never landed" verdict; a result awaited at processed; an error awaited at processed.
+  @Test
+  void anUnverifiedExpiryOrAProcessedAwaitIsPolledWithNoCommitment() {
+    final var service = service();
+    final var unverified = txContext("unverified", 900, FINALIZED, FINALIZED, null, false, false);
+    final var processedResult = txContext("processedResult", 900, PROCESSED, FINALIZED);
+    final var processedError = txContext("processedError", 900, FINALIZED, PROCESSED);
+    rpcClient.sigStatuses = _ -> List.of(status(FINALIZED), status(FINALIZED), status(FINALIZED));
+
+    service.processTransactions(contextMap(unverified, processedResult, processedError));
+
+    assertEquals(
+        List.of(List.of("unverified", "processedResult", "processedError")),
+        rpcClient.sigStatusRequests,
+        "one read for the pass"
+    );
     assertEquals(Collections.singletonList(null), rpcClient.sigStatusCommitments);
     assertEquals(List.of(Boolean.FALSE), rpcClient.searchTransactionHistoryFlags);
     assertEquals(Collections.singletonList(null), rpcClient.sigStatusMinContextSlots);
   }
 
-  /// The same on the wire, through sava's own client over a scripted transport: the request
-  /// carries no `commitment` and no `minContextSlot`, and does not search history. The fake
-  /// above only sees which overload was called; this is what a server receives, so a client
-  /// that began sending its default commitment with that overload would fail here.
+  /// A pass that holds both kinds makes both reads, each for its own transactions only, and
+  /// every transaction is answered with its own status: the two answers are put back in the
+  /// batch's order, not handed out to each other's transactions.
   @Test
-  void theStatusPollPutsNoCommitmentOnTheWire() {
-    final var httpClient = new SendFailureTests.ScriptedHttpClient(List.of(new SendFailureTests.Answer(
-        200,
-        "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"4.4.0\",\"slot\":400000000},\"value\":[{\"slot\":399999990,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":\"finalized\"}]},\"id\":1}",
-        Map.of()
-    )));
-    // A client whose own default is finalized: the poll must not inherit it.
-    final var client = SolanaRpcClient.build()
-        .endpoint(URI.create("https://fake.rpc.invalid"))
-        .httpClient(httpClient)
-        .defaultCommitment(FINALIZED)
-        .createClient();
-    final var service = new TxCommitmentMonitorService(
+  void aMixedPassReadsEachTransactionAtItsOwnLevel() {
+    final var service = service();
+    final var verified = txContext("verified", 900, FINALIZED, FINALIZED);
+    final var unverified = txContext("unverified", 900, FINALIZED, FINALIZED, null, false, false);
+    final var alsoVerified = txContext("alsoVerified", 900, CONFIRMED, FINALIZED);
+    final var processed = txContext("processed", 900, PROCESSED, PROCESSED);
+    final var statuses = Map.of(
+        "verified", status(FINALIZED),
+        "unverified", status(FINALIZED),
+        "alsoVerified", status(CONFIRMED),
+        "processed", status(PROCESSED)
+    );
+    rpcClient.sigStatuses = statusesBySignature(statuses);
+
+    service.processTransactions(contextMap(verified, unverified, alsoVerified, processed));
+
+    assertEquals(
+        List.of(List.of("verified", "alsoVerified"), List.of("unverified", "processed")),
+        rpcClient.sigStatusRequests,
+        "the settled read, then the one that names no commitment, each in the batch's order"
+    );
+    assertEquals(Arrays.asList(FINALIZED, null), rpcClient.sigStatusCommitments);
+    assertEquals(List.of(Boolean.FALSE, Boolean.FALSE), rpcClient.searchTransactionHistoryFlags);
+    assertEquals(Arrays.asList(null, null), rpcClient.sigStatusMinContextSlots);
+    for (final var context : List.of(verified, unverified, alsoVerified, processed)) {
+      assertSame(statuses.get(context.sig()), settledValue(context.sigStatusFuture()), context.sig());
+    }
+  }
+
+  /// Two transactions that have both landed in a block that is not final yet, which a node
+  /// answers by the bank asked: nothing at finalized, a `processed` status with no commitment
+  /// named. The one whose expiry is not verified must be asked of the processed bank, where
+  /// it is found and so neither given up on nor released; asked at finalized, its missing
+  /// status would be the "never landed" verdict, for its caller to rebuild instructions
+  /// that have executed. The one whose expiry is verified is asked at finalized, and its
+  /// missing status there settles nothing.
+  @Test
+  void aTransactionThatLandedAndIsNotFinalIsNeverJudgedMissingWithoutVerification() {
+    final var service = service();
+    final var verified = txContext("verified", CONFIRMED_HEIGHT + 100, FINALIZED, FINALIZED);
+    final var unverified = txContext("unverified", CONFIRMED_HEIGHT + 100, FINALIZED, FINALIZED, null, false, false);
+    service.pendingTransactions.put(verified, verified);
+    service.pendingTransactions.put(unverified, unverified);
+    rpcClient.sigStatusesAt = (commitment, signatures) ->
+        Collections.nCopies(signatures.size(), commitment == FINALIZED ? NIL_STATUS : status(PROCESSED));
+
+    service.processTransactions(contextMap(verified, unverified));
+
+    assertFalse(unverified.sigStatusFuture().isDone(), "landed and not final: neither missing nor settled");
+    assertFalse(verified.sigStatusFuture().isDone(), "a verified expiry is left to the expiration stage's verdict");
+    assertEquals(2, service.pendingTransactions.size());
+  }
+
+  /// And the reverse, a node whose processed bank answers nothing while its finalized bank
+  /// has both transactions: the one whose expiry is verified is released with the finalized
+  /// status, and the processed bank's missing status is the verdict for the other alone.
+  @Test
+  void eachTransactionOfAMixedPassIsSettledByTheBankItWasAskedOf() {
+    final var service = service();
+    final var verified = txContext("verified", CONFIRMED_HEIGHT + 100, FINALIZED, FINALIZED);
+    final var unverified = txContext("unverified", CONFIRMED_HEIGHT + 100, FINALIZED, FINALIZED, null, false, false);
+    service.pendingTransactions.put(verified, verified);
+    service.pendingTransactions.put(unverified, unverified);
+    final var found = status(FINALIZED);
+    rpcClient.sigStatusesAt = (commitment, signatures) ->
+        Collections.nCopies(signatures.size(), commitment == FINALIZED ? found : NIL_STATUS);
+
+    service.processTransactions(contextMap(verified, unverified));
+
+    assertSame(found, settledValue(verified.sigStatusFuture()));
+    assertNull(settledValue(unverified.sigStatusFuture()), "an unverified missing status resolves to no status");
+    assertTrue(service.pendingTransactions.isEmpty());
+  }
+
+  /// A pass is charged for the reads it makes: one where its transactions are all read at
+  /// one level, two for a mixed pass, whose two requests go out in one call.
+  @Test
+  void aPassIsChargedForEachReadItMakes() {
+    final var rpcClient = new FakeRpcClient();
+    final var item = balancedItem(rpcClient);
+    final var service = serviceOver(rpcCaller(item));
+    final var verified = txContext("verified", 900, FINALIZED, FINALIZED);
+    final var unverified = txContext("unverified", 900, FINALIZED, FINALIZED, null, false, false);
+    rpcClient.sigStatuses = statusesBySignature(Map.of("verified", status(FINALIZED), "unverified", status(FINALIZED)));
+    final int capacity = item.capacityState().capacity();
+
+    service.processTransactions(contextMap(verified));
+    assertEquals(capacity - 1, item.capacityState().capacity(), "the settled read alone");
+
+    service.processTransactions(contextMap(unverified));
+    assertEquals(capacity - 2, item.capacityState().capacity(), "the read that names no commitment alone");
+
+    service.processTransactions(contextMap(verified, unverified));
+    assertEquals(capacity - 4, item.capacityState().capacity(), "both reads of a mixed pass");
+    assertEquals(4, rpcClient.sigStatusRequests.size());
+  }
+
+  private static final String WIRE_SIGNATURE = "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW";
+
+  private static final String WIRE_FINALIZED_STATUS = "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"4.4.0\",\"slot\":400000000},\"value\":[{\"slot\":399999990,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":\"finalized\"}]},\"id\":1}";
+
+  /// The monitor over a caller of the test's own making: sava's client on a scripted
+  /// transport, or an item the test keeps to read its capacity. No websocket, and nothing to
+  /// resend.
+  private static TxCommitmentMonitorService serviceOver(final RpcCaller caller) {
+    return new TxCommitmentMonitorService(
         ChainItemFormatter.createDefault(),
-        rpcCaller(client),
+        caller,
         new FakeEpochInfoService(),
         new FakeWebSocketManager(),
         Duration.ofMillis(MIN_SLEEP_MILLIS),
@@ -1318,7 +1441,54 @@ final class TxCommitmentMonitorServiceTests {
         0,
         NanoClock.SYSTEM
     );
-    final var context = txContext("5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW", 900, FINALIZED, FINALIZED);
+  }
+
+  /// What a server receives for the settled read, through sava's own client over a scripted
+  /// transport: `commitment` finalized, no history search and no `minContextSlot`. The fake
+  /// above only sees which overload was called; a client that stopped sending the commitment
+  /// it is given would fail here.
+  @Test
+  void theSettledPollPutsFinalizedOnTheWire() {
+    final var httpClient = new SendFailureTests.ScriptedHttpClient(List.of(
+        new SendFailureTests.Answer(200, WIRE_FINALIZED_STATUS, Map.of())
+    ));
+    // A client whose own default is processed: the poll names its commitment itself.
+    final var client = SolanaRpcClient.build()
+        .endpoint(URI.create("https://fake.rpc.invalid"))
+        .httpClient(httpClient)
+        .defaultCommitment(PROCESSED)
+        .createClient();
+    final var service = serviceOver(rpcCaller(client));
+    final var context = txContext(WIRE_SIGNATURE, 900, FINALIZED, FINALIZED);
+    service.pendingTransactions.put(context, context);
+
+    service.processTransactions(contextMap(context));
+
+    assertEquals(1, httpClient.requests);
+    final var request = httpClient.bodies.getFirst();
+    assertTrue(request.contains("\"method\":\"getSignatureStatuses\""), request);
+    assertTrue(request.contains("\"commitment\":\"finalized\""), request);
+    assertTrue(request.contains("\"searchTransactionHistory\":false"), request);
+    assertFalse(request.contains("minContextSlot"), request);
+    assertSame(FINALIZED, settledValue(context.sigStatusFuture()).confirmationStatus(), "and the answer is read");
+  }
+
+  /// And for the read that names no commitment: the request carries none, so a node answers
+  /// it from its processed bank, as it did for every transaction before 2026-11-11. A client
+  /// that began sending its default commitment with that overload would fail here.
+  @Test
+  void theProcessedPollPutsNoCommitmentOnTheWire() {
+    final var httpClient = new SendFailureTests.ScriptedHttpClient(List.of(
+        new SendFailureTests.Answer(200, WIRE_FINALIZED_STATUS, Map.of())
+    ));
+    // A client whose own default is finalized: the poll must not inherit it.
+    final var client = SolanaRpcClient.build()
+        .endpoint(URI.create("https://fake.rpc.invalid"))
+        .httpClient(httpClient)
+        .defaultCommitment(FINALIZED)
+        .createClient();
+    final var service = serviceOver(rpcCaller(client));
+    final var context = txContext(WIRE_SIGNATURE, 900, FINALIZED, FINALIZED, null, false, false);
     service.pendingTransactions.put(context, context);
 
     service.processTransactions(contextMap(context));
@@ -1333,8 +1503,8 @@ final class TxCommitmentMonitorServiceTests {
   }
 
   /// Ravina never asks for `confirmed`, and treats one it is given as final: a `CONFIRMED`
-  /// status, which a node where finalized trails confirmed reports for a while, settles a
-  /// `FINALIZED` await like a `FINALIZED` one.
+  /// status settles a `FINALIZED` await like a `FINALIZED` one. A server that ignores the
+  /// read's commitment reports one where finalized trails confirmed.
   @Test
   void aConfirmedStatusSettlesAFinalizedAwait() {
     final var service = service();
@@ -1375,7 +1545,8 @@ final class TxCommitmentMonitorServiceTests {
     final var expired = txContext("expired", HORIZON, FINALIZED, FINALIZED, null, true, false);
     service.pendingTransactions.put(dropped, dropped);
     service.pendingTransactions.put(expired, expired);
-    rpcClient.sigStatuses = _ -> List.of(NIL_STATUS, NIL_STATUS);
+    // Two reads, one transaction each: expiry is verified for one and not for the other.
+    rpcClient.sigStatuses = statusesBySignature(Map.of("dropped", NIL_STATUS, "expired", NIL_STATUS));
 
     service.processTransactions(contextMap(dropped, expired));
 
@@ -1965,6 +2136,80 @@ final class TxCommitmentMonitorServiceTests {
 
       assertEquals(2, reads.get(), malformed.size() + " statuses for one signature: the read must be retried");
       assertSame(settled, future.join());
+      assertTrue(service.pendingTransactions.isEmpty());
+    }
+  }
+
+  /// The same for the read that names no commitment, which a transaction whose expiry is not
+  /// verified is polled with.
+  @Test
+  void aProcessedStatusReadAnsweredWithAnotherCountIsRetried() {
+    final var settled = status(FINALIZED);
+    for (final var malformed : List.<List<TxStatus>>of(List.of(), List.of(settled, settled))) {
+      final var service = service();
+      final var context = txContext("sig", HORIZON + 10, FINALIZED, FINALIZED, null, false, false);
+      service.pendingTransactions.put(context, context);
+      final var reads = new AtomicInteger();
+      rpcClient.sigStatuses = _ -> reads.getAndIncrement() == 0 ? malformed : List.of(settled);
+
+      service.processTransactions(contextMap(context));
+
+      assertEquals(2, reads.get(), malformed.size() + " statuses for one signature: the read must be retried");
+      assertEquals(Arrays.asList(null, null), rpcClient.sigStatusCommitments, "no commitment named, either time");
+      assertSame(settled, settledValue(context.sigStatusFuture()));
+      assertTrue(service.pendingTransactions.isEmpty());
+    }
+  }
+
+  /// In a mixed pass each answer is checked against its own request, and one answer of the
+  /// wrong size fails the pass's read as a whole: both requests are made again, and each
+  /// transaction settles on its own status from the answers that fit. The first case's
+  /// stray answers add up to the batch, one a status too long and the other one too short,
+  /// so a check of the total, or statuses handed out by position, would pass it; the other
+  /// two malform one answer and leave the other right, so neither read goes unchecked.
+  @Test
+  void eachAnswerOfAMixedPassIsCheckedAgainstItsOwnRequest() {
+    final var settledRequest = List.of("verified");
+    final var processedRequest = List.of("unverified", "alsoUnverified");
+    final var stray = status(FINALIZED);
+    final var malformedFirstAnswers = List.of(
+        Map.of(settledRequest, List.of(stray, stray), processedRequest, List.of(stray)),
+        Map.of(settledRequest, List.<TxStatus>of()),
+        Map.of(processedRequest, List.of(stray, stray, stray))
+    );
+    for (final var malformed : malformedFirstAnswers) {
+      final var service = service();
+      final var verified = txContext("verified", HORIZON + 10, FINALIZED, FINALIZED);
+      final var unverified = txContext("unverified", HORIZON + 10, FINALIZED, FINALIZED, null, false, false);
+      final var alsoUnverified = txContext("alsoUnverified", HORIZON + 10, FINALIZED, FINALIZED, null, false, false);
+      for (final var context : List.of(verified, unverified, alsoUnverified)) {
+        service.pendingTransactions.put(context, context);
+      }
+      final var statuses = Map.of(
+          "verified", status(FINALIZED),
+          "unverified", status(FINALIZED),
+          "alsoUnverified", status(FINALIZED)
+      );
+      final var fits = statusesBySignature(statuses);
+      final var answered = new ArrayList<List<String>>();
+      // Each request's first answer is the malformed one, where the case has one for it.
+      rpcClient.sigStatuses = signatures -> {
+        final boolean first = !answered.contains(signatures);
+        answered.add(signatures);
+        final var wrong = first ? malformed.get(signatures) : null;
+        return wrong == null ? fits.apply(signatures) : wrong;
+      };
+
+      service.processTransactions(contextMap(verified, unverified, alsoUnverified));
+
+      assertEquals(
+          List.of(settledRequest, processedRequest, settledRequest, processedRequest),
+          rpcClient.sigStatusRequests,
+          "both requests are made again, whichever answer was wrong: " + malformed
+      );
+      for (final var context : List.of(verified, unverified, alsoUnverified)) {
+        assertSame(statuses.get(context.sig()), settledValue(context.sigStatusFuture()), context.sig());
+      }
       assertTrue(service.pendingTransactions.isEmpty());
     }
   }

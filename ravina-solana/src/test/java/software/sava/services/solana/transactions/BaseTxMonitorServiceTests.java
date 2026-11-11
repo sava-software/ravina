@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -163,6 +164,11 @@ final class BaseTxMonitorServiceTests {
     Function<List<String>, List<TxStatus>> sigStatuses = signatures -> {
       throw new IllegalStateException("unexpected getSigStatusList for " + signatures);
     };
+    /// The same script with the commitment the read named, null for none: for a test whose
+    /// answer depends on which bank was asked. It defers to [#sigStatuses] unless a test
+    /// sets it.
+    BiFunction<Commitment, List<String>, List<TxStatus>> sigStatusesAt =
+        (_, signatures) -> sigStatuses.apply(signatures);
     /// A read that fails inside its future is retried for good by the courteous call, so a
     /// mutant that fails every read would hang every polling test; past this many reads of
     /// any kind the fake throws synchronously, which escapes the retry and fails the test
@@ -217,10 +223,11 @@ final class BaseTxMonitorServiceTests {
                 "more than " + maxReads + " status reads: a read that keeps failing is being retried for good"
             );
           }
-          sigStatusCommitments.add(first == 1 ? (Commitment) args[0] : null);
+          final var commitment = first == 1 ? (Commitment) args[0] : null;
+          sigStatusCommitments.add(commitment);
           searchTransactionHistoryFlags.add(args.length > first + 1 && (Boolean) args[first + 1]);
           sigStatusMinContextSlots.add(args.length > first + 2 ? (BigInteger) args[first + 2] : null);
-          return CompletableFuture.completedFuture(sigStatuses.apply(signatures));
+          return CompletableFuture.completedFuture(sigStatusesAt.apply(commitment, signatures));
         }
         case "endpoint" -> {
           return endpoint;
@@ -290,6 +297,16 @@ final class BaseTxMonitorServiceTests {
 
   static RpcCaller rpcCaller(final FakeRpcClient handler) {
     final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(balancedItem(handler));
+    return new RpcCaller(null, balancer, null);
+  }
+
+  /// A caller over an item the test keeps, to read what a call was charged from its capacity.
+  /// The item starts full and its capacity is only topped up when a claim finds it short,
+  /// which no test's few reads do, so the reading after a call is exact; and the capacity is
+  /// far above the fake's bound on reads, so a read that is retried for good still ends in
+  /// the fake's throw and not in a wait for capacity.
+  static RpcCaller rpcCaller(final BalancedItem<SolanaRpcClient> item) {
+    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(item);
     return new RpcCaller(null, balancer, null);
   }
 
@@ -394,6 +411,20 @@ final class BaseTxMonitorServiceTests {
   /// A found status of an answer whose context slot is `contextSlot`.
   static TxStatus statusAt(final Commitment commitment, final long contextSlot) {
     return new TxStatus(new Context(contextSlot, null), 1, OptionalInt.empty(), null, commitment);
+  }
+
+  /// A status script keyed by signature: each request is answered with its own signatures'
+  /// statuses in the order it asked, whichever read a signature went to. For passes that
+  /// read their transactions in two requests, where a positional script cannot say which
+  /// request an answer belongs to. An unscripted signature fails the test, not the read.
+  static Function<List<String>, List<TxStatus>> statusesBySignature(final Map<String, TxStatus> statuses) {
+    return signatures -> signatures.stream().map(signature -> {
+      final var status = statuses.get(signature);
+      if (status == null) {
+        throw new AssertionError("no status scripted for " + signature);
+      }
+      return status;
+    }).toList();
   }
 
   /// The value a future settled with, for an assertion on it. A bare `join()` on a future

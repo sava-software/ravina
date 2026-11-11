@@ -578,39 +578,65 @@ them, because the list is the argument for the effort.
   itself in its `getEpochInfo` read (`Settlement` is package-private to the
   transactions package), so a client built with another default commitment
   cannot make it read below finalized, and `Epoch`'s slot and block height are
-  the finalized bank's whatever that default. Two things are deliberately not
-  at the settled
-  commitment. A caller's own choice is one: a commitment passed to
-  `TransactionProcessor`'s `publish` or `simulateAndEstimate` overloads, and a
-  `PROCESSED` await on both result and error, which subscribes at `PROCESSED`.
-  The commitment monitor's status poll is the other, and it names no
-  commitment at all: do not move it to `FINALIZED` with the rest. Unnamed, a
-  node answers from its processed bank, so the poll's nil means the node has
-  not seen the transaction, and that monitor acts on a nil three times: the
-  "never landed" verdict when `verifyExpired` is false, the resend, and the
-  hand-off to the expiration monitor. Read at `finalized`, a nil would also be
-  a landed transaction that is not final yet: the verdict would rebuild
-  instructions that have executed, and the resend would repeat for as long as
-  finality lags the blocks being processed, since its floor is counted from
-  the finalized height. A change that moved it was written on 2026-11-11 and
-  dropped in review, before it was pushed, for the first of those reasons;
-  `theStatusPollNamesNoCommitment` pins the fake's side of it and
-  `theStatusPollPutsNoCommitmentOnTheWire` the request sava sends. On an
+  the finalized bank's whatever that default. What is not at the settled
+  commitment is a caller's own choice, in three forms. A commitment passed to
+  `TransactionProcessor`'s `publish` or `simulateAndEstimate` overloads is sent
+  as given. A `PROCESSED` await on both result and error subscribes at
+  `PROCESSED`. And the commitment monitor's status poll reads a transaction
+  with no commitment named, which a node answers from its processed bank, when
+  its settings ask for what only that bank answers (`Settlement.polledSettled`):
+  `verifyExpired` false, or a `PROCESSED` await on the result or on an error.
+  Every other transaction, the default settings among them, is polled at
+  `FINALIZED` since 2026-11-11, from the recent status cache only and with no
+  `minContextSlot`. There a missing status is never a verdict: it makes a
+  resend due or hands the transaction to the expiration monitor, whose own
+  finalized read decides "never landed". The price is the gap between a node's
+  processed bank and its finalized one, which was one slot, about 215 ms, in
+  nearly every sample of mainnet-beta and testnet on 2026-11-11 (one or two on
+  devnet): a transaction that landed inside it reads as missing for a pass and
+  can be resent once,
+  the same bytes, which land at most once. If finality fell behind the blocks
+  being produced the resends would repeat, one each resend delay, until it
+  caught up, since the resend floor is counted from the finalized height. A
+  pass that holds both kinds makes both reads in one call, charged for two, and
+  each transaction is answered from its own. Do not move the other two kinds to
+  `FINALIZED` with the rest. With `verifyExpired` false the first missing status
+  is the "never landed" verdict the caller rebuilds on, and read at `finalized`
+  it would also be the answer for a transaction that landed a slot ago, so the
+  rebuild would execute its instructions a second time; a `PROCESSED` await is
+  released by a status that is not final, which a finalized read does not
+  report. A change that moved every transaction was written on 2026-11-11 and
+  dropped in review before it was pushed; the case that review made
+  deterministic needed a TowerBFT test validator, and the split is what its
+  Alpenglow case, the one-slot gap, leaves. Until then every transaction was
+  polled with no commitment named.
+  `aVerifiedSettledAwaitIsPolledAtTheSettledCommitment`,
+  `anUnverifiedExpiryOrAProcessedAwaitIsPolledWithNoCommitment` and
+  `aMixedPassReadsEachTransactionAtItsOwnLevel` pin which read a transaction
+  gets, and `theSettledPollPutsFinalizedOnTheWire` and
+  `theProcessedPollPutsNoCommitmentOnTheWire` the requests sava sends. On an
   Alpenglow node,
   which every public cluster has been since October 2026, both levels move on
   the same root event, so a `FINALIZED` read costs no extra wait, and the
   Solana Foundation's Alpenglow guide says `confirmed` is removed in a later
-  release. Where `finalized` trails `confirmed` (an agave test validator on
-  TowerBFT, before 4.5.0-alpha.2 and started without `--alpenglow`, or a
-  Surfpool surfnet, which reports `finalized` 30 slots behind) a `FINALIZED`
-  read and subscription lag confirmation by about 32 slots, so a settled
-  websocket await runs out its timeout and polling settles it on `CONFIRMED`;
-  on the agave validator the next finalized simulation does not yet see the
-  transaction either, while Surfpool simulates against its current state and
-  only delays statuses, block hashes and heights. That is the accepted cost,
-  and the soak passes `--alpenglow` for it. Logs report the level actually
-  observed (`Settlement.reached`), so a settled await released by a
-  `CONFIRMED` status on such an environment is not reported as finalized.
+  release. `finalized` trails `confirmed` on development setups only (an agave
+  test validator on TowerBFT, before 4.5.0-alpha.2 and started without
+  `--alpenglow`, or a Surfpool surfnet, which reports `finalized` 30 slots
+  behind): there a `FINALIZED` read and subscription lag confirmation by about
+  32 slots, so a settled websocket await runs out its timeout and polling
+  settles it. It does so on `CONFIRMED` wherever the read is answered from the
+  processed bank: for every transaction on a server that ignores a status
+  read's commitment (agave before 4.4, Surfpool), and on an agave 4.4 test
+  validator on TowerBFT, which honours it, for a transaction polled with no
+  commitment named. A transaction that validator is polled at `FINALIZED` for
+  settles once its block is final, and is resent meanwhile if it opted in. On
+  the agave validator the next finalized simulation does not see
+  a transaction released at `CONFIRMED` either, while Surfpool simulates
+  against its current state and only delays statuses, block hashes and
+  heights. That is the accepted cost, and the soak passes `--alpenglow` for it.
+  Logs report the level actually observed (`Settlement.reached`), so a settled
+  await released by a `CONFIRMED` status on such an environment is not reported
+  as finalized.
   `WebSocketManager` and `HeliusJsonRpcClient` pass `FINALIZED` as client
   defaults, mirroring the defaults sava's builders adopted the same day, and
   move with them. The expiration monitor's 32-block settle buffer is margin
