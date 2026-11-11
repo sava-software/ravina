@@ -1,5 +1,12 @@
 # Changelog
 
+## [25.9.3](https://github.com/sava-software/ravina/compare/25.9.2...25.9.3) (2026-11-11)
+
+
+### Bug Fixes
+
+* **solana:** poll a verified, settled await at finalized ([e44ed9e](https://github.com/sava-software/ravina/commit/e44ed9e5d00cc22ab9fa19e851e413c6f10cacf6))
+
 ## [25.9.2](https://github.com/sava-software/ravina/compare/25.9.1...25.9.2) (2026-11-11)
 
 
