@@ -59,6 +59,11 @@ public interface EpochInfoService extends Runnable {
   /// Performance samples will only be fetched if due.
   void fetchEpochNow();
 
+  /// The latest epoch read. Its slot, slot index and block height are the finalized bank's,
+  /// whatever default commitment the caller's RPC client was built with: the service names
+  /// `finalized` in its read (since 2026-11-11; before that it read at the client's default, so
+  /// a client defaulting to `confirmed` or `processed` gave that commitment's bank, nearer the
+  /// tip by however far finalized trails it).
   Epoch epochInfo();
 
   int defaultMillisPerSlot();

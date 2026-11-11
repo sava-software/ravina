@@ -5,6 +5,7 @@ import software.sava.core.accounts.PublicKey;
 import software.sava.core.accounts.Signer;
 import software.sava.core.tx.Instruction;
 import software.sava.core.tx.Transaction;
+import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.HttpResponseException;
 import software.sava.rpc.json.http.response.JsonRpcException;
@@ -33,6 +34,7 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -1264,6 +1266,87 @@ final class TxCommitmentMonitorServiceTests {
 
     assertEquals(List.of(List.of("sig")), rpcClient.sigStatusRequests);
     assertEquals(0, rpcClient.blockHeightCalls, "no missing status means no expiration check");
+  }
+
+  /// The status poll names no commitment, so a node answers it from its processed bank, and
+  /// its nil means the node has not seen the transaction at all. This monitor acts on a nil
+  /// three times (the verdict when expiry is not verified, the resend, the hand-off), and a
+  /// read at finalized would also answer nil for a transaction that has landed and is not
+  /// final yet: the verdict would rebuild instructions that have executed. It is not a read
+  /// to move to the settled commitment with the others. It reads the recent status cache
+  /// only, and sends no minimum context slot.
+  @Test
+  void theStatusPollNamesNoCommitment() {
+    final var service = service();
+    final var finalized = txContext("finalized", 900, FINALIZED, FINALIZED);
+    final var processed = txContext("processed", 900, PROCESSED, PROCESSED);
+    rpcClient.sigStatuses = _ -> List.of(status(FINALIZED), status(FINALIZED));
+
+    service.processTransactions(contextMap(finalized, processed));
+
+    assertEquals(Collections.singletonList(null), rpcClient.sigStatusCommitments);
+    assertEquals(List.of(Boolean.FALSE), rpcClient.searchTransactionHistoryFlags);
+    assertEquals(Collections.singletonList(null), rpcClient.sigStatusMinContextSlots);
+  }
+
+  /// The same on the wire, through sava's own client over a scripted transport: the request
+  /// carries no `commitment` and no `minContextSlot`, and does not search history. The fake
+  /// above only sees which overload was called; this is what a server receives, so a client
+  /// that began sending its default commitment with that overload would fail here.
+  @Test
+  void theStatusPollPutsNoCommitmentOnTheWire() {
+    final var httpClient = new SendFailureTests.ScriptedHttpClient(List.of(new SendFailureTests.Answer(
+        200,
+        "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"4.4.0\",\"slot\":400000000},\"value\":[{\"slot\":399999990,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":\"finalized\"}]},\"id\":1}",
+        Map.of()
+    )));
+    // A client whose own default is finalized: the poll must not inherit it.
+    final var client = SolanaRpcClient.build()
+        .endpoint(URI.create("https://fake.rpc.invalid"))
+        .httpClient(httpClient)
+        .defaultCommitment(FINALIZED)
+        .createClient();
+    final var service = new TxCommitmentMonitorService(
+        ChainItemFormatter.createDefault(),
+        rpcCaller(client),
+        new FakeEpochInfoService(),
+        new FakeWebSocketManager(),
+        Duration.ofMillis(MIN_SLEEP_MILLIS),
+        WEB_SOCKET_TIMEOUT,
+        new RecordingPublisher(),
+        Duration.ofSeconds(1),
+        0,
+        NanoClock.SYSTEM
+    );
+    final var context = txContext("5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW", 900, FINALIZED, FINALIZED);
+    service.pendingTransactions.put(context, context);
+
+    service.processTransactions(contextMap(context));
+
+    assertEquals(1, httpClient.requests);
+    final var request = httpClient.bodies.getFirst();
+    assertTrue(request.contains("\"method\":\"getSignatureStatuses\""), request);
+    assertTrue(request.contains("\"searchTransactionHistory\":false"), request);
+    assertFalse(request.contains("commitment"), request);
+    assertFalse(request.contains("minContextSlot"), request);
+    assertSame(FINALIZED, settledValue(context.sigStatusFuture()).confirmationStatus(), "and the answer is read");
+  }
+
+  /// Ravina never asks for `confirmed`, and treats one it is given as final: a `CONFIRMED`
+  /// status, which a node where finalized trails confirmed reports for a while, settles a
+  /// `FINALIZED` await like a `FINALIZED` one.
+  @Test
+  void aConfirmedStatusSettlesAFinalizedAwait() {
+    final var service = service();
+    final var context = txContext("sig", 900, FINALIZED, FINALIZED);
+    service.pendingTransactions.put(context, context);
+    final var confirmed = status(CONFIRMED);
+    rpcClient.sigStatuses = _ -> List.of(confirmed);
+
+    service.processTransactions(contextMap(context));
+
+    assertSame(confirmed, settledValue(context.sigStatusFuture()));
+    assertTrue(service.pendingTransactions.isEmpty());
   }
 
   @Test

@@ -1,6 +1,6 @@
 package software.sava.services.solana.epoch;
 
-import software.sava.rpc.json.http.client.SolanaRpcClient;
+import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.PerfSample;
 import software.sava.services.core.NanoClock;
 import software.sava.services.core.remote.call.Backoff;
@@ -89,9 +89,11 @@ final class EpochInfoServiceImpl implements EpochInfoService {
     for (int errorCount = 0; ; ) {
       try {
         final long request = clock.currentTimeMillis();
-        // Avoid retries to try to have a more accurate round trip estimate.
+        // Avoid retries to try to have a more accurate round trip estimate. Read at finalized
+        // by name, not at the client's default, so that a client built with another default
+        // cannot make this service read below finalized.
         final var epochInfo = rpcCaller.courteousGet(
-            SolanaRpcClient::getEpochInfo,
+            rpcClient -> rpcClient.getEpochInfo(Commitment.FINALIZED),
             getEpochInfoCallContext,
             "rpcClient::getEpochInfo"
         );

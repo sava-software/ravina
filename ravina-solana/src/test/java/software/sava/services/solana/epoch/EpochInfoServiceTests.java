@@ -3,6 +3,7 @@ package software.sava.services.solana.epoch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
+import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.EpochInfo;
 import software.sava.rpc.json.http.response.PerfSample;
 import software.sava.services.core.NanoClock;
@@ -37,8 +38,9 @@ import static org.junit.jupiter.api.Assertions.*;
 /// implementation.
 ///
 /// The service loop itself is driven here through a [Proxy]-backed
-/// [SolanaRpcClient] that answers `getEpochInfo` from a fixed script and
-/// `getRecentPerformanceSamples` from a fixed list. No request leaves the JVM.
+/// [SolanaRpcClient] that answers `getEpochInfo` at finalized from a fixed
+/// script and `getRecentPerformanceSamples` from a fixed list. No request
+/// leaves the JVM.
 ///
 /// Two things make the loop terminate — and terminate at a point the test
 /// chooses — without any sleeping or polling:
@@ -97,7 +99,13 @@ final class EpochInfoServiceTests {
   /// only advance this clock by fetching, so anything that stops it fetching
   /// leaves it spinning on a 1ms condition wait forever. Tripping the budget
   /// turns that into an immediate, deterministic failure instead of a hang that
-  /// only a timeout would catch.
+  /// only a timeout would catch. The failure is an `AssertionError`, not a
+  /// `RuntimeException`: the fetch reads the clock inside the `try` whose
+  /// `catch (RuntimeException)` backs off and fetches again, so a runtime
+  /// exception from here was swallowed there and the loop spun on, which is the
+  /// hang this budget exists to prevent. That is also how a read the fake does
+  /// not script ends: its `UnsupportedOperationException` is retried, and the
+  /// retries spend the budget.
   private static final int MAX_CLOCK_READS = 512;
 
   // Frozen at a non-zero origin so request capacity never replenishes on its own
@@ -115,7 +123,7 @@ final class EpochInfoServiceTests {
     @Override
     public long nanoTime() {
       if (++reads > MAX_CLOCK_READS) {
-        throw new IllegalStateException(
+        throw new AssertionError(
             "the service loop read the clock " + reads + " times without making progress");
       }
       return nanos;
@@ -208,7 +216,11 @@ final class EpochInfoServiceTests {
     @Override
     public Object invoke(final Object proxy, final Method method, final Object[] args) {
       final var name = method.getName();
-      if (name.equals("getEpochInfo") && args == null) {
+      // Only the read that names finalized is scripted. The overload that reads at the
+      // client's default commitment, or a read at any other level, is an unscripted method
+      // and throws below: the service must never ask for `confirmed`, whatever default a
+      // caller's client was built with.
+      if (name.equals("getEpochInfo") && args != null && args.length == 1 && args[0] == Commitment.FINALIZED) {
         final int i = epochCalls++;
         clock.advance(epochCallMillis);
         if (i >= script.length) {

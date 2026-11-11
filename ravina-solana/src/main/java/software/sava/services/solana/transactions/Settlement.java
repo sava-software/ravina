@@ -22,6 +22,31 @@ import static software.sava.rpc.json.http.request.Commitment.*;
 /// root bank a finalized simulation reads; Surfpool simulates against current
 /// state and only delays statuses, block hashes and heights. Logs report the
 /// observed level, so a `CONFIRMED` release there is never logged as finalized.
+///
+/// Asking and answering are separate. Ravina never asks for `confirmed` on
+/// its own behalf: a request it makes for settled state names [#COMMITMENT],
+/// and only a commitment a caller passes in is sent as given. What comes back is
+/// weighed by [#met] whatever was asked, so a `CONFIRMED` status settles a
+/// settled await wherever one is reported: by the commitment monitor's status
+/// poll on a node where `finalized` trails `confirmed`, by a server that
+/// ignores a status read's commitment (agave before 4.4, Surfpool), and by
+/// agave to a read at `finalized`, which labels a status it finds in a block
+/// its commitment cache has not yet rooted `confirmed` or `processed`, the
+/// latter costing the await one more pass.
+///
+/// The commitment monitor's status poll names no commitment, and that is not
+/// an oversight to tidy into [#COMMITMENT]. Unnamed, a node answers from its
+/// processed bank, so the poll's nil means the node has not seen the
+/// transaction at all, and that monitor acts on a nil three times: with
+/// `verifyExpired` false it is the "never landed" verdict the caller rebuilds
+/// on, it is what makes a resend due, and it is what hands a transaction to
+/// the expiration monitor. Read at `finalized`, a nil would also be a landed
+/// transaction that is not final yet. The verdict would then rebuild
+/// instructions that have executed; the resend would repeat for as long as
+/// finality lags the blocks being processed, since its floor is counted from
+/// the finalized height. Only the hand-off is gated. The expiration monitor's
+/// status read does name `finalized`, because there a nil is weighed against
+/// how far the answering node has finalized.
 final class Settlement {
 
   /// The commitment ravina reads block heights and block hashes at, simulates

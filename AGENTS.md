@@ -569,8 +569,34 @@ them, because the list is the argument for the effort.
   `transactions.Settlement` is the
   decision point for the transactions package. `CONFIRMED` and `FINALIZED` are
   one settled level, met by either observed status, and ravina reads settled
-  state (block heights, block hashes, simulations, signature subscriptions) at
-  `Settlement.COMMITMENT`, `FINALIZED` since 2026-10-24. On an Alpenglow node,
+  state (block heights, block hashes, simulations, signature subscriptions,
+  the expiration monitor's epoch info and status reads) at
+  `Settlement.COMMITMENT`, `FINALIZED` since 2026-10-24. Asking and answering
+  are separate: ravina never asks for `confirmed` on its own behalf, and
+  whatever level comes back is weighed by `Settlement.met`, so a `CONFIRMED`
+  status still settles a settled await. The epoch service names `FINALIZED`
+  itself in its `getEpochInfo` read (`Settlement` is package-private to the
+  transactions package), so a client built with another default commitment
+  cannot make it read below finalized, and `Epoch`'s slot and block height are
+  the finalized bank's whatever that default. Two things are deliberately not
+  at the settled
+  commitment. A caller's own choice is one: a commitment passed to
+  `TransactionProcessor`'s `publish` or `simulateAndEstimate` overloads, and a
+  `PROCESSED` await on both result and error, which subscribes at `PROCESSED`.
+  The commitment monitor's status poll is the other, and it names no
+  commitment at all: do not move it to `FINALIZED` with the rest. Unnamed, a
+  node answers from its processed bank, so the poll's nil means the node has
+  not seen the transaction, and that monitor acts on a nil three times: the
+  "never landed" verdict when `verifyExpired` is false, the resend, and the
+  hand-off to the expiration monitor. Read at `finalized`, a nil would also be
+  a landed transaction that is not final yet: the verdict would rebuild
+  instructions that have executed, and the resend would repeat for as long as
+  finality lags the blocks being processed, since its floor is counted from
+  the finalized height. A change that moved it was written on 2026-11-11 and
+  dropped in review, before it was pushed, for the first of those reasons;
+  `theStatusPollNamesNoCommitment` pins the fake's side of it and
+  `theStatusPollPutsNoCommitmentOnTheWire` the request sava sends. On an
+  Alpenglow node,
   which every public cluster has been since October 2026, both levels move on
   the same root event, so a `FINALIZED` read costs no extra wait, and the
   Solana Foundation's Alpenglow guide says `confirmed` is removed in a later

@@ -238,6 +238,11 @@ final class TxCommitmentMonitorService extends BaseTxMonitorService implements T
   @Override
   protected void processTransactions(final Map<String, TxContext> contextMap) {
     final var signatures = List.copyOf(contextMap.keySet());
+    // No commitment is named, on purpose: a node then answers from its processed bank, and
+    // a nil below means it has not seen the transaction at all. Read at finalized, a nil
+    // would also be a landed transaction that is not final yet, which this pass would
+    // complete as never landed, with expiry unverified, for the caller to rebuild on, or
+    // would resend (see Settlement).
     final var sigStatusList = rpcCaller.courteousGet(
         rpcClient -> rpcClient.getSigStatusList(signatures).thenApply(list -> statusesFor(signatures, list)),
         "rpcClient::getSigStatusList"
