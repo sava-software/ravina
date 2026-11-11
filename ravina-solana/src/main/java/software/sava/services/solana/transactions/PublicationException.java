@@ -33,7 +33,8 @@ import java.util.Optional;
 /// refusal that carries one (a 503 that does reads `SERVER_ERROR`); on one whose
 /// `mayStillLand()` is true, do not, until the settled block height has passed
 /// `landableUntil()` by the expiration monitor's settle buffer and a history-searching
-/// `getSignatureStatuses` read of `landable()` says what landed.
+/// `getSignatureStatuses` read of `landable()`, made as [#landableUntil()] describes, says
+/// what landed: a missing status from a node that is behind says nothing.
 public abstract sealed class PublicationException extends RuntimeException
     permits SendNotAcceptedException, SendNeverLeftException, TxMonitorStoppedException, OutcomeUnknownException {
 
@@ -96,8 +97,8 @@ public abstract sealed class PublicationException extends RuntimeException
   }
 
   /// Whether anything that was sent may still land: an attempt whose status is `MISSING` or
-  /// `PENDING`. False means a rebuild cannot execute the instructions twice, barring a status
-  /// backend that lags the height backend by the expiration monitor's settle buffer or more.
+  /// `PENDING`. False means a rebuild cannot execute the instructions twice, barring the two
+  /// cases [TxMonitorService#queueResult] names.
   public final boolean mayStillLand() {
     return !landable.isEmpty();
   }
@@ -110,10 +111,15 @@ public abstract sealed class PublicationException extends RuntimeException
 
   /// The largest `lastValidBlockHeight` of [#landable()], as unsigned; 0 when it is empty. Once
   /// the settled block height has passed it by the expiration monitor's settle buffer (32
-  /// blocks), nothing that was sent can land, barring a status backend that lags the height
-  /// backend by that buffer or more, and a history-searching `getSignatureStatuses` read of
-  /// [#landable()]'s signatures then settles each. A later attempt's height is not necessarily
-  /// higher, since a lagging peer can serve the rebuild's block hash.
+  /// blocks), nothing that was sent can land, and a history-searching `getSignatureStatuses`
+  /// read of [#landable()]'s signatures then settles each, provided a missing status is
+  /// trusted only as the expiration monitor trusts one: read at finalized commitment, from an
+  /// answer whose context slot has reached the slot that `getEpochInfo`, also read at
+  /// finalized commitment, reported with that block height. A missing status from a node that
+  /// is behind says nothing, and
+  /// the same two cases stay uncovered as for ravina's own verdict (see
+  /// [TxMonitorService#queueResult]). A later attempt's height is not necessarily higher,
+  /// since a lagging peer can serve the rebuild's block hash.
   public final long landableUntil() {
     return TxAttempt.landableUntil(attempts);
   }

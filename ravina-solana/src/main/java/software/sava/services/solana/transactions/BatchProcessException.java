@@ -31,8 +31,9 @@ import java.util.Optional;
 /// once when there is no verdict. With it true, hold the failing batch out of every retry until
 /// the settled block height has passed the verdict's `landableUntil()` by the expiration
 /// monitor's settle buffer, then read its `landable()` with a history-searching status read,
-/// drop what landed and retry the rest; in the accounts overload those keys are still in the
-/// caller's map.
+/// made as [PublicationException#landableUntil()] describes (a missing status from a node
+/// that is behind says nothing), drop what landed and retry the rest; in the accounts
+/// overload those keys are still in the caller's map.
 public final class BatchProcessException extends RuntimeException {
 
   private final List<TransactionResult> settled;

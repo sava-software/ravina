@@ -114,9 +114,21 @@ public interface TxMonitorService extends Worker {
   /// landed. With `verifyExpired` true that judgement waits until the settled
   /// block height has passed the block hash's last valid height and a
   /// history-searching status read behind the expiration monitor's settle
-  /// buffer still finds nothing, so a rebuild on `null` cannot overlap a
-  /// transaction that can still land, barring a status backend that lags the
-  /// height backend by that buffer or more. With `verifyExpired` false the
+  /// buffer still finds nothing, answered by a node that has itself finalized
+  /// past every block the transaction could be in, so a rebuild on `null`
+  /// cannot overlap a transaction that can still land. Two cases are not
+  /// covered. A server whose answer does not say how far it has finalized
+  /// (agave before 4.4, Surfpool) leaves only the buffer, which a status
+  /// backend that lags the height backend by that much or more defeats. And
+  /// once the landing has left the answering node's recent status cache, the
+  /// verdict rests on that node's stored history, which a node restored from a
+  /// snapshot, or one that lost queued status writes in a crash, can have a
+  /// hole in: that takes a read held up, a height backend behind the status
+  /// backend, or a verdict held because the answering node was behind, by at
+  /// most 119 to 269 blocks, which at 200 ms a slot with none skipped is about
+  /// 24 s to 54 s (see `TxExpirationMonitorService`). The verdict waits for as
+  /// long as the answering node stays behind, and that wait counts toward the
+  /// same window. With `verifyExpired` false the
   /// first poll that finds no status completes `null` at once, with no resend,
   /// while the transaction can still land for the rest of its window; a caller
   /// that rebuilds on that `null` may execute the instructions twice.

@@ -122,7 +122,8 @@ public interface BatchInstructionService extends InstructionService {
   /// can land, and it is retried with the rest, paced by the verdict's `reason()` and its last
   /// failure's `retry-after` hint; with it true the failing batch is held out of every retry
   /// until the settled block height has passed the verdict's `landableUntil()` by the settle
-  /// buffer and a status read of its `landable()` says what landed (see
+  /// buffer and a history-searching status read of its `landable()`, made as
+  /// [PublicationException#landableUntil()] describes, says what landed (see
   /// `BatchProcessException`). An interrupt propagates as `InterruptedException`, which carries
   /// no results, and the batch it interrupted may still land; an `Error` is not wrapped. A
   /// ComputeBudget instruction anywhere in `instructions`, and a null `txConfig`, are refused

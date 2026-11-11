@@ -328,9 +328,10 @@ public interface InstructionService {
   /// `reason()` and its last failure's `retry-after` hint; on one whose
   /// `mayStillLand()` is true, do not, until the settled block height has
   /// passed `landableUntil()` by the expiration monitor's settle buffer and a
-  /// history-searching `getSignatureStatuses` read of `landable()` says what
-  /// landed. An interrupt or an `Error` carries no verdict, and what was in
-  /// flight may land.
+  /// history-searching `getSignatureStatuses` read of `landable()`, made as
+  /// [PublicationException#landableUntil()] describes, says what landed: a
+  /// missing status from a node that is behind says nothing. An interrupt or
+  /// an `Error` carries no verdict, and what was in flight may land.
   /// This send path is not a durable-nonce path.
   ///
   /// `retrySend` resends the same signed bytes about every
@@ -341,11 +342,12 @@ public interface InstructionService {
   /// signature means once the websocket await has run out. `true` declares it
   /// expired only after the settled block height has passed the hash's last
   /// valid height and a history-searching status read behind the expiration
-  /// monitor's settle buffer still finds nothing, and only then rebuilds under a
-  /// new block hash while `maxRetriesAfterExpired` allows, returning `EXPIRED`
-  /// once it does not, so one call never has two transactions that can both
-  /// land, barring a status backend that lags the height backend by the settle
-  /// buffer or more (see `TxExpirationMonitorService`). `false` declares the
+  /// monitor's settle buffer still finds nothing, answered by a node that has
+  /// finalized past the transaction, and only then rebuilds under a new block
+  /// hash while `maxRetriesAfterExpired` allows, returning `EXPIRED` once it
+  /// does not, so one call never has two transactions that can both land,
+  /// barring the two cases [TxMonitorService#queueResult] names (see
+  /// `TxExpirationMonitorService`). `false` declares the
   /// first missing status expired, ends its monitoring with no resend, and
   /// rebuilds at once, while the original can still land for the rest of its
   /// window, so both may execute: pass it only for instructions that are
@@ -361,10 +363,14 @@ public interface InstructionService {
   ///
   /// A `null` verdict, and with it `EXPIRED` and `SendNotAcceptedException`,
   /// arrives with `verifyExpired` true only while the settled block height
-  /// advances (a cluster halt holds the expiration gate shut) and the status
-  /// and block height reads succeed, since a read that fails is retried and
-  /// failed over for as long as it takes; with `false` it needs only a status
-  /// read that succeeds. Until then the call waits, on the monitor loops. A
+  /// advances (a cluster halt holds the expiration gate shut), the status and
+  /// epoch info reads succeed, since a read that fails is retried and failed
+  /// over for as long as it takes, and the node that answers the status read
+  /// has itself finalized past the transaction: one that stays behind, an
+  /// agave 4.5 node whose transaction history trails for one, holds the
+  /// verdict for as long as it does, logged once per pending entry. With `false`
+  /// it needs only a status read that succeeds. Until then the call waits, on
+  /// the monitor loops. A
   /// monitor loop that stops, on an interrupt, after
   /// `BaseTxMonitorService.MAX_CONSECUTIVE_FAILED_PASSES` passes that failed in
   /// a row, or on a `VirtualMachineError`, ends the call with a

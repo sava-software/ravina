@@ -14,6 +14,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSession;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.Authenticator;
@@ -29,6 +30,7 @@ import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -41,6 +43,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Flow;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.IntStream;
 
@@ -289,15 +292,19 @@ final class SendFailureTests {
     }));
   }
 
-  private record Answer(int status, String body, Map<String, List<String>> headers) {
+  /// Package-private, with the client below, for the tests of other classes that drive sava's
+  /// real client.
+  record Answer(int status, String body, Map<String, List<String>> headers) {
   }
 
   /// Answers each request with the next scripted answer, on the caller's thread; nothing here
   /// touches a socket.
-  private static final class ScriptedHttpClient extends HttpClient {
+  static final class ScriptedHttpClient extends HttpClient {
 
     private final ArrayDeque<Answer> answers;
     int requests;
+    /// Each request's body as sent, in order: what the client put on the wire.
+    final List<String> bodies = new ArrayList<>();
 
     ScriptedHttpClient(final List<Answer> answers) {
       this.answers = new ArrayDeque<>(answers);
@@ -306,6 +313,7 @@ final class SendFailureTests {
     @SuppressWarnings("unchecked")
     private <T> HttpResponse<T> respond(final HttpRequest request) {
       ++requests;
+      bodies.add(body(request));
       final var answer = answers.removeFirst();
       return (HttpResponse<T>) new ScriptedResponse(
           answer.status(),
@@ -313,6 +321,45 @@ final class SendFailureTests {
           HttpHeaders.of(answer.headers(), (_, _) -> true),
           request
       );
+    }
+
+    /// The request's body, read on the caller's thread: the JDK's in-memory publishers hand
+    /// their buffers over inside `request`, so nothing here waits.
+    private static String body(final HttpRequest request) {
+      final var bytes = new ByteArrayOutputStream();
+      final var publisher = request.bodyPublisher().orElse(null);
+      if (publisher == null) {
+        return "";
+      }
+      final boolean[] completed = {false};
+      publisher.subscribe(new Flow.Subscriber<>() {
+
+        @Override
+        public void onSubscribe(final Flow.Subscription subscription) {
+          subscription.request(Long.MAX_VALUE);
+        }
+
+        @Override
+        public void onNext(final ByteBuffer item) {
+          final var chunk = new byte[item.remaining()];
+          item.get(chunk);
+          bytes.writeBytes(chunk);
+        }
+
+        @Override
+        public void onError(final Throwable throwable) {
+          throw new AssertionError("the request body could not be read", throwable);
+        }
+
+        @Override
+        public void onComplete() {
+          completed[0] = true;
+        }
+      });
+      // A publisher that delivered later would leave a partial body here, and an assertion
+      // that a body does not contain something would then pass on nothing.
+      assertTrue(completed[0], "the request body was not delivered on the subscribing thread");
+      return bytes.toString(StandardCharsets.UTF_8);
     }
 
     @Override

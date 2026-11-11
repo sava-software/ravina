@@ -1,6 +1,7 @@
 package software.sava.services.solana.transactions;
 
 import software.sava.idl.clients.core.math.SafeMath;
+import software.sava.rpc.json.http.response.Context;
 import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.solana.config.ChainItemFormatter;
 import software.sava.services.solana.epoch.EpochInfoService;
@@ -10,47 +11,105 @@ import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
+import static java.lang.System.Logger.Level.INFO;
 
 /// Deliberately non-final: `takeOver` is a package-private interleaving seam.
 class TxExpirationMonitorService extends BaseTxMonitorService {
 
-  /// A missing signature settles as "never landed" only once the settled
-  /// block height is this far past the transaction's `lastValidBlockHeight`. A
+  /// A missing signature settles as "never landed" only once the finalized
+  /// block height is this far past the transaction's `lastValidBlockHeight`,
+  /// and the node that answered nil has itself reached the cover slot below. A
   /// history-searching nil is still one node's view. A false verdict makes the
   /// caller re-sign and re-execute instructions that may have landed — so the
-  /// gate is chain progress, which is monotonic and immune to poll scheduling,
-  /// rather than a count of correlated polls. The depth, 32 blocks, began as
-  /// TowerBFT's finalization depth: by then every block that could contain the
-  /// transaction was rooted, so a node still answering nil had searched settled
-  /// history. Under Alpenglow, live on every public cluster since October 2026,
-  /// a block is final as soon as it is confirmed, so the depth buys no finality
-  /// and is kept as margin for the backend lag below; faster finality is no
-  /// reason to trim it. The settled-history argument binds the height reading
-  /// to the nil, which is
-  /// why each pass reads both from the same balanced client. The pairing is
-  /// best-effort, though: one client is one URL, and a provider may balance
-  /// that URL across backends of differing lag — the buffer, not the co-located
-  /// read, is what carries the argument, so it must not be trimmed on the
-  /// strength of the pairing. The margin is denominated in blocks while the lag
-  /// it covers is wall-clock, so SIMD-0525 halved it: a nil is wrong only when
-  /// the backend answering the status read has not replayed through the last
-  /// block that could hold the transaction, the one after the hash's last
+  /// gates are chain progress, which is monotonic and immune to poll
+  /// scheduling, rather than a count of correlated polls. The depth, 32 blocks,
+  /// began as TowerBFT's finalization depth: by then every block that could
+  /// contain the transaction was rooted, so a node still answering nil had
+  /// searched settled history. Under Alpenglow, live on every public cluster
+  /// since October 2026, a block is final as soon as it is confirmed, so the
+  /// depth buys no finality and is kept as margin for the backend lag below;
+  /// faster finality is no reason to trim it. One client is one URL, and a
+  /// provider may balance that URL across backends of differing lag, so the
+  /// height that opens this gate and the nil can come from two nodes. The
+  /// cover slot check binds the two on a server whose answer says how far it
+  /// has finalized; on one whose answer does not (see [#coverSlots]) this
+  /// buffer is the only margin, so it must not be trimmed on the strength of
+  /// the check. The margin is denominated in blocks while the lag it covers is
+  /// wall-clock, so SIMD-0525 halved it: without the check a nil is wrong only
+  /// when the backend answering the status read has not replayed through the
+  /// last block that could hold the transaction, the one after the hash's last
   /// valid height, while the one answering the height is at least 32 blocks
   /// past that height, a lag of at least 32 blocks between the two: about
   /// 6.4 s at 200 ms slots, 12.8 s before. Raising the depth is a decision for
   /// measured lag between a provider's backends; nothing here derives it from
   /// a slot time.
   ///
-  /// If the settled height stalls — a cluster halt — pending futures wait
+  /// If the finalized height stalls — a cluster halt — pending futures wait
   /// rather than settle: the transaction's fate is unknowable mid-halt, and a
   /// false "never landed" would re-execute it after the restart; the gate
   /// opens within this many blocks of the chain resuming. Callers needing a
   /// bounded wait can `orTimeout` the returned future.
   private static final BigInteger SETTLE_BUFFER_BLOCKS = BigInteger.valueOf(32);
 
-  /// Both reads of one pass, answered by a single balanced client.
-  record ExpirationPoll(BigInteger confirmedBlockHeight, List<TxStatus> sigStatusList) {
+  /// For each pending transaction whose height gate has opened, the cover slot: the finalized
+  /// slot of the first read that opened it. That read's block height is past every block
+  /// that could hold the transaction, and one `getEpochInfo` answer takes its slot and its
+  /// height from one bank, so every such block is at or below this slot on the finalized
+  /// chain. A nil settles only when the status answer's own context slot has reached it: the
+  /// node that answered has then finalized through every block the transaction could be in.
+  /// Until then the nil is the answer of a node that is behind, and the pass waits.
+  ///
+  /// What the context slot is depends on the server, and the read asks for the strongest it
+  /// has: finalized commitment with a history search. agave 4.5 answers that with the root its
+  /// transaction history is complete through, the lower of the finalized root and the highest
+  /// rooted slot whose status writes are done, and hides everything above it, the hits of its
+  /// recent status cache included (agave #15418). So against 4.5 this check is not optional:
+  /// without it a node whose history trails answers nil for a transaction its cache holds, a
+  /// restarted one with context slot 0. agave 4.4 answers with its finalized bank's slot.
+  /// agave before 4.4 and Surfpool ignore the commitment and answer with their processed tip,
+  /// which the check can only hold to having passed the cover slot; the buffer above is what
+  /// covers those. An answer with no context at all leaves nothing to compare and settles on
+  /// the height gate alone, as every answer did until 2026-11-11: no agave node sends one,
+  /// and waiting on a field that never comes would never end.
+  ///
+  /// The slot is recorded once and never moved: 4.5's history root trails the finalized slot
+  /// by design, so a nil compared against each pass's own fresh slot could wait for good on a
+  /// node whose history is seconds behind and long past the transaction. Recorded once, it
+  /// is passed for good as soon as that node's history reaches it. It is a slot, compared
+  /// with slots only: a slot is never derived from a block height or the reverse, since a
+  /// skipped slot holds no block.
+  ///
+  /// The check is evidence of progress, not of a complete history. Once a landing has left
+  /// the node's recent status cache, which keeps its 300 newest roots, a nil rests on the
+  /// node's stored history, and a node restored from a snapshot, or one that lost queued
+  /// status writes in a crash, can report a slot past a hole in it. The gate opens at most
+  /// 119 blocks before the earliest landing leaves that cache and at most 269 before the
+  /// latest does, fewer by however many blocks the block height of the node's own root is
+  /// ahead of the finalized block height read here; at 200 ms a slot with none skipped, 119
+  /// and 269 blocks are about 24 s and 54 s. So it takes such a node and a nil that settles
+  /// only after the landing has left its cache, which three things can bring about: a first
+  /// open-gate read held up that long; a backend answering the height that far behind the
+  /// one answering the statuses, which needs no delay here at all; or a verdict this check
+  /// itself held that long because the answering node was behind. The cover slot says how
+  /// far a node has finalized, not how long ago the gate opened, so an answer that reaches
+  /// it late, from a node restarted on a newer snapshot or from another backend behind the
+  /// same URL, can come from stored history; reading the slot afresh each pass would close
+  /// none of it. The wait a held verdict spends counts toward that window; it does not
+  /// protect against the hole. The first two are older than the check, and all three are
+  /// the same on 4.4 as on 4.5 and are not closed here.
+  ///
+  /// Keyed like the pending map, by the context's ordering (block height, then signature),
+  /// so that a waiter that takes a pending entry over keeps the entry's cover slot. Read and
+  /// written by the monitor thread alone, and pruned against the whole pending map, not the
+  /// batch, at the end of each pass, so an entry leaves with its transaction however that
+  /// settled. Package-private for the tests that assert the pruning.
+  final TreeMap<TxContext, Long> coverSlots = new TreeMap<>();
+
+  /// One pass's reads, answered by a single balanced client: the finalized bank's slot and
+  /// block height, from one `getEpochInfo` answer, and the statuses.
+  record ExpirationPoll(long finalizedSlot, BigInteger finalizedBlockHeight, List<TxStatus> sigStatusList) {
   }
 
   TxExpirationMonitorService(final ChainItemFormatter formatter,
@@ -139,8 +198,8 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
     final var earliestGate = minGate;
 
     final var poll = rpcCaller.courteousGet(
-        rpcClient -> rpcClient.getBlockHeight(Settlement.COMMITMENT).thenCompose(blockHeight -> {
-          final var confirmedBlockHeight = SafeMath.toUnsignedBigInteger(blockHeight.height());
+        rpcClient -> rpcClient.getEpochInfo(Settlement.COMMITMENT).thenCompose(epochInfo -> {
+          final var finalizedBlockHeight = SafeMath.toUnsignedBigInteger(epochInfo.blockHeight());
           // Searching transaction history is the expensive path, and a
           // closed-gate read is inert: its nil cannot settle anything below,
           // and a found status settles through completeFutures regardless of
@@ -148,29 +207,64 @@ class TxExpirationMonitorService extends BaseTxMonitorService {
           // cache's edge, the landing is simply observed a pass later, once
           // an open gate has turned the search on — never a wrong verdict.
           final boolean searchTransactionHistory = earliestGate != null
-              && earliestGate.compareTo(confirmedBlockHeight) <= 0;
-          return rpcClient.getSigStatusList(signatures, searchTransactionHistory)
-              .thenApply(sigStatusList -> new ExpirationPoll(confirmedBlockHeight, statusesFor(signatures, sigStatusList)));
+              && earliestGate.compareTo(finalizedBlockHeight) <= 0;
+          // Read at the settled commitment whether or not a gate is open: every block that
+          // could hold a transaction handed to this stage is finalized on a node that has
+          // caught up, so nothing a processed read would add is a landing.
+          return rpcClient.getSigStatusList(Settlement.COMMITMENT, signatures, searchTransactionHistory)
+              .thenApply(sigStatusList -> new ExpirationPoll(
+                  epochInfo.absoluteSlot(), finalizedBlockHeight, statusesFor(signatures, sigStatusList)
+              ));
         }),
         2, // two requests served by the one client
-        "rpcClient::getBlockHeightAndSigStatusList"
+        "rpcClient::getEpochInfoAndSigStatusList"
     );
 
     final var sigStatusList = poll.sigStatusList();
     completeFutures(contextMap, signatures, sigStatusList);
 
-    final var confirmedBlockHeight = poll.confirmedBlockHeight();
+    final var finalizedBlockHeight = poll.finalizedBlockHeight();
+    final long finalizedSlot = poll.finalizedSlot();
     final int numSignatures = signatures.size();
     for (int i = 0; i < numSignatures; ++i) {
-      if (sigStatusList.get(i).nil()) {
+      final var sigStatus = sigStatusList.get(i);
+      if (sigStatus.nil()) {
         final var txContext = contextMap.get(signatures.get(i));
         // This transaction's gate being open implies the earliest gate was
-        // open, so the nil above came from a history-searching read by the
-        // same node whose height opened the gate.
-        if (txContext.bigBlockHeight().add(SETTLE_BUFFER_BLOCKS).compareTo(confirmedBlockHeight) <= 0) {
-          completeFuture(txContext);
+        // open, so the nil above came from a history-searching read.
+        if (txContext.bigBlockHeight().add(SETTLE_BUFFER_BLOCKS).compareTo(finalizedBlockHeight) <= 0) {
+          final var recorded = coverSlots.putIfAbsent(txContext, finalizedSlot);
+          final var context = sigStatus.context();
+          if (reached(context, recorded == null ? finalizedSlot : recorded)) {
+            completeFuture(txContext);
+          } else if (recorded == null) {
+            // Once per pending entry, on the pass that records its cover slot: a node that
+            // stays behind holds the verdict for as long as it does, and its answers are
+            // successes, so nothing else would say why the caller is still waiting. The slot
+            // is what the answer reported, whatever that server means by it (see coverSlots).
+            logger.log(INFO, String.format("""
+                    Expiry verdict held: the node that answered no status reported slot %s, short of the cover slot %s.
+                     * sig: %s
+                    """,
+                Long.toUnsignedString(context.slot()),
+                Long.toUnsignedString(finalizedSlot),
+                txContext.sig()
+            ));
+          }
         }
       }
     }
+    // Last, so that whatever this pass settled, found or expired, takes its cover slot with
+    // it, while an entry a stricter waiter took over meanwhile is still pending under the
+    // same key and keeps the slot.
+    coverSlots.keySet().retainAll(pendingTransactions.keySet());
+  }
+
+  /// Whether the node that answered with `context` had reached `coverSlot`, both slots,
+  /// compared unsigned. An answer with no context has nothing to compare and counts as
+  /// having reached it (see [#coverSlots]); a context of slot 0 is a slot like any other,
+  /// the one a restarted agave 4.5 node reports, and has not.
+  private static boolean reached(final Context context, final long coverSlot) {
+    return context == null || Long.compareUnsigned(context.slot(), coverSlot) >= 0;
   }
 }

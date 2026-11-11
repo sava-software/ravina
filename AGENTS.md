@@ -589,6 +589,54 @@ them, because the list is the argument for the effort.
   defaults, mirroring the defaults sava's builders adopted the same day, and
   move with them. The expiration monitor's 32-block settle buffer is margin
   for backend lag, not finality depth: faster finality is no reason to trim it.
+- **A missing status is "never landed" only from a node that reports having finalized past the transaction; where a server does not report it, only behind the 32-block buffer.**
+  `TxExpirationMonitorService` settles a nil as expired when two gates hold, each in its own
+  unit. Heights: the finalized block height has reached the transaction's last valid block
+  height plus the 32-block buffer. Slots: the status answer's own context slot has reached the
+  cover slot, the finalized slot read with the height that first opened the gate. Both come from
+  one `getEpochInfo` answer, which agave builds from one bank, so every block that could hold
+  the transaction is at or below the cover slot, and an answer that has reached it comes from a
+  node that has finalized through all of them; until then the nil is a lagging node's and the
+  pass waits. Never derive a slot from a height or compare one with the other: a skipped slot
+  holds no block. The cover slot is recorded once per pending entry and never moved, because
+  agave 4.5's history root trails the finalized slot by design and a nil held to each pass's
+  fresh slot could wait for good. The status read is at finalized commitment with a history
+  search, the one shape agave 4.5 answers with the root its history is complete through (the
+  lower of the finalized root and the highest rooted slot whose status writes are done,
+  agave #15418) and for which it hides everything above that root, recent status cache hits
+  included. So the commitment and the check go together: the read without the check is worse on
+  4.5 than the processed read it replaced, since a node whose history trails answers nil for a
+  transaction its cache holds, a restarted one with context slot 0. Do not add `minContextSlot`
+  to it: a node behind it answers -32016, which fails the read inside `courteousGet`, so the
+  peer is marked failed on a balancer the sends may share, and with one peer, or every peer
+  behind, the read is retried without bound and holds every transaction of the pass. The price
+  is that a peer that stays behind is polled again, not failed over from, and holds the verdict
+  for as long as it does; the pass that records a cover slot logs once, at INFO, when the answer
+  is short of it. What the check can say depends on the server: agave 4.4
+  reports its finalized bank's slot; agave before 4.4 and Surfpool ignore the commitment and
+  report their processed tip, which is why the buffer stays; an answer with no context settles
+  on the height gate alone. It is evidence of progress, not of a complete history: once a
+  landing has left the node's recent status cache, which keeps its 300 newest roots, a nil rests
+  on stored history, and a node restored from a snapshot or one that lost queued status writes
+  in a crash can report a slot past a hole in it. The gate opens at most 119 blocks before the
+  earliest landing leaves that cache and at most 269 before the latest does, fewer by however
+  many blocks the block height of the node's own root is ahead of the finalized block height
+  ravina read; at 200 ms a slot with none skipped, 119 and 269 blocks are about 24 s and 54 s.
+  So it takes such a node and a nil that settles only after the landing has left its cache,
+  which three things can bring about: a first open-gate read held up that long; a backend
+  answering the height that far behind the one answering the statuses, which needs no delay in
+  ravina; or a verdict the check itself held that long because the answering node was behind.
+  The cover slot says how far a node has finalized, not how long ago the gate opened, so an
+  answer that reaches it late, from a node restarted on a newer snapshot or from another backend
+  behind the same URL, can come from stored history; reading the slot afresh each pass would
+  close none of it. The wait a held verdict spends counts toward that window and does not
+  protect against the hole. That is so on 4.4 as on 4.5, and is not closed. A consumer that
+  settles
+  `landable()` attempts itself owes the same read (`PublicationException.landableUntil`).
+  Measured 2026-11-11 against the public mainnet, testnet and devnet
+  endpoints, all on 4.4.0: the commitment is honoured, the context slot is the finalized slot,
+  and unknown fields are ignored. What 4.5 does is read from source at `v4.5.0-beta.0`, not
+  measured.
 - **`TxMonitorConfig`'s durations are budgets inside the block hash window, not rate limits.**
   A block hash is valid for 150 blocks whatever the slot time: SIMD-0525 kept the block hash
   queue its size and accepted that the window shrinks in wall-clock terms, so at 200 ms slots

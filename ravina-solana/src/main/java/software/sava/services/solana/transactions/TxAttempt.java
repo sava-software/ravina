@@ -24,8 +24,8 @@ public record TxAttempt(String sig, long lastValidBlockHeight, Status status, Se
     /// cluster refused it in preflight.
     SETTLED,
     /// Verified: the block hash expired and a history-searching status read behind the
-    /// expiration monitor's settle buffer still found nothing, so it cannot land, barring a
-    /// status backend that lags the height backend by that buffer or more.
+    /// expiration monitor's settle buffer still found nothing, so it cannot land, barring the
+    /// two cases [TxMonitorService#queueResult] names.
     EXPIRED,
     /// No status was found and, with `verifyExpired` false, no expiry was verified: it may
     /// still land until its block hash expires.

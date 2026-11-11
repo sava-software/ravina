@@ -5,6 +5,8 @@ import software.sava.idl.clients.core.math.SafeMath;
 import software.sava.rpc.json.http.client.SolanaRpcClient;
 import software.sava.rpc.json.http.request.Commitment;
 import software.sava.rpc.json.http.response.BlockHeight;
+import software.sava.rpc.json.http.response.Context;
+import software.sava.rpc.json.http.response.EpochInfo;
 import software.sava.rpc.json.http.response.TransactionError;
 import software.sava.rpc.json.http.response.TxStatus;
 import software.sava.services.core.remote.call.Backoff;
@@ -140,22 +142,35 @@ final class BaseTxMonitorServiceTests {
 
     long blockHeight;
     int blockHeightCalls;
+    /// The commitment each `getBlockHeight` read named.
+    final List<Commitment> blockHeightCommitments = new ArrayList<>();
+    /// The slot `getEpochInfo` answers beside `blockHeight`, as one bank's pair. Far from any
+    /// block height a test scripts, so that a slot read where a height belongs, or the
+    /// reverse, changes an outcome.
+    long finalizedSlot = 400_000_000L;
+    /// The commitment each `getEpochInfo` read named; its size is the number of reads.
+    final List<Commitment> epochInfoCommitments = new ArrayList<>();
     URI endpoint = URI.create("http://fake.rpc.invalid/");
 
     final List<List<String>> sigStatusRequests = new ArrayList<>();
     final List<Boolean> searchTransactionHistoryFlags = new ArrayList<>();
+    /// The commitment each status read named, null for a read that named none, which a
+    /// server answers at processed.
+    final List<Commitment> sigStatusCommitments = new ArrayList<>();
+    /// The `minContextSlot` each status read sent, null for none.
+    final List<BigInteger> sigStatusMinContextSlots = new ArrayList<>();
 
     Function<List<String>, List<TxStatus>> sigStatuses = signatures -> {
       throw new IllegalStateException("unexpected getSigStatusList for " + signatures);
     };
     /// A read that fails inside its future is retried for good by the courteous call, so a
     /// mutant that fails every read would hang every polling test; past this many reads of
-    /// either kind the fake throws synchronously, which escapes the retry and fails the test
-    /// instead. Both kinds are bounded because the expiration monitor reads statuses inside
-    /// the block height read's `thenCompose`, where a synchronous throw is only a failed
-    /// future, while the block height read itself is called outside any callback. No test
-    /// reads more than a few hundred times; a retry-forever mutant gets here in about a
-    /// second at the balanced item's 1 ms backoff.
+    /// any kind the fake throws synchronously, which escapes the retry and fails the test
+    /// instead. Every kind is bounded because the expiration monitor reads statuses inside
+    /// its epoch info read's `thenCompose`, where a synchronous throw is only a failed
+    /// future, while the epoch info and block height reads themselves are called outside any
+    /// callback. No test reads more than a few hundred times; a retry-forever mutant gets
+    /// here in about a second at the balanced item's 1 ms backoff.
     int maxReads = 1_000;
 
     @Override
@@ -164,6 +179,11 @@ final class BaseTxMonitorServiceTests {
       final var name = method.getName();
       switch (name) {
         case "getBlockHeight" -> {
+          // Only the overload that names its commitment, as for the epoch info read below.
+          if (args == null || args.length != 1 || !(args[0] instanceof Commitment commitment)) {
+            throw new UnsupportedOperationException(method.toString());
+          }
+          blockHeightCommitments.add(commitment);
           if (++blockHeightCalls > maxReads) {
             throw new IllegalStateException(
                 "more than " + maxReads + " block height reads: a read that keeps failing is being retried for good"
@@ -171,15 +191,35 @@ final class BaseTxMonitorServiceTests {
           }
           return CompletableFuture.completedFuture(new BlockHeight(blockHeight));
         }
+        case "getEpochInfo" -> {
+          // Only the overload that names its commitment: a read at the client's default is
+          // an unscripted method, like any other the monitors are not meant to call.
+          if (args == null || args.length != 1 || !(args[0] instanceof Commitment commitment)) {
+            throw new UnsupportedOperationException(method.toString());
+          }
+          epochInfoCommitments.add(commitment);
+          if (epochInfoCommitments.size() > maxReads) {
+            throw new IllegalStateException(
+                "more than " + maxReads + " epoch info reads: a read that keeps failing is being retried for good"
+            );
+          }
+          return CompletableFuture.completedFuture(new EpochInfo(finalizedSlot, blockHeight, 0, 0, 0, 0));
+        }
         case "getSigStatusList" -> {
-          final var signatures = List.copyOf((SequencedCollection<String>) args[0]);
+          // Two families of overloads: the signatures first, read at the server's processed
+          // default, or a commitment first, then the signatures. Told apart by the declared
+          // parameter, not the argument, so that a null commitment is recorded as one.
+          final int first = method.getParameterTypes()[0] == Commitment.class ? 1 : 0;
+          final var signatures = List.copyOf((SequencedCollection<String>) args[first]);
           sigStatusRequests.add(signatures);
           if (sigStatusRequests.size() > maxReads) {
             throw new IllegalStateException(
                 "more than " + maxReads + " status reads: a read that keeps failing is being retried for good"
             );
           }
-          searchTransactionHistoryFlags.add(args.length > 1 && (Boolean) args[1]);
+          sigStatusCommitments.add(first == 1 ? (Commitment) args[0] : null);
+          searchTransactionHistoryFlags.add(args.length > first + 1 && (Boolean) args[first + 1]);
+          sigStatusMinContextSlots.add(args.length > first + 2 ? (BigInteger) args[first + 2] : null);
           return CompletableFuture.completedFuture(sigStatuses.apply(signatures));
         }
         case "endpoint" -> {
@@ -233,20 +273,30 @@ final class BaseTxMonitorServiceTests {
   }
 
   static BalancedItem<SolanaRpcClient> balancedItem(final FakeRpcClient handler) {
+    return balancedItem((SolanaRpcClient) Proxy.newProxyInstance(
+        SolanaRpcClient.class.getClassLoader(),
+        new Class<?>[]{SolanaRpcClient.class},
+        handler
+    ));
+  }
+
+  static BalancedItem<SolanaRpcClient> balancedItem(final SolanaRpcClient client) {
     final var second = Duration.ofSeconds(1);
     // Capacity generous enough that no test ever waits on the token bucket.
     final var config = new CapacityConfig(0, 100_000, second, 8, second, second, second, second);
     final var monitor = config.createMonitor("test", NoopTracker::new);
-    final var client = (SolanaRpcClient) Proxy.newProxyInstance(
-        SolanaRpcClient.class.getClassLoader(),
-        new Class<?>[]{SolanaRpcClient.class},
-        handler
-    );
     return BalancedItem.createItem(client, monitor, Backoff.single(MILLISECONDS, 1));
   }
 
   static RpcCaller rpcCaller(final FakeRpcClient handler) {
     final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(balancedItem(handler));
+    return new RpcCaller(null, balancer, null);
+  }
+
+  /// A caller over a client that is not the fake: sava's own, over a scripted transport, for
+  /// the tests that need its request and response handling.
+  static RpcCaller rpcCaller(final SolanaRpcClient client) {
+    final LoadBalancer<SolanaRpcClient> balancer = LoadBalancer.createBalancer(balancedItem(client));
     return new RpcCaller(null, balancer, null);
   }
 
@@ -334,6 +384,25 @@ final class BaseTxMonitorServiceTests {
   }
 
   static final TxStatus NIL_STATUS = new TxStatus(null, 0, OptionalInt.empty(), null, null);
+
+  /// The nil of an answer whose context slot is `contextSlot`: what a node that does not know
+  /// the signature sends, with the slot its answer was read at.
+  static TxStatus nilAt(final long contextSlot) {
+    return new TxStatus(new Context(contextSlot, null), 0, OptionalInt.empty(), null, null);
+  }
+
+  /// A found status of an answer whose context slot is `contextSlot`.
+  static TxStatus statusAt(final Commitment commitment, final long contextSlot) {
+    return new TxStatus(new Context(contextSlot, null), 1, OptionalInt.empty(), null, commitment);
+  }
+
+  /// The value a future settled with, for an assertion on it. A bare `join()` on a future
+  /// the code under test was meant to complete waits for good when it did not, so a mutant
+  /// that drops the completion would be a timeout where it should be a failure.
+  static <T> T settledValue(final CompletableFuture<T> future) {
+    assertTrue(future.isDone(), "the future is still pending");
+    return future.join();
+  }
 
   static Map<String, TxContext> contextMap(final TxContext... contexts) {
     final var map = new LinkedHashMap<String, TxContext>();
@@ -983,6 +1052,7 @@ final class BaseTxMonitorServiceTests {
 
     assertEquals(BigInteger.valueOf(1_000_000), service.confirmedBlockHeight());
     assertEquals(1, rpcClient.blockHeightCalls);
+    assertEquals(List.of(FINALIZED), rpcClient.blockHeightCommitments, "settled state is read at finalized, by name");
   }
 
   @Test

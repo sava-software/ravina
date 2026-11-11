@@ -12,8 +12,8 @@ import java.util.List;
 ///
 /// With `verifyExpired` true the last attempt is `EXPIRED`: its block hash expired and a
 /// history-searching status read behind the settle buffer still found nothing, and every earlier
-/// attempt of the call passed the same gate, so [#mayStillLand()] is false, barring a status
-/// backend that lags the height backend by that buffer or more. A retry is then safe, though not
+/// attempt of the call passed the same gate, so [#mayStillLand()] is false, barring the two cases
+/// [TxMonitorService#queueResult] names. A retry is then safe, though not
 /// necessarily useful. With it false the call stopped at the first missing status, the last
 /// attempt is `MISSING`, and every attempt of the call whose status was only missing may still
 /// land and is in [#landable()]: rebuild only instructions that are idempotent or deduplicated

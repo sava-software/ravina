@@ -150,12 +150,13 @@ the prior run's population exactly.
   quiet-run protocol retires it.
 - `TxExpirationMonitorService.lambda$processTransactions$1` `EQUAL_IF` and
   `NullReturnValsMutator` — **expected quiet since 2026-10-30**: the test
-  `FakeRpcClient` throws synchronously past a bound of reads of either kind,
+  `FakeRpcClient` throws synchronously past a bound of reads of any kind,
   which escapes the courteous call's retry and fails the test, so a poisoned
   read is now killed by count rather than detected by the watchdog; the
   members stay until the quiet-run protocol retires them. Their argument:
-  both poison the composed height-then-statuses
-  poll (the `EQUAL_IF` deletes the `earliestGate != null` empty-batch guard,
+  both poison the composed poll, epoch info then statuses since 2026-11-11
+  and block height then statuses before
+  (the `EQUAL_IF` deletes the `earliestGate != null` empty-batch guard,
   NPE-ing the gate comparison; the `NullReturnValsMutator` nulls the lambda's
   future, NPE-ing `thenCompose`), and a failing courteous call is retried
   forever, so the poison is only observable as a timeout.

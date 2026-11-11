@@ -14,7 +14,8 @@ import java.util.List;
 /// instructions. The call cannot tell whether what it sent landed, so it does not rebuild, and
 /// [#mayStillLand()] is always true: a caller does not rebuild either until the settled block
 /// height has passed [#landableUntil()] by the expiration monitor's settle buffer and a
-/// history-searching status read of [#landable()] says what landed. [#reason()] is
+/// history-searching status read of [#landable()], made as [#landableUntil()] describes,
+/// says what landed. [#reason()] is
 /// [Reason#OTHER].
 public final class OutcomeUnknownException extends PublicationException {
 

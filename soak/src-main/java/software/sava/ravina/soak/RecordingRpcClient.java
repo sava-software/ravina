@@ -40,6 +40,20 @@ final class RecordingRpcClient implements InvocationHandler {
     );
   }
 
+  /// The number of signatures a `getSigStatusList` call asks about: the first collection
+  /// among its arguments, which comes first in the overloads read at the server's default
+  /// commitment and second in the ones that name a commitment.
+  static int signatureCount(final Object[] args) {
+    if (args != null) {
+      for (final var arg : args) {
+        if (arg instanceof Collection<?> signatures) {
+          return signatures.size();
+        }
+      }
+    }
+    return 0;
+  }
+
   @Override
   public Object invoke(final Object proxy, final Method method, final Object[] args) throws Throwable {
     if (method.getDeclaringClass() == Object.class) {
@@ -57,9 +71,7 @@ final class RecordingRpcClient implements InvocationHandler {
     final var name = method.getName();
     event.peer = peer;
     event.method = name;
-    event.batch = name.equals("getSigStatusList") && args != null && args[0] instanceof Collection<?> signatures
-        ? signatures.size()
-        : 0;
+    event.batch = name.equals("getSigStatusList") ? signatureCount(args) : 0;
     final long startedAt = System.nanoTime();
     event.begin();
     counters.inFlightRpc.increment();

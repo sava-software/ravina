@@ -25,7 +25,9 @@ import java.util.List;
 /// still land until the settled block height passes [#landableUntil()], so a caller must not
 /// rebuild its instructions on this exception while `mayStillLand()` is true. Read the
 /// statuses with `getSignatureStatuses`, searching history, once the settled height is past
-/// that, or treat the instructions as possibly executed. [#reason()] is
+/// that by the expiration monitor's settle buffer, as [#landableUntil()] describes (a missing
+/// status from a node that is behind says nothing), or treat the instructions as possibly
+/// executed. [#reason()] is
 /// [Reason#MONITOR_STOPPED]: the service refuses every later call, so a retry belongs to a new
 /// process.
 public final class TxMonitorStoppedException extends PublicationException {
