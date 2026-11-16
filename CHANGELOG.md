@@ -1,5 +1,13 @@
 # Changelog
 
+## [25.9.4](https://github.com/sava-software/ravina/compare/25.9.3...25.9.4) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump solanaBOMVersion to 25.30.63 ([3decdb5](https://github.com/sava-software/ravina/commit/3decdb5a81df1b54eecaed3d15cad49d957397a5))
+* **deps:** bump solanaBOMVersion to 25.30.64 ([d4e9cb6](https://github.com/sava-software/ravina/commit/d4e9cb6a921deba8ee0d6b55a8f25ef9d54e98a2))
+
 ## [25.9.3](https://github.com/sava-software/ravina/compare/25.9.2...25.9.3) (2026-11-11)
 
 
